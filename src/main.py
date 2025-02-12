@@ -15,11 +15,17 @@ class LinuxCopilot:
         # Initialize hotkey listener
         self.hotkey_listener = HotkeyListener(self.ui.show_popup)
     
-    def process_query(self, query: str):
-        """Process user query and simulate typing the response."""
-        response = self.llm_handler.get_response(query)
-        if response:
-            pyautogui.write(response)
+    def process_query(self, query: str) -> str:
+        """Process query and return response. If query starts with '!', it's a response to be typed."""
+        if query.startswith('!'):
+            # This is a response to be typed
+            response = query[1:]  # Remove the ! prefix
+            pyautogui.write(response, interval=0.01)
+            return response
+        else:
+            # This is a query to be processed
+            response = self.llm_handler.get_response(query)
+            return response if response else "Error: Failed to get response"
     
     def run(self):
         """Start the application."""
