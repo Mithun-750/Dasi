@@ -91,7 +91,7 @@ class CopilotUI:
         header = ctk.CTkFrame(frame, corner_radius=12)
         header.pack(padx=2, pady=2, fill="x")
 
-        title = ctk.CTkLabel(header, text="Linux Copilot",
+        title = ctk.CTkLabel(header, text="Dasi",
                              font=("Arial", 14, "bold"))
         title.pack(side="left", padx=10, pady=5)
 
@@ -103,13 +103,13 @@ class CopilotUI:
         input_frame.pack(padx=10, pady=(5, 10), fill="both", expand=True)
 
         # Create input field
-        self.input_field = ctk.CTkEntry(
-            input_frame, placeholder_text="Type your query...")
+        self.input_field = ctk.CTkTextbox(input_frame)
         self.input_field.pack(fill="both", expand=True, padx=5, pady=5)
 
         # Bind events
         self.input_field.bind('<Return>', lambda e: self._handle_submit(popup))
         self.input_field.bind('<Escape>', lambda e: self._close_popup(popup))
+        self.input_field.bind('<Shift-Return>', lambda e: self._insert_newline())
         popup.bind('<FocusIn>', lambda e: self._ensure_input_focus(popup))
         popup.bind('<Button-1>', lambda e: self._ensure_input_focus(popup))
 
@@ -150,19 +150,20 @@ class CopilotUI:
 
     def _handle_submit(self, popup):
         """Handle submit button click."""
-        query = self.input_field.get()
+        query = self.input_field.get("1.0", "end-1c")
         if query.strip():
             self._close_popup(popup)  # Close window before processing
             self.process_query(query)
+
+    def _insert_newline(self):
+        """Insert a newline character into the textbox."""
+        self.input_field.insert('end', '\n')
+        return 'break'  # Prevent default newline insertion
 
     def _close_popup(self, popup):
         """Safely close the popup window."""
         popup.grab_release()
         popup.destroy()
-
-    def _ensure_input_focus(self, popup):
-        """Ensure input field has focus."""
-        self.input_field.focus_set()
 
     def _ensure_input_focus(self, popup):
         """Ensure input field has focus."""
