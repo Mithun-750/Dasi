@@ -1,6 +1,6 @@
 import pyautogui
 from hotkey_listener import HotkeyListener
-from ui import CopilotUI
+from ui.ui import CopilotUI
 from llm_handler import LLMHandler
 
 class LinuxCopilot:
