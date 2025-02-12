@@ -1,0 +1,42 @@
+# .windsurfrules
+
+[Project]
+Name = Dasi
+Version = 1.0
+Description = "Dasi is a Linux copilot that provides inline LLM support using LangChain and the Gemini Google API. It activates on a global hotkey, opens a custom popup window near the cursor, processes natural language queries, and simulates typing the response into the focused window."
+
+[Architecture]
+Modules = ["main.py", "hotkey_listener.py", "ui.py", "llm_handler.py"]
+Dependencies = ["pyautogui", "pynput", "customtkinter",
+"langchain_google_genai", "python-dotenv", "windsurf"]
+Integration = "LangChain integration with Gemini Google API using API keys from the environment."
+
+[Functionality]
+GlobalHotkey = "Ctrl+Alt+Shift+I"
+CursorDetection = "Uses pyautogui to capture the current cursor position at activation."
+PopupWindow = "Displays a modern, borderless input window (built with customtkinter) near the cursor with a slight offset to avoid obscuring the pointer."
+QueryProcessing = "User enters a query in the popup, which is sent to the LLM via LangChain. The LLM returns a concise response."
+SimulatedTyping = "The response is simulated as keystrokes (using pyautogui.write) into the currently focused window."
+
+[UI]
+Theme = "Dark (customtkinter)"
+Font = "Helvetica, 12pt"
+
+[ErrorHandling]
+Strategy = "Graceful error logging to console, and fallback behavior if LLM queries fail."
+Details = "If an error occurs during API calls or keystroke simulation, the popup closes and an error message is logged without disrupting the hotkey listener."
+
+[Deployment]
+TargetOS = "Pop!\_OS 22.04 LTS (GNOME desktop)"
+Requirements = "Python 3.8+, required libraries installed via pip, and a valid GOOGLE_API_KEY in a .env file."
+
+[Development]
+Modularity = "The project is organized into distinct modules for hotkey listening, UI management, and LLM handling."
+FutureEnhancements = ["Refine UI styling and responsiveness", "Improve multi-monitor support",
+"Add additional LLM integrations", "Enhance error handling and logging mechanisms"]
+
+[Notes]
+
+- "Dasi" is built to streamline Linux workflows by enabling natural language queries directly within your current context.
+- The design emphasizes ease-of-use, unobtrusive interface, and tight integration with existing applications.
+- This prototype serves as a foundation for a more comprehensive assistant tool.
