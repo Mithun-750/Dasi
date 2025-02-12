@@ -1,195 +1,321 @@
-import customtkinter as ctk
-from typing import Callable, Tuple
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTextEdit,
+                             QFrame, QLabel, QPushButton, QHBoxLayout, QProgressBar)
+from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, QObject
+from PyQt6.QtGui import QFont
+from typing import Callable, Optional, Tuple
+import sys
+
+
+class UISignals(QObject):
+    """Signals for UI operations."""
+    show_window = pyqtSignal(int, int)  # x, y coordinates
+    process_response = pyqtSignal(str)  # Response text
+    process_error = pyqtSignal(str)  # Error message
+
+
+class QueryWorker(QThread):
+    """Worker thread for processing queries."""
+    def __init__(self, process_fn: Callable[[str], str], query: str, signals: UISignals):
+        super().__init__()
+        self.process_fn = process_fn
+        self.query = query
+        self.signals = signals
+    
+    def run(self):
+        """Process the query and emit result."""
+        try:
+            result = self.process_fn(self.query)
+            if result:
+                self.signals.process_response.emit(result)
+            else:
+                self.signals.process_error.emit("No response received")
+        except Exception as e:
+            self.signals.process_error.emit(str(e))
+        finally:
+            self.quit()
+
+
+class DasiWindow(QWidget):
+    """Main popup window for Dasi."""
+    def __init__(self, process_query: Callable[[str], str], signals: UISignals):
+        super().__init__()
+        self.process_query = process_query
+        self.signals = signals
+        self.old_pos = None
+        self.worker = None
+        
+        # Window flags
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        
+        self.setup_ui()
+        
+    def setup_ui(self):
+        """Set up the UI components."""
+        # Main layout
+        layout = QVBoxLayout()
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(0)
+        
+        # Main frame with border radius
+        self.main_frame = QFrame()
+        self.main_frame.setObjectName("mainFrame")
+        frame_layout = QVBoxLayout()
+        frame_layout.setContentsMargins(0, 0, 0, 0)
+        frame_layout.setSpacing(0)
+        
+        # Header with title and drag support
+        header = QFrame()
+        header.setObjectName("header")
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(10, 5, 10, 5)
+        title = QLabel("Dasi")
+        title.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        header_layout.addWidget(title)
+        header.setLayout(header_layout)
+        
+        # Input area
+        self.input_field = QTextEdit()
+        self.input_field.setPlaceholderText("Type your query...")
+        self.input_field.setFixedHeight(80)
+        
+        # Loading progress bar (hidden by default)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(2)
+        self.progress_bar.hide()
+        
+        # Response preview (hidden by default)
+        self.response_preview = QTextEdit()
+        self.response_preview.setReadOnly(True)
+        self.response_preview.setFixedHeight(100)
+        self.response_preview.hide()
+        
+        # Action buttons (hidden by default)
+        self.action_frame = QFrame()
+        action_layout = QHBoxLayout()
+        action_layout.setContentsMargins(5, 0, 5, 5)
+        
+        self.accept_button = QPushButton("Accept")
+        self.accept_button.clicked.connect(self._handle_accept)
+        self.reject_button = QPushButton("Reject")
+        self.reject_button.clicked.connect(self._handle_reject)
+        
+        action_layout.addWidget(self.accept_button)
+        action_layout.addWidget(self.reject_button)
+        self.action_frame.setLayout(action_layout)
+        self.action_frame.hide()
+        
+        # Add widgets to layout
+        frame_layout.addWidget(header)
+        frame_layout.addWidget(self.input_field)
+        frame_layout.addWidget(self.progress_bar)
+        frame_layout.addWidget(self.response_preview)
+        frame_layout.addWidget(self.action_frame)
+        
+        self.main_frame.setLayout(frame_layout)
+        layout.addWidget(self.main_frame)
+        self.setLayout(layout)
+        
+        # Set up styling
+        self.setStyleSheet("""
+            QWidget {
+                background: transparent;
+                color: #ffffff;
+            }
+            #mainFrame {
+                background-color: #2b2b2b;
+                border-radius: 10px;
+                border: 1px solid #3f3f3f;
+            }
+            #header {
+                background-color: #363636;
+                border-top-left-radius: 10px;
+                border-top-right-radius: 10px;
+                padding: 5px;
+            }
+            QTextEdit {
+                background-color: #363636;
+                border: none;
+                border-radius: 5px;
+                padding: 5px;
+                selection-background-color: #4a4a4a;
+                font-size: 12px;
+                margin: 5px;
+            }
+            QPushButton {
+                background-color: #4a4a4a;
+                border: none;
+                border-radius: 3px;
+                padding: 5px 15px;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: #5a5a5a;
+            }
+            QProgressBar {
+                border: none;
+                background-color: #363636;
+            }
+            QProgressBar::chunk {
+                background-color: #4a9eff;
+            }
+        """)
+        
+        # Set up key bindings
+        self.input_field.installEventFilter(self)
+    
+    def eventFilter(self, obj, event) -> bool:
+        """Handle key events."""
+        from PyQt6.QtCore import QEvent
+        if obj is self.input_field and event.type() == QEvent.Type.KeyPress:
+            # The event is already a QKeyEvent when it comes from Qt
+            key_event = event
+            
+            # Handle Return key (submit)
+            if key_event.key() == Qt.Key.Key_Return and not key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                self._handle_submit()
+                return True
+            
+            # Handle Escape key (close)
+            if key_event.key() == Qt.Key.Key_Escape:
+                self.close()
+                return True
+            
+            # Handle Shift+Return (newline)
+            if key_event.key() == Qt.Key.Key_Return and key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                return False  # Let Qt handle it normally
+        
+        return super().eventFilter(obj, event)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press for dragging."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.old_pos = event.globalPosition().toPoint()
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move for dragging."""
+        if self.old_pos is not None:
+            delta = event.globalPosition().toPoint() - self.old_pos
+            self.move(self.pos() + delta)
+            self.old_pos = event.globalPosition().toPoint()
+    
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release for dragging."""
+        self.old_pos = None
+    
+    def _handle_submit(self):
+        """Handle submit action."""
+        query = self.input_field.toPlainText().strip()
+        if query:
+            # Show loading state
+            self.input_field.setEnabled(False)
+            self.progress_bar.setRange(0, 0)  # Indeterminate progress
+            self.progress_bar.show()
+            
+            # Process query in background
+            self.worker = QueryWorker(self.process_query, query, self.signals)
+            self.worker.start()
+            
+    def _handle_error(self, error_msg: str):
+        """Handle query error."""
+        # Hide loading state
+        self.progress_bar.hide()
+        self.input_field.setEnabled(True)
+        
+        # Show error in preview
+        self.response_preview.setText(f"Error: {error_msg}")
+        self.response_preview.show()
+        
+        # Show reject button only
+        self.action_frame.show()
+        self.accept_button.hide()
+        
+        # Adjust window size
+        self.setFixedHeight(250)
+    
+    def _handle_response(self, response: str):
+        """Handle query response (runs in main thread)."""
+        # Hide loading state
+        self.progress_bar.hide()
+        self.input_field.setEnabled(True)
+        
+        # Show response preview
+        self.response_preview.setText(response)
+        self.response_preview.show()
+        
+        # Show action buttons
+        self.action_frame.show()
+        self.accept_button.show()
+        
+        # Adjust window size
+        self.setFixedHeight(250)
+    
+    def _handle_accept(self):
+        """Accept the generated response."""
+        response = self.response_preview.toPlainText()
+        if response:
+            self.close()
+            # Add prefix to indicate this is a response to be typed
+            self.process_query("!" + response)
+    
+    def _handle_reject(self):
+        """Reject the generated response."""
+        # Hide response preview and buttons
+        self.response_preview.hide()
+        self.action_frame.hide()
+        
+        # Reset window size
+        self.setFixedHeight(180)
+        
+        # Focus input field
+        self.input_field.setFocus()
 
 
 class CopilotUI:
-    def __init__(self, process_query: Callable[[str], None]):
+    def __init__(self, process_query: Callable[[str], str]):
         """Initialize UI with a callback for processing queries."""
         self.process_query = process_query
-
-        # Configure theme
-        ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
-
-        # Create root window (hidden)
-        self.root = ctk.CTk()
-        self.root.withdraw()
-
-        # Window dimensions
-        self.WINDOW_WIDTH = 320
-        self.WINDOW_HEIGHT = 180
-        self.SCREEN_PADDING = 20
-
-        # Create a temporary window to measure window manager offsets
-        temp = ctk.CTkToplevel(self.root)
-        temp.geometry(f"{self.WINDOW_WIDTH}x{self.WINDOW_HEIGHT}+100+100")
-        temp.update_idletasks()
-        self.offset_x = temp.winfo_x() - 100
-        self.offset_y = temp.winfo_y() - 100
-        temp.destroy()
-
-    def _adjust_position(self, x: int, y: int) -> Tuple[int, int]:
-        """Adjust window position to ensure it stays within screen boundaries."""
-
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-
-        # Add slight offset to avoid cursor overlap
-        x += 10
-        y += 10
-
-        # Ensure window stays within screen bounds
-        if x + self.WINDOW_WIDTH > screen_width - self.SCREEN_PADDING:
-            x = screen_width - self.WINDOW_WIDTH - self.SCREEN_PADDING
-        if y + self.WINDOW_HEIGHT > screen_height - self.SCREEN_PADDING:
-            y = screen_height - self.WINDOW_HEIGHT - self.SCREEN_PADDING
-
-        # Prevent negative positions
-        x = max(self.SCREEN_PADDING, x)
-        y = max(self.SCREEN_PADDING, y)
-
-        return x, y
-
-    def show_popup(self, x: int, y: int):
-        """Show popup window at specified coordinates."""
-
-        # Adjust position for screen boundaries
-        x, y = self._adjust_position(x, y)
-
-        # Calculate window position (centered on cursor)
-        final_x = x - self.WINDOW_WIDTH // 2
-        final_y = y + 20  # Show slightly below cursor
-
-        # Create popup window (hidden)
-        popup = ctk.CTkToplevel(self.root)
-        popup.withdraw()
-
-        # Configure window
-        popup.title("")
-        popup.attributes('-topmost', True)
-
-        # Use splash window type instead of overrideredirect on Linux
-        try:
-            popup.wm_attributes('-type', 'splash')
-        except:
-            # Fallback to overrideredirect on other platforms
-            popup.overrideredirect(True)
-
-        # Ensure window can receive focus
-        popup.focus_force()
-        popup.grab_set()
-
-        # Set initial geometry
-        popup.wm_geometry(
-            f"{self.WINDOW_WIDTH}x{self.WINDOW_HEIGHT}+{final_x}+{final_y}")
-
-        # Create main frame with shadow effect
-        frame = ctk.CTkFrame(popup, corner_radius=12)
-        frame.pack(padx=2, pady=2, fill="both", expand=True)
-
-        # Create header with drag functionality
-        header = ctk.CTkFrame(frame, corner_radius=12)
-        header.pack(padx=2, pady=2, fill="x")
-
-        title = ctk.CTkLabel(header, text="Dasi",
-                             font=("Arial", 14, "bold"))
-        title.pack(side="left", padx=10, pady=5)
-
-        # Make window draggable by header
-        self._make_draggable(popup, header)
-
-        # Create input frame
-        input_frame = ctk.CTkFrame(frame)
-        input_frame.pack(padx=10, pady=(5, 10), fill="both", expand=True)
-
-        # Create input field
-        self.input_field = ctk.CTkTextbox(input_frame)
-        self.input_field.pack(fill="both", expand=True, padx=5, pady=5)
-
-        # Bind events
-        self.input_field.bind('<Return>', lambda e: self._handle_submit(popup))
-        self.input_field.bind('<Escape>', lambda e: self._close_popup(popup))
-        self.input_field.bind('<Shift-Return>', lambda e: self._insert_newline())
-        popup.bind('<FocusIn>', lambda e: self._ensure_input_focus(popup))
-        popup.bind('<Button-1>', lambda e: self._ensure_input_focus(popup))
-
-        # Update window
-        popup.update_idletasks()
-
-        # Force position using wm_geometry
-        popup.wm_geometry(
-            f"{self.WINDOW_WIDTH}x{self.WINDOW_HEIGHT}+{final_x}+{final_y}")
-
-        # Show window with a small delay
-        self.root.after(10, lambda: self._show_popup_with_position(
-            popup, final_x, final_y))
-
-        return popup
-
-    def _show_popup_with_position(self, popup, x, y):
-        """Helper to show popup and ensure correct position."""
+        
+        # Create QApplication in the main thread
+        if not QApplication.instance():
+            self.app = QApplication(sys.argv)
+        else:
+            self.app = QApplication.instance()
+        
+        # Create signals object
+        self.signals = UISignals()
+        
+        # Create window in main thread
+        self.window = DasiWindow(self.process_query, self.signals)
+        self.window.setFixedSize(320, 180)
+        self.window.hide()
+        
+        # Connect signals
+        self.signals.show_window.connect(self._show_window)
+        self.signals.process_response.connect(self.window._handle_response)
+        self.signals.process_error.connect(self.window._handle_error)
+    
+    def _show_window(self, x: int, y: int):
+        """Show window at specified coordinates (runs in main thread)."""
+        # Position window near cursor
+        screen = self.app.primaryScreen().geometry()
+        x = min(max(x, 0), screen.width() - self.window.width())
+        y = min(max(y, 0), screen.height() - self.window.height())
+        
         # Show window
-        popup.deiconify()
-        popup.lift()
-
-        # Force position again after showing
-        popup.wm_geometry(f"{self.WINDOW_WIDTH}x{self.WINDOW_HEIGHT}+{x}+{y}")
-        popup.update_idletasks()
-
-        # Verify position
-        actual_x = popup.winfo_x()
-        actual_y = popup.winfo_y()
-
-        if actual_x != x or actual_y != y:
-            popup.wm_geometry(
-                f"{self.WINDOW_WIDTH}x{self.WINDOW_HEIGHT}+{x}+{y}")
-            popup.update()
-
-        # Focus the input field
-        self.input_field.focus_force()
-
-    def _handle_submit(self, popup):
-        """Handle submit button click."""
-        query = self.input_field.get("1.0", "end-1c")
-        if query.strip():
-            self._close_popup(popup)  # Close window before processing
-            self.process_query(query)
-
-    def _insert_newline(self):
-        """Insert a newline character into the textbox."""
-        self.input_field.insert('end', '\n')
-        return 'break'  # Prevent default newline insertion
-
-    def _close_popup(self, popup):
-        """Safely close the popup window."""
-        popup.grab_release()
-        popup.destroy()
-
-    def _ensure_input_focus(self, popup):
-        """Ensure input field has focus."""
-        self.input_field.focus_set()
-
-    def _make_draggable(self, window, widget):
-        """Make a window draggable by clicking and dragging on a widget."""
-        def start_drag(event):
-            self._drag_data = {'x': event.x, 'y': event.y}
-
-        def stop_drag(event):
-            self._drag_data = {}
-
-        def do_drag(event):
-            if hasattr(self, '_drag_data'):
-                # Calculate new position
-                dx = event.x - self._drag_data['x']
-                dy = event.y - self._drag_data['y']
-                x = window.winfo_x() + dx
-                y = window.winfo_y() + dy
-                window.geometry(f"+{x}+{y}")
-
-        widget.bind('<Button-1>', start_drag)
-        widget.bind('<ButtonRelease-1>', stop_drag)
-        widget.bind('<B1-Motion>', do_drag)
-
+        self.window.move(x, y)
+        self.window.show()
+        self.window.activateWindow()
+        self.window.raise_()
+        self.window.input_field.setFocus()
+        self.window.input_field.clear()
+    
+    def show_popup(self, x: int, y: int):
+        """Emit signal to show popup window."""
+        self.signals.show_window.emit(x, y)
+    
     def run(self):
         """Start the UI event loop."""
-        self.root.mainloop()
+        self.app.exec()
