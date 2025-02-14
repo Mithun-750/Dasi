@@ -241,8 +241,23 @@ def check_api_key():
         logging.error(f"Error checking API key: {str(e)}", exc_info=True)
         return False
 
+def is_already_running():
+    """Check if another instance is already running."""
+    import socket
+    try:
+        # Try to create a socket with a unique name
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        # Use abstract namespace by prepending \0
+        sock.bind('\0dasi_lock')
+        return False
+    except socket.error:
+        return True
+
 if __name__ == "__main__":
     try:
+        if is_already_running():
+            print("Another instance of Dasi is already running.")
+            sys.exit(1)
         # Check if API key exists
         if not check_api_key():
             # Launch settings window if no API key
