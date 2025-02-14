@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTextEdit,
                              QFrame, QLabel, QPushButton, QHBoxLayout, QProgressBar)
 from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, QObject
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QClipboard
 from typing import Callable, Optional, Tuple
 import sys
 
@@ -37,6 +37,16 @@ class QueryWorker(QThread):
 
 
 class DasiWindow(QWidget):
+    def set_context(self, text: str):
+        """Set the context text and update UI."""
+        self.context_text = text
+        if text:
+            self.context_label.setText(f"Selected Text: {text[:100]}..." if len(text) > 100 else f"Selected Text: {text}")
+            self.context_label.show()
+        else:
+            self.context_label.hide()
+            self.context_text = None
+
     """Main popup window for Dasi."""
 
     def __init__(self, process_query: Callable[[str], str], signals: UISignals):
@@ -45,6 +55,7 @@ class DasiWindow(QWidget):
         self.signals = signals
         self.old_pos = None
         self.worker = None
+        self.context_text = None  # Store selected text context
 
         # Window flags
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint |
@@ -88,6 +99,13 @@ class DasiWindow(QWidget):
         left_layout = QVBoxLayout()
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(5)
+
+        # Context label (hidden by default)
+        self.context_label = QLabel()
+        self.context_label.setObjectName("contextLabel")
+        self.context_label.setWordWrap(True)
+        self.context_label.hide()
+        left_layout.addWidget(self.context_label)
 
         self.input_field = QTextEdit()
         self.input_field.setPlaceholderText("Type your query...")
@@ -197,6 +215,13 @@ class DasiWindow(QWidget):
             QProgressBar::chunk {
                 background-color: #4a9eff;
             }
+            #contextLabel {
+                color: #888888;
+                font-size: 11px;
+                padding: 2px 5px;
+                background-color: #323232;
+                border-radius: 3px;
+            }
         """)
 
         # Set up key bindings
@@ -250,8 +275,14 @@ class DasiWindow(QWidget):
             self.progress_bar.setRange(0, 0)  # Indeterminate progress
             self.progress_bar.show()
 
+            # Add context to query if available
+            if self.context_text:
+                full_query = f"Selected Text Context:\n{self.context_text}\n\nQuery:\n{query}"
+            else:
+                full_query = query
+
             # Process query in background
-            self.worker = QueryWorker(self.process_query, query, self.signals)
+            self.worker = QueryWorker(self.process_query, full_query, self.signals)
             self.worker.start()
 
     def _handle_error(self, error_msg: str):
@@ -315,6 +346,36 @@ class DasiWindow(QWidget):
 
 
 class CopilotUI:
+    def _show_window(self, x: int, y: int):
+        """Show window at specified coordinates (runs in main thread)."""
+        try:
+            # Get selected text from clipboard
+            clipboard = QApplication.clipboard()
+            selected_text = clipboard.text(QClipboard.Mode.Selection)
+            
+            # Clear previous context and input
+            self.window.set_context(None)
+            self.window.input_field.clear()
+            
+            # If there's selected text, add it to the window's context
+            if selected_text and selected_text.strip():
+                self.window.set_context(selected_text.strip())
+            
+            # Position window near cursor with screen bounds check
+            screen = self.app.primaryScreen().geometry()
+            x = min(max(x + 10, 0), screen.width() - self.window.width())
+            y = min(max(y + 10, 0), screen.height() - self.window.height())
+            
+            # Show and activate window
+            self.window.move(x, y)
+            self.window.show()
+            self.window.activateWindow()
+            self.window.raise_()
+            self.window.input_field.setFocus()
+            
+        except Exception as e:
+            logging.error(f"Error showing window: {str(e)}", exc_info=True)
+
     def __init__(self, process_query: Callable[[str], str]):
         """Initialize UI with a callback for processing queries."""
         self.process_query = process_query
@@ -337,21 +398,6 @@ class CopilotUI:
         self.signals.show_window.connect(self._show_window)
         self.signals.process_response.connect(self.window._handle_response)
         self.signals.process_error.connect(self.window._handle_error)
-
-    def _show_window(self, x: int, y: int):
-        """Show window at specified coordinates (runs in main thread)."""
-        # Position window near cursor
-        screen = self.app.primaryScreen().geometry()
-        x = min(max(x, 0), screen.width() - self.window.width())
-        y = min(max(y, 0), screen.height() - self.window.height())
-
-        # Show window
-        self.window.move(x, y)
-        self.window.show()
-        self.window.activateWindow()
-        self.window.raise_()
-        self.window.input_field.setFocus()
-        self.window.input_field.clear()
 
     def show_popup(self, x: int, y: int):
         """Emit signal to show popup window."""
