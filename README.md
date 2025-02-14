@@ -1,6 +1,6 @@
-# Linux Copilot
+# Dasi
 
-A simple Linux copilot tool that provides AI assistance through a global hotkey popup interface.
+A simple desktop copilot tool that provides AI assistance through a global hotkey popup interface.
 
 ## Features
 
@@ -12,14 +12,17 @@ A simple Linux copilot tool that provides AI assistance through a global hotkey 
 ## Setup
 
 1. Install dependencies:
+
    ```bash
    pip install -r requirements.txt
    ```
 
 2. Create a `.env` file in the project root with your Google API key:
+
    ```
    GOOGLE_API_KEY=your_api_key_here
    ```
+
    Get your API key from: https://ai.google.dev/gemini-api/docs/api-key
 
 3. Run the application:
@@ -33,8 +36,8 @@ A simple Linux copilot tool that provides AI assistance through a global hotkey 
 2. Type your query and press Enter
 3. The AI response will be typed at your current cursor position
 
-## Requirements
+## Developed and tested on
 
-- Pop!_OS 22.04 LTS or compatible Linux distribution
+- Pop!\_OS 22.04 LTS (GNOME desktop)
 - Python 3.8+
 - X11 display server

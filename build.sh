@@ -20,7 +20,7 @@ cat > ~/.local/share/applications/dasi.desktop << EOL
 [Desktop Entry]
 Version=1.0
 Name=Dasi
-Comment=Linux Copilot with LLM Support
+Comment=Desktop Copilot with LLM Support
 Exec=${PWD}/dist/dasi/dasi
 Icon=${PWD}/src/assets/Dasi.png
 Terminal=false
