@@ -49,7 +49,8 @@ class DasiWindow(QWidget):
         """Set the selected text and update UI."""
         self.selected_text = text
         if text:
-            self.context_label.setText(f"Selected Text: {text[:100]}..." if len(text) > 100 else f"Selected Text: {text}")
+            self.context_label.setText(f"Selected Text: {text[:100]}..." if len(
+                text) > 100 else f"Selected Text: {text}")
             self.context_label.show()
             self.ignore_button.show()
         else:
@@ -116,47 +117,58 @@ class DasiWindow(QWidget):
         context_frame = QFrame()
         context_frame.setObjectName("contextFrame")
         context_layout = QVBoxLayout()
-        context_layout.setContentsMargins(5, 5, 5, 5)
+        context_layout.setContentsMargins(2, 2, 2, 2)
         context_layout.setSpacing(0)
         context_frame.setLayout(context_layout)
-        
-        # Create a container with horizontal layout for label and button
+
+        # Create container for the context area
         container = QWidget()
-        container_layout = QHBoxLayout()
-        container_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.setSpacing(4)  # Small gap between label and button
-        container.setLayout(container_layout)
-        
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(5, 5, 5, 5)
+        container_layout.setSpacing(0)
+
         # Add context label
-        self.context_label = QLabel()
+        self.context_label = QLabel(container)
         self.context_label.setObjectName("contextLabel")
         self.context_label.setWordWrap(True)
         self.context_label.hide()
-        
-        # Add ignore button
-        self.ignore_button = QPushButton("×")
+
+        # Add ignore button as child of context label
+        self.ignore_button = QPushButton("×", self.context_label)
         self.ignore_button.setObjectName("ignoreButton")
         self.ignore_button.setFixedSize(16, 16)
         self.ignore_button.clicked.connect(self.reset_context)
         self.ignore_button.hide()
-        
-        # Add widgets to container layout
+
+        # Add label to container layout
         container_layout.addWidget(self.context_label)
-        container_layout.addWidget(self.ignore_button, 0, Qt.AlignmentFlag.AlignTop)
-        
+
         context_layout.addWidget(container)
         left_layout.addWidget(context_frame)
-        
+
         # Override show/hide to handle button visibility and position
         def show_context():
-            # Show both widgets
+            # Show the label first
             super(type(self.context_label), self.context_label).show()
+
+            # Wait for label to be properly sized
+            QApplication.processEvents()
+
+            # Position button in top-right corner of label
+            margin = 3
+            self.ignore_button.move(
+                self.context_label.width() - self.ignore_button.width() - margin,
+                margin
+            )
+
+            # Show and raise button
             self.ignore_button.show()
-        
+            self.ignore_button.raise_()
+
         def hide_context():
             super(type(self.context_label), self.context_label).hide()
             self.ignore_button.hide()
-        
+
         self.context_label.show = show_context
         self.context_label.hide = hide_context
 
@@ -248,10 +260,9 @@ class DasiWindow(QWidget):
             #contextLabel {
                 color: #888888;
                 font-size: 11px;
-                padding: 4px 8px;
+                padding: 8px;
                 background-color: #323232;
                 border-radius: 3px;
-                margin-right: 4px;
             }
             #ignoreButton {
                 background-color: #464646;
@@ -261,7 +272,9 @@ class DasiWindow(QWidget):
                 font-size: 10px;
                 font-weight: bold;
                 padding: 0px;
-                margin: 0px;
+                margin: 4px;
+                min-width: 16px;
+                max-width: 16px;
             }
             #ignoreButton:hover {
                 background-color: #565656;
@@ -360,11 +373,11 @@ class DasiWindow(QWidget):
 
             # Build context dictionary
             context = {}
-            
+
             # Add selected text if available
             if self.selected_text:
                 context['selected_text'] = self.selected_text
-            
+
             # Add last response if available
             if self.last_response:
                 context['last_response'] = self.last_response
@@ -384,7 +397,8 @@ class DasiWindow(QWidget):
             self.input_field.clear()
 
             # Process query in background
-            self.worker = QueryWorker(self.process_query, full_query, self.signals)
+            self.worker = QueryWorker(
+                self.process_query, full_query, self.signals)
             self.worker.start()
 
     def _handle_error(self, error_msg: str):
@@ -465,27 +479,27 @@ class CopilotUI:
             # First reset all context and input
             self.window.reset_context()
             self.window.input_field.clear()
-            
+
             # Get selected text from clipboard
             clipboard = QApplication.clipboard()
             selected_text = clipboard.text(QClipboard.Mode.Selection)
-            
+
             # Only set selected text if there's new text selected
             if selected_text and selected_text.strip():
                 self.window.set_selected_text(selected_text.strip())
-            
+
             # Position window near cursor with screen bounds check
             screen = self.app.primaryScreen().geometry()
             x = min(max(x + 10, 0), screen.width() - self.window.width())
             y = min(max(y + 10, 0), screen.height() - self.window.height())
-            
+
             # Show and activate window
             self.window.move(x, y)
             self.window.show()
             self.window.activateWindow()
             self.window.raise_()
             self.window.input_field.setFocus()
-            
+
         except Exception as e:
             logging.error(f"Error showing window: {str(e)}", exc_info=True)
 
