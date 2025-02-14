@@ -2,17 +2,16 @@ import os
 from typing import Optional
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from dotenv import load_dotenv
+from ui.settings_window import Settings
 
 
 class LLMHandler:
     def __init__(self):
         """Initialize LLM handler with Gemini model."""
-        load_dotenv()
-        api_key = os.getenv("GOOGLE_API_KEY")
+        settings = Settings()
+        api_key = settings.get('google_api_key')
         if not api_key:
-            raise ValueError(
-                "GOOGLE_API_KEY not found in environment variables")
+            raise ValueError("Google API key not found in settings")
 
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-1.5-pro",

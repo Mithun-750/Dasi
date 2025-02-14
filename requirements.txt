@@ -4,3 +4,4 @@ pynput>=1.7.6  # Global hotkey support
 pyautogui>=0.9.54  # Cursor position and typing simulation
 PyQt6>=6.8.1  # Modern UI framework
 python-dotenv>=1.0.0  # Environment variable management
+pyqtdarktheme>=0.1.7  # Modern dark theme for PyQt6

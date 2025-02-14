@@ -1,7 +1,11 @@
+import os
+import sys
 import pyautogui
 from hotkey_listener import HotkeyListener
 from ui.ui import CopilotUI
 from llm_handler import LLMHandler
+from ui.settings_window import Settings
+from PyQt6.QtWidgets import QApplication
 
 class LinuxCopilot:
     def __init__(self):
@@ -33,6 +37,21 @@ class LinuxCopilot:
         self.hotkey_listener.start()
         self.ui.run()
 
+def check_api_key():
+    """Check if API key exists in settings."""
+    settings = Settings()
+    return bool(settings.get('google_api_key'))
+
 if __name__ == "__main__":
-    app = LinuxCopilot()
-    app.run()
+    # Check if API key exists
+    if not check_api_key():
+        # Launch settings window if no API key
+        app = QApplication(sys.argv)
+        from ui.settings_window import SettingsWindow
+        window = SettingsWindow()
+        window.show()
+        sys.exit(app.exec())
+    else:
+        # Launch main application
+        app = LinuxCopilot()
+        app.run()
