@@ -178,7 +178,7 @@ class Dasi:
             self.tray.showMessage(
                 "Dasi",
                 "Dasi is running. Press Ctrl+Alt+Shift+I to activate.",
-                QIcon(icon_path) if icon_path else None,
+                QSystemTrayIcon.MessageIcon.Information,
                 3000  # Show for 3 seconds
             )
 
