@@ -37,15 +37,25 @@ class QueryWorker(QThread):
 
 
 class DasiWindow(QWidget):
-    def set_context(self, text: str):
-        """Set the context text and update UI."""
-        self.context_text = text
+    def reset_context(self):
+        """Reset all context including selected text and last response."""
+        self.selected_text = None
+        self.last_response = None
+        self.conversation_context = {}
+        self.context_label.hide()
+        self.ignore_button.hide()
+
+    def set_selected_text(self, text: str):
+        """Set the selected text and update UI."""
+        self.selected_text = text
         if text:
             self.context_label.setText(f"Selected Text: {text[:100]}..." if len(text) > 100 else f"Selected Text: {text}")
             self.context_label.show()
+            self.ignore_button.show()
         else:
             self.context_label.hide()
-            self.context_text = None
+            self.ignore_button.hide()
+            self.selected_text = None
 
     """Main popup window for Dasi."""
 
@@ -55,7 +65,9 @@ class DasiWindow(QWidget):
         self.signals = signals
         self.old_pos = None
         self.worker = None
-        self.context_text = None  # Store selected text context
+        self.selected_text = None  # Store selected text
+        self.last_response = None  # Store last response
+        self.conversation_context = {}  # Store conversation context
 
         # Window flags
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint |
@@ -100,12 +112,53 @@ class DasiWindow(QWidget):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(5)
 
-        # Context label (hidden by default)
+        # Context area with label and ignore button
+        context_frame = QFrame()
+        context_frame.setObjectName("contextFrame")
+        context_layout = QVBoxLayout()
+        context_layout.setContentsMargins(5, 5, 5, 5)
+        context_layout.setSpacing(0)
+        context_frame.setLayout(context_layout)
+        
+        # Create a container with horizontal layout for label and button
+        container = QWidget()
+        container_layout = QHBoxLayout()
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(4)  # Small gap between label and button
+        container.setLayout(container_layout)
+        
+        # Add context label
         self.context_label = QLabel()
         self.context_label.setObjectName("contextLabel")
         self.context_label.setWordWrap(True)
         self.context_label.hide()
-        left_layout.addWidget(self.context_label)
+        
+        # Add ignore button
+        self.ignore_button = QPushButton("×")
+        self.ignore_button.setObjectName("ignoreButton")
+        self.ignore_button.setFixedSize(16, 16)
+        self.ignore_button.clicked.connect(self.reset_context)
+        self.ignore_button.hide()
+        
+        # Add widgets to container layout
+        container_layout.addWidget(self.context_label)
+        container_layout.addWidget(self.ignore_button, 0, Qt.AlignmentFlag.AlignTop)
+        
+        context_layout.addWidget(container)
+        left_layout.addWidget(context_frame)
+        
+        # Override show/hide to handle button visibility and position
+        def show_context():
+            # Show both widgets
+            super(type(self.context_label), self.context_label).show()
+            self.ignore_button.show()
+        
+        def hide_context():
+            super(type(self.context_label), self.context_label).hide()
+            self.ignore_button.hide()
+        
+        self.context_label.show = show_context
+        self.context_label.hide = hide_context
 
         self.input_field = QTextEdit()
         self.input_field.setPlaceholderText("Type your query...")
@@ -189,6 +242,31 @@ class DasiWindow(QWidget):
                 border-radius: 5px;
                 padding: 5px;
             }
+            #contextFrame {
+                background: transparent;
+            }
+            #contextLabel {
+                color: #888888;
+                font-size: 11px;
+                padding: 4px 8px;
+                background-color: #323232;
+                border-radius: 3px;
+                margin-right: 4px;
+            }
+            #ignoreButton {
+                background-color: #464646;
+                color: #999999;
+                border: none;
+                border-radius: 8px;
+                font-size: 10px;
+                font-weight: bold;
+                padding: 0px;
+                margin: 0px;
+            }
+            #ignoreButton:hover {
+                background-color: #565656;
+                color: #ffffff;
+            }
             QTextEdit {
                 background-color: #363636;
                 border: none;
@@ -241,7 +319,12 @@ class DasiWindow(QWidget):
 
             # Handle Escape key (close)
             if key_event.key() == Qt.Key.Key_Escape:
-                self.close()
+                self.hide()
+                self.input_field.clear()
+                self.reset_context()
+                # Clear clipboard selection
+                clipboard = QApplication.clipboard()
+                clipboard.clear(QClipboard.Mode.Selection)
                 return True
 
             # Handle Shift+Return (newline)
@@ -275,11 +358,30 @@ class DasiWindow(QWidget):
             self.progress_bar.setRange(0, 0)  # Indeterminate progress
             self.progress_bar.show()
 
-            # Add context to query if available
-            if self.context_text:
-                full_query = f"Selected Text Context:\n{self.context_text}\n\nQuery:\n{query}"
+            # Build context dictionary
+            context = {}
+            
+            # Add selected text if available
+            if self.selected_text:
+                context['selected_text'] = self.selected_text
+            
+            # Add last response if available
+            if self.last_response:
+                context['last_response'] = self.last_response
+
+            # Format query with context
+            if context:
+                full_query = "Context:\n"
+                if 'selected_text' in context:
+                    full_query += f"Selected Text:\n{context['selected_text']}\n\n"
+                if 'last_response' in context:
+                    full_query += f"Last Response:\n{context['last_response']}\n\n"
+                full_query += f"Query:\n{query}"
             else:
                 full_query = query
+
+            # Clear input field for next query
+            self.input_field.clear()
 
             # Process query in background
             self.worker = QueryWorker(self.process_query, full_query, self.signals)
@@ -308,6 +410,9 @@ class DasiWindow(QWidget):
         self.progress_bar.hide()
         self.input_field.setEnabled(True)
 
+        # Store the response
+        self.last_response = response
+
         # Show response preview
         self.response_preview.setText(response)
         self.response_preview.show()
@@ -324,7 +429,12 @@ class DasiWindow(QWidget):
         """Accept the generated response."""
         response = self.response_preview.toPlainText()
         if response:
-            self.close()
+            self.hide()
+            self.input_field.clear()
+            self.reset_context()
+            # Clear clipboard selection
+            clipboard = QApplication.clipboard()
+            clipboard.clear(QClipboard.Mode.Selection)
         self.right_panel.hide()
 
         # Reset window size
@@ -341,6 +451,9 @@ class DasiWindow(QWidget):
         # Reset window size
         self.setFixedWidth(320)
 
+        # Reset context
+        self.reset_context()
+
         # Focus input field
         self.input_field.setFocus()
 
@@ -349,17 +462,17 @@ class CopilotUI:
     def _show_window(self, x: int, y: int):
         """Show window at specified coordinates (runs in main thread)."""
         try:
+            # First reset all context and input
+            self.window.reset_context()
+            self.window.input_field.clear()
+            
             # Get selected text from clipboard
             clipboard = QApplication.clipboard()
             selected_text = clipboard.text(QClipboard.Mode.Selection)
             
-            # Clear previous context and input
-            self.window.set_context(None)
-            self.window.input_field.clear()
-            
-            # If there's selected text, add it to the window's context
+            # Only set selected text if there's new text selected
             if selected_text and selected_text.strip():
-                self.window.set_context(selected_text.strip())
+                self.window.set_selected_text(selected_text.strip())
             
             # Position window near cursor with screen bounds check
             screen = self.app.primaryScreen().geometry()
