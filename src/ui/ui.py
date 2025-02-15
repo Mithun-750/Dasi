@@ -31,7 +31,7 @@ class QueryWorker(QThread):
             def stream_callback(partial_response: str):
                 if not self.is_stopped:
                     self.signals.process_response.emit(partial_response)
-            
+
             result = self.process_fn(self.query, stream_callback)
             if not self.is_stopped and not result:
                 self.signals.process_error.emit("No response received")
@@ -43,7 +43,7 @@ class QueryWorker(QThread):
                 self.signals.process_error.emit(str(e))
         finally:
             self.quit()
-    
+
     def stop(self):
         """Stop the worker cleanly."""
         self.is_stopped = True
@@ -209,24 +209,25 @@ class DasiWindow(QWidget):
         self.action_frame = QFrame()
         self.action_layout = QVBoxLayout()  # Vertical layout for combo box above buttons
         self.action_layout.setContentsMargins(5, 0, 5, 5)
-        
+
         # Create stop button (hidden by default)
         self.stop_button = QPushButton("Stop")
         self.stop_button.setObjectName("stopButton")
         self.stop_button.clicked.connect(self._handle_stop)
         self.stop_button.hide()
-        
+
         # Create insertion method selector
         self.insert_method = QComboBox()
         self.insert_method.setObjectName("insertMethod")
         self.insert_method.addItem("⚡ Copy/Paste", "paste")
         self.insert_method.addItem("⌨ Type Text", "type")
-        self.insert_method.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        
+        self.insert_method.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
         # Create accept/reject buttons
         self.accept_button = QPushButton("Accept")
         self.reject_button = QPushButton("Reject")
-        
+
         # Add stop button to layout but don't show it yet
         self.action_layout.addWidget(self.stop_button)
 
@@ -406,30 +407,44 @@ class DasiWindow(QWidget):
     def eventFilter(self, obj, event) -> bool:
         """Handle key events."""
         from PyQt6.QtCore import QEvent
-        if obj is self.input_field and event.type() == QEvent.Type.KeyPress:
+        if (obj is self.input_field or obj is self.response_preview) and event.type() == QEvent.Type.KeyPress:
             # The event is already a QKeyEvent when it comes from Qt
             key_event = event
 
-            # Handle Return key (submit)
-            if key_event.key() == Qt.Key.Key_Return and not key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            # Handle Return key (submit) - only for input field
+            if obj is self.input_field and key_event.key() == Qt.Key.Key_Return and not key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                 self._handle_submit()
                 return True
 
             # Handle Escape key (close)
             if key_event.key() == Qt.Key.Key_Escape:
-                self.hide()
-                self.input_field.clear()
-                self.reset_context()
-                # Clear clipboard selection
-                clipboard = QApplication.clipboard()
-                clipboard.clear(QClipboard.Mode.Selection)
+                self._handle_escape()
                 return True
 
-            # Handle Shift+Return (newline)
-            if key_event.key() == Qt.Key.Key_Return and key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            # Handle Shift+Return (newline) - only for input field
+            if obj is self.input_field and key_event.key() == Qt.Key.Key_Return and key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                 return False  # Let Qt handle it normally
 
         return super().eventFilter(obj, event)
+
+    def keyPressEvent(self, event):
+        """Handle global key events."""
+        if event.key() == Qt.Key.Key_Escape:
+            self._handle_escape()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def _handle_escape(self):
+        """Handle escape key press."""
+        self.hide()
+        self.input_field.clear()
+        self.reset_context()
+        self.right_panel.hide()
+        self.setFixedWidth(320)
+        # Clear clipboard selection
+        clipboard = QApplication.clipboard()
+        clipboard.clear(QClipboard.Mode.Selection)
 
     def mousePressEvent(self, event):
         """Handle mouse press for dragging."""
@@ -559,16 +574,16 @@ class DasiWindow(QWidget):
             # Clear clipboard selection
             clipboard = QApplication.clipboard()
             clipboard.clear(QClipboard.Mode.Selection)
-            
+
             # Get selected insertion method
             method = self.insert_method.currentData()
-            
+
             # Format query with method and response
             query = f"!{method}:{response}"
-            
+
             # Process the response with selected method
             self.process_query(query)
-            
+
         self.right_panel.hide()
 
         # Reset window size
