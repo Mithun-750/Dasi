@@ -22,12 +22,17 @@ class Settings(QObject):
         # Default settings
         self.settings = {
             'api_keys': {
-                'google': ''
+                'google': '',
+                'openrouter': ''
             },
             'models': {
-                'selected_models': []
+                # List of {id: str, provider: str, name: str}
+                'selected_models': [],
             },
-            'general': {}
+            'general': {
+                'openrouter_site_url': 'https://github.com/mithuns/dasi',
+                'openrouter_site_name': 'Dasi'
+            }
         }
 
         # Load existing settings if they exist
@@ -94,35 +99,44 @@ class Settings(QObject):
         """Set API key for a specific provider."""
         return self.set(key, 'api_keys', provider)
 
-    def get_selected_models(self) -> List[str]:
-        """Get list of selected models."""
-        return self.get('models', 'selected_models', default=[])
+    def get_selected_models(self) -> List[Dict[str, str]]:
+        """Get list of selected models with metadata."""
+        models = self.get('models', 'selected_models', default=[])
+        # Ensure we're returning a list of dictionaries
+        if not models:
+            return []
+        # If we get a list of strings (old format), convert to dictionaries
+        if models and isinstance(models[0], str):
+            return [{'id': model, 'provider': 'google', 'name': model} for model in models]
+        return models
 
-    def set_selected_models(self, models: List[str]) -> bool:
-        """Set list of selected models."""
-        success = self.set(models, 'models', 'selected_models')
-        if success:
-            self.models_changed.emit()  # Emit signal when models change
-        return success
+    def get_selected_model_ids(self) -> List[str]:
+        """Get list of just the model IDs."""
+        return [model['id'] for model in self.get_selected_models()]
 
-    def add_selected_model(self, model: str) -> bool:
+    def add_selected_model(self, model_id: str, provider: str, display_name: str = None) -> bool:
         """Add a model to selected models if not already present."""
         current_models = self.get_selected_models()
-        if model not in current_models:
-            current_models.append(model)
-            success = self.set_selected_models(current_models)
+        if not any(m['id'] == model_id for m in current_models):
+            model_info = {
+                'id': model_id,
+                'provider': provider,
+                'name': display_name or model_id
+            }
+            current_models.append(model_info)
+            success = self.set(current_models, 'models', 'selected_models')
             if success:
-                self.models_changed.emit()  # Emit signal when models change
+                self.models_changed.emit()
             return success
         return True
 
-    def remove_selected_model(self, model: str) -> bool:
+    def remove_selected_model(self, model_id: str) -> bool:
         """Remove a model from selected models."""
         current_models = self.get_selected_models()
-        if model in current_models:
-            current_models.remove(model)
-            success = self.set_selected_models(current_models)
+        filtered_models = [m for m in current_models if m['id'] != model_id]
+        if len(filtered_models) != len(current_models):
+            success = self.set(filtered_models, 'models', 'selected_models')
             if success:
-                self.models_changed.emit()  # Emit signal when models change
+                self.models_changed.emit()
             return success
         return True

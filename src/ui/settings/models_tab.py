@@ -1,4 +1,5 @@
 import requests
+import logging
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -26,15 +27,20 @@ class ModelFetchWorker(QThread):
     finished = pyqtSignal(list)  # Emits list of model names
     error = pyqtSignal(str)      # Emits error message
 
-    def __init__(self, api_key):
+    def __init__(self, settings):
         super().__init__()
-        self.api_key = api_key
+        self.settings = settings
 
-    def run(self):
+    def fetch_google_models(self):
+        """Fetch models from Google AI API."""
+        api_key = self.settings.get_api_key('google')
+        if not api_key:
+            return []
+
         try:
             response = requests.get(
                 'https://generativelanguage.googleapis.com/v1beta/models',
-                params={'key': self.api_key}
+                params={'key': api_key}
             )
             response.raise_for_status()
             models = response.json().get('models', [])
@@ -42,12 +48,69 @@ class ModelFetchWorker(QThread):
             # Filter for models that support text generation
             text_models = []
             for model in models:
-                # Check if model supports text generation
                 if any(method in model.get('supportedGenerationMethods', [])
                        for method in ['generateText', 'generateContent']):
-                    text_models.append(model['name'])
+                    model_info = {
+                        'id': model['name'],
+                        'provider': 'google',
+                        'name': model.get('displayName', model['name'])
+                    }
+                    text_models.append(model_info)
+            return text_models
+        except Exception as e:
+            logging.error(f"Error fetching Google models: {str(e)}")
+            return []
 
-            self.finished.emit(text_models)
+    def fetch_openrouter_models(self):
+        """Fetch models from OpenRouter API."""
+        api_key = self.settings.get_api_key('openrouter')
+        if not api_key:
+            return []
+
+        try:
+            headers = {
+                'Authorization': f'Bearer {api_key}',
+                'Content-Type': 'application/json',
+                'HTTP-Referer': self.settings.get('general', 'openrouter_site_url'),
+                'X-Title': self.settings.get('general', 'openrouter_site_name')
+            }
+
+            response = requests.get(
+                'https://openrouter.ai/api/v1/models',
+                headers=headers
+            )
+            response.raise_for_status()
+            models = response.json().get('data', [])
+
+            # Filter for text-to-text models
+            text_models = []
+            for model in models:
+                if model.get('architecture', {}).get('modality') == 'text->text':
+                    model_info = {
+                        'id': model['id'],
+                        'provider': 'openrouter',
+                        'name': model.get('name', model['id'])
+                    }
+                    text_models.append(model_info)
+            return text_models
+        except Exception as e:
+            logging.error(f"Error fetching OpenRouter models: {str(e)}")
+            return []
+
+    def run(self):
+        try:
+            # Fetch models from both providers
+            google_models = self.fetch_google_models()
+            openrouter_models = self.fetch_openrouter_models()
+
+            # Combine all models
+            all_models = google_models + openrouter_models
+
+            if not all_models:
+                self.error.emit("No models found. Please check your API keys.")
+                return
+
+            self.finished.emit(all_models)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -321,7 +384,7 @@ class ModelsTab(QWidget):
         self.progress_bar.show()
 
         # Start worker thread
-        self.fetch_worker = ModelFetchWorker(api_key)
+        self.fetch_worker = ModelFetchWorker(self.settings)
         self.fetch_worker.finished.connect(self._on_fetch_success)
         self.fetch_worker.error.connect(self._on_fetch_error)
         self.fetch_worker.start()
@@ -330,7 +393,13 @@ class ModelsTab(QWidget):
         """Handle successful model fetch."""
         self.available_models = models
         self.model_dropdown.clear()
-        self.model_dropdown.addItems(self.available_models)
+
+        # Add models to dropdown with provider info
+        for model in models:
+            display_text = f"{model['name']} ({model['provider']})"
+            # Store the full model info in the item data
+            self.model_dropdown.addItem(display_text, model)
+
         self.model_dropdown.setEnabled(True)
         self.progress_bar.hide()
         self.fetch_worker = None
@@ -350,7 +419,7 @@ class ModelsTab(QWidget):
         for model in self.settings.get_selected_models():
             self.add_model_to_list(model)
 
-    def add_model_to_list(self, model_name: str):
+    def add_model_to_list(self, model_info: dict):
         """Add a model to the list widget with a remove button."""
         item = QListWidgetItem()
         self.models_list.addItem(item)
@@ -360,7 +429,8 @@ class ModelsTab(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
 
-        label = QLabel(model_name)
+        # Create label with model name and provider
+        label = QLabel(f"{model_info['name']} ({model_info['provider']})")
         label.setStyleSheet("""
             QLabel {
                 font-size: 13px;
@@ -385,7 +455,7 @@ class ModelsTab(QWidget):
                 background-color: #ff6666;
             }
         """)
-        remove_btn.clicked.connect(lambda: self.remove_model(model_name))
+        remove_btn.clicked.connect(lambda: self.remove_model(model_info['id']))
 
         layout.addWidget(label)
         layout.addStretch()
@@ -401,13 +471,19 @@ class ModelsTab(QWidget):
 
     def add_model(self):
         """Add selected model to the list."""
-        model = self.model_dropdown.currentText()
-        if model and model not in self.settings.get_selected_models():
-            if self.settings.add_selected_model(model):
-                self.add_model_to_list(model)
+        current_index = self.model_dropdown.currentIndex()
+        if current_index >= 0:
+            model_info = self.model_dropdown.itemData(current_index)
+            if model_info and model_info['id'] not in self.settings.get_selected_model_ids():
+                if self.settings.add_selected_model(
+                    model_info['id'],
+                    model_info['provider'],
+                    model_info['name']
+                ):
+                    self.add_model_to_list(model_info)
 
-    def remove_model(self, model_name: str):
+    def remove_model(self, model_id: str):
         """Remove a model from the list."""
-        if self.settings.remove_selected_model(model_name):
+        if self.settings.remove_selected_model(model_id):
             # Refresh the list
             self.load_selected_models()

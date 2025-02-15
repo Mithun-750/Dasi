@@ -6,6 +6,7 @@ from PyQt6.QtGui import QFont, QClipboard
 from typing import Callable, Optional, Tuple
 import sys
 from .settings import Settings
+import logging
 
 
 class UISignals(QObject):
@@ -573,9 +574,14 @@ class DasiWindow(QWidget):
             self.input_field.clear()
 
             # Get selected model
-            model = self.model_selector.currentText()
-            if model == "No models selected":
-                model = None
+            current_index = self.model_selector.currentIndex()
+            model = None
+            if current_index >= 0 and current_index < self.model_selector.count():
+                model_info = self.model_selector.itemData(current_index)
+                if isinstance(model_info, dict) and 'id' in model_info:
+                    model = model_info['id']
+                    logging.info(
+                        f"Selected model: {model_info['name']} (ID: {model})")
 
             # Process query in background
             self.worker = QueryWorker(
@@ -679,7 +685,12 @@ class DasiWindow(QWidget):
             self.model_selector.setEnabled(False)
             return
 
-        self.model_selector.addItems(selected_models)
+        # Add models with their metadata
+        for model in selected_models:
+            display_text = f"{model['name']} ({model['provider']})"
+            # Store the full model info in the item data
+            self.model_selector.addItem(display_text, model)
+
         self.model_selector.setEnabled(True)
 
         # Set the first model as default
@@ -692,8 +703,13 @@ class DasiWindow(QWidget):
         self.update_model_selector()
 
     def get_selected_model(self) -> str:
-        """Get the currently selected model."""
-        return self.model_selector.currentText()
+        """Get the currently selected model ID."""
+        current_index = self.model_selector.currentIndex()
+        if current_index >= 0:
+            model_info = self.model_selector.itemData(current_index)
+            if model_info:
+                return model_info['id']
+        return None
 
 
 class CopilotUI:
