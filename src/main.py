@@ -116,6 +116,33 @@ class Dasi:
 
             self.tray = QSystemTrayIcon()
 
+            # Get the current hotkey settings
+            settings = Settings()
+            hotkey = settings.get('general', 'hotkey', default={
+                'ctrl': True,
+                'alt': True,
+                'shift': True,
+                'super': False,
+                'fn': False,
+                'key': 'I'
+            })
+
+            # Build hotkey display string
+            hotkey_parts = []
+            if hotkey['ctrl']:
+                hotkey_parts.append('Ctrl')
+            if hotkey['alt']:
+                hotkey_parts.append('Alt')
+            if hotkey['shift']:
+                hotkey_parts.append('Shift')
+            if hotkey['super']:
+                hotkey_parts.append('Super')
+            if hotkey['fn']:
+                hotkey_parts.append('Fn')
+            hotkey_parts.append(hotkey['key'])
+
+            hotkey_display = '+'.join(hotkey_parts)
+
             # Get the absolute path to the icon
             if getattr(sys, 'frozen', False):
                 # If we're running as a bundled app
@@ -175,10 +202,10 @@ class Dasi:
             # Show the tray icon
             self.tray.show()
 
-            # Show startup notification
+            # Show startup notification with actual hotkey
             self.tray.showMessage(
                 "Dasi",
-                "Dasi is running. Press Ctrl+Alt+Shift+I to activate.",
+                f"Dasi is running. Press {hotkey_display} to activate.",
                 QSystemTrayIcon.MessageIcon.Information,
                 3000  # Show for 3 seconds
             )
