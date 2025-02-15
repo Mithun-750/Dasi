@@ -13,25 +13,25 @@ class LLMHandler:
         self.llm = None
         self.settings = Settings()
         self.current_provider = None
-        self.prompt = ChatPromptTemplate([
-            ("system", """
-            You are Dasi, an intelligent desktop copilot that helps users with their daily computer tasks. You appear when users press Ctrl+Alt+Shift+I, showing a popup near their cursor. You help users with tasks like:
-            - Understanding and troubleshooting code
-            - Explaining error messages and logs
-            - Providing quick answers and suggestions
-            - Generating text, code, or commands
-            - Explaining documentation and concepts
+        self.system_prompt = """You are Dasi, an intelligent desktop copilot that helps users with their daily computer tasks. You appear when users press Ctrl+Alt+Shift+I, showing a popup near their cursor. You help users with tasks like:
+- Understanding and troubleshooting code
+- Explaining error messages and logs
+- Providing quick answers and suggestions
+- Generating text, code, or commands
+- Explaining documentation and concepts
 
-            IMPORTANT RULES:
-            - Never introduce yourself or add pleasantries
-            - Never explain what you're doing
-            - Never wrap responses in quotes or code blocks unless specifically requested
-            - Never say things like 'here's the response' or 'here's what I generated'
-            - Just provide the direct answer or content requested
-            - If asked to generate content (email, code, etc), output only the content
-            - Keep responses concise and to the point
-            - Focus on being practically helpful for the current task
-            """),
+IMPORTANT RULES:
+- Never introduce yourself or add pleasantries
+- Never explain what you're doing
+- Never wrap responses in quotes or code blocks unless specifically requested
+- Never say things like 'here's the response' or 'here's what I generated'
+- Just provide the direct answer or content requested
+- If asked to generate content (email, code, etc), output only the content
+- Keep responses concise and to the point
+- Focus on being practically helpful for the current task"""
+
+        self.prompt = ChatPromptTemplate.from_messages([
+            ("system", self.system_prompt),
             ("human", "{query}")
         ])
         # Connect to settings changes
@@ -78,7 +78,6 @@ class LLMHandler:
                     model=model_id,
                     google_api_key=api_key,
                     temperature=0.7,
-                    convert_system_message_to_human=True
                 )
             else:  # OpenRouter
                 site_url = self.settings.get('general', 'openrouter_site_url')
@@ -111,14 +110,23 @@ class LLMHandler:
         """Get response from LLM for the given query. If callback is provided, stream the response."""
         # Initialize with specified model if provided
         if model:
-            current_model = None
+            needs_init = True
             if self.llm:
+                current_model = None
+                # Try different ways to get the current model name
                 if hasattr(self.llm, 'model'):
                     current_model = self.llm.model
                 elif hasattr(self.llm, 'model_name'):
                     current_model = self.llm.model_name
 
-            if not current_model or current_model != model:
+                # Clean up model names for comparison
+                if current_model:
+                    # Remove any 'models/' prefix
+                    current_model = current_model.replace('models/', '')
+                    model = model.replace('models/', '')
+                    needs_init = current_model != model
+
+            if needs_init:
                 if not self.initialize_llm(model):
                     return "Please add the appropriate API key in settings to use this model."
 
@@ -148,44 +156,16 @@ class LLMHandler:
                     context['last_response'] = last_response
 
                 # Create a special prompt for queries with context
-                context_prompt = ChatPromptTemplate([
-                    ("system", """
-                    You are Dasi, an intelligent desktop copilot that helps users with their daily computer tasks.
-                    You appear when users press Ctrl+Alt+Shift+I, showing a popup near their cursor.
+                context_prompt = ChatPromptTemplate.from_messages([
+                    ("system", f"""{self.system_prompt}
 
-                    Available Context:
-                    {context_desc}
-
-                    IMPORTANT RULES:
-                    - Never introduce yourself or add pleasantries
-                    - Never explain what you're doing
-                    - Never wrap responses in quotes or code blocks unless specifically requested
-                    - Never say things like 'here's the response' or 'here's what I generated'
-                    - Just provide the direct answer or content requested
-                    - Keep responses concise and to the point
-                    - Consider ALL available context in your response
-                    - If you see code, provide code-specific suggestions
-                    - If you see errors, focus on troubleshooting
-                    - If you see documentation, help explain or apply it
-                    - If you see a previous response, maintain consistency with it
-                    """),
+Available Context:
+{self._format_context(context)}"""),
                     ("human", "{query}")
                 ])
 
-                # Build context description
-                context_desc = []
-                if 'selected_text' in context:
-                    context_desc.append(
-                        f"Selected Text (what the user has highlighted):\n{context['selected_text']}")
-                if 'last_response' in context:
-                    context_desc.append(
-                        f"Previous Response:\n{context['last_response']}")
-
-                # Format prompt with context and actual query
-                messages = context_prompt.invoke({
-                    "context_desc": "\n\n".join(context_desc),
-                    "query": actual_query
-                })
+                # Format prompt with actual query
+                messages = context_prompt.invoke({"query": actual_query})
             else:
                 # Use default prompt for queries without context
                 messages = self.prompt.invoke({"query": query})
@@ -207,3 +187,14 @@ class LLMHandler:
             logging.error(
                 f"Error getting LLM response: {str(e)}", exc_info=True)
             return f"Error: {str(e)}"
+
+    def _format_context(self, context: dict) -> str:
+        """Format context dictionary into a string."""
+        context_parts = []
+        if 'selected_text' in context:
+            context_parts.append(
+                f"Selected Text (what the user has highlighted):\n{context['selected_text']}")
+        if 'last_response' in context:
+            context_parts.append(
+                f"Previous Response:\n{context['last_response']}")
+        return "\n\n".join(context_parts)
