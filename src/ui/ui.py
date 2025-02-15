@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTextEdit,
-                             QFrame, QLabel, QPushButton, QHBoxLayout, QProgressBar)
+                             QFrame, QLabel, QPushButton, QHBoxLayout, QProgressBar,
+                             QGridLayout)
 from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QFont, QClipboard
 from typing import Callable, Optional, Tuple
@@ -117,51 +118,44 @@ class DasiWindow(QWidget):
         context_frame = QFrame()
         context_frame.setObjectName("contextFrame")
         context_layout = QVBoxLayout()
-        context_layout.setContentsMargins(2, 2, 2, 2)
+        context_layout.setContentsMargins(3, 3, 3, 3)
         context_layout.setSpacing(0)
         context_frame.setLayout(context_layout)
 
         # Create container for the context area
         container = QWidget()
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(5, 5, 5, 5)
-        container_layout.setSpacing(0)
+        grid = QGridLayout(container)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(0)
 
         # Add context label
-        self.context_label = QLabel(container)
+        self.context_label = QLabel()
         self.context_label.setObjectName("contextLabel")
         self.context_label.setWordWrap(True)
         self.context_label.hide()
 
-        # Add ignore button as child of context label
-        self.ignore_button = QPushButton("×", self.context_label)
+        # Add ignore button
+        self.ignore_button = QPushButton("×")
         self.ignore_button.setObjectName("ignoreButton")
         self.ignore_button.setFixedSize(16, 16)
         self.ignore_button.clicked.connect(self.reset_context)
         self.ignore_button.hide()
 
-        # Add label to container layout
-        container_layout.addWidget(self.context_label)
+        # Add both widgets to the same grid cell
+        grid.addWidget(self.context_label, 0, 0)
+        grid.addWidget(self.ignore_button, 0, 0,
+                       Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+
+        # Ensure ignore button stays on top
+        self.context_label.stackUnder(self.ignore_button)
 
         context_layout.addWidget(container)
         left_layout.addWidget(context_frame)
 
         # Override show/hide to handle button visibility and position
         def show_context():
-            # Show the label first
+            # Show both widgets
             super(type(self.context_label), self.context_label).show()
-
-            # Wait for label to be properly sized
-            QApplication.processEvents()
-
-            # Position button in top-right corner of label
-            margin = 3
-            self.ignore_button.move(
-                self.context_label.width() - self.ignore_button.width() - margin,
-                margin
-            )
-
-            # Show and raise button
             self.ignore_button.show()
             self.ignore_button.raise_()
 
@@ -260,7 +254,7 @@ class DasiWindow(QWidget):
             #contextLabel {
                 color: #888888;
                 font-size: 11px;
-                padding: 8px;
+                padding: 4px 6px;
                 background-color: #323232;
                 border-radius: 3px;
             }
@@ -269,12 +263,14 @@ class DasiWindow(QWidget):
                 color: #999999;
                 border: none;
                 border-radius: 8px;
-                font-size: 10px;
+                font-size: 12px;
                 font-weight: bold;
-                padding: 0px;
-                margin: 4px;
+                padding: 0;
+                margin: 0;
                 min-width: 16px;
                 max-width: 16px;
+                min-height: 16px;
+                max-height: 16px;
             }
             #ignoreButton:hover {
                 background-color: #565656;
