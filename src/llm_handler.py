@@ -2,15 +2,17 @@ import os
 import logging
 from typing import Optional, Callable
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from ui.settings import Settings
 
 
 class LLMHandler:
     def __init__(self):
-        """Initialize LLM handler with Gemini model."""
+        """Initialize LLM handler."""
         self.llm = None
         self.settings = Settings()
+        self.current_provider = None
         self.prompt = ChatPromptTemplate([
             ("system", """
             You are Dasi, an intelligent desktop copilot that helps users with their daily computer tasks. You appear when users press Ctrl+Alt+Shift+I, showing a popup near their cursor. You help users with tasks like:
@@ -37,18 +39,60 @@ class LLMHandler:
     def initialize_llm(self, model_name: str = "gemini-pro") -> bool:
         """Initialize the LLM with the current API key and specified model. Returns True if successful."""
         try:
-            api_key = self.settings.get_api_key('google')
-            if not api_key:
-                logging.warning("No API key found in settings")
+            # Get model info from settings
+            selected_models = self.settings.get_selected_models()
+            model_info = next(
+                (m for m in selected_models if m['id'] == model_name), None)
+
+            if not model_info:
+                logging.warning(
+                    f"Model {model_name} not found in selected models")
                 return False
 
-            self.llm = ChatGoogleGenerativeAI(
-                model=model_name,
-                google_api_key=api_key,
-                temperature=0.7,
-                convert_system_message_to_human=True
-            )
+            provider = model_info['provider']
+            model_id = model_info['id']
+
+            # Get API key for the provider
+            api_key = self.settings.get_api_key(provider)
+            if not api_key:
+                logging.warning(f"No API key found for {provider} in settings")
+                return False
+
+            # Initialize appropriate LLM based on provider
+            if provider == 'google':
+                # Clean up model name for Google models (remove 'models/' prefix if present)
+                if model_id.startswith('models/'):
+                    model_id = model_id.replace('models/', '', 1)
+
+                self.llm = ChatGoogleGenerativeAI(
+                    model=model_id,
+                    google_api_key=api_key,
+                    temperature=0.7,
+                    convert_system_message_to_human=True
+                )
+            else:  # OpenRouter
+                site_url = self.settings.get('general', 'openrouter_site_url')
+                site_name = self.settings.get(
+                    'general', 'openrouter_site_name')
+
+                headers = {
+                    'HTTP-Referer': site_url,
+                    'X-Title': site_name,
+                    'Content-Type': 'application/json'
+                }
+
+                self.llm = ChatOpenAI(
+                    model=model_id,
+                    temperature=0.7,
+                    streaming=True,
+                    openai_api_key=api_key,
+                    base_url="https://openrouter.ai/api/v1",
+                    default_headers=headers
+                )
+
+            self.current_provider = provider
             return True
+
         except Exception as e:
             logging.error(f"Error initializing LLM: {str(e)}", exc_info=True)
             return False
@@ -56,13 +100,21 @@ class LLMHandler:
     def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None) -> str:
         """Get response from LLM for the given query. If callback is provided, stream the response."""
         # Initialize with specified model if provided
-        if model and (not self.llm or model != self.llm.model):
-            if not self.initialize_llm(model):
-                return "Please add your Google API key in settings to use Dasi."
+        if model:
+            current_model = None
+            if self.llm:
+                if hasattr(self.llm, 'model'):
+                    current_model = self.llm.model
+                elif hasattr(self.llm, 'model_name'):
+                    current_model = self.llm.model_name
+
+            if not current_model or current_model != model:
+                if not self.initialize_llm(model):
+                    return "Please add the appropriate API key in settings to use this model."
 
         # Check if LLM is initialized, try to initialize if not
         if not self.llm and not self.initialize_llm():
-            return "Please add your Google API key in settings to use Dasi."
+            return "Please add your API key in settings to use Dasi."
 
         try:
             # Parse context and query

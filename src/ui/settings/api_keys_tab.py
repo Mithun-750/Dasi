@@ -28,22 +28,43 @@ class APIKeysTab(QWidget):
         layout.addWidget(title)
 
         # Google API Key section
-        google_section = QWidget()
-        google_layout = QVBoxLayout(google_section)
-        google_layout.setSpacing(10)
+        google_section = self.create_api_key_section(
+            "Google API Key",
+            "google",
+            "Enter your Google API key here..."
+        )
+        layout.addWidget(google_section)
 
-        google_label = QLabel("Google API Key")
-        google_label.setStyleSheet("font-size: 14px;")
+        # OpenRouter API Key section
+        openrouter_section = self.create_api_key_section(
+            "OpenRouter API Key",
+            "openrouter",
+            "Enter your OpenRouter API key here..."
+        )
+        layout.addWidget(openrouter_section)
+
+        # Add stretch to push everything to the top
+        layout.addStretch()
+
+    def create_api_key_section(self, title: str, provider: str, placeholder: str) -> QWidget:
+        """Create a section for an API key input."""
+        section = QWidget()
+        section_layout = QVBoxLayout(section)
+        section_layout.setSpacing(10)
+
+        # Label
+        label = QLabel(title)
+        label.setStyleSheet("font-size: 14px;")
 
         # API Key input with show/hide toggle
         key_container = QWidget()
         key_layout = QHBoxLayout(key_container)
         key_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.api_input = QLineEdit()
-        self.api_input.setPlaceholderText("Enter your Google API key here...")
-        self.api_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_input.setStyleSheet("""
+        api_input = QLineEdit()
+        api_input.setPlaceholderText(placeholder)
+        api_input.setEchoMode(QLineEdit.EchoMode.Password)
+        api_input.setStyleSheet("""
             QLineEdit {
                 padding: 8px;
                 border-radius: 4px;
@@ -52,29 +73,30 @@ class APIKeysTab(QWidget):
         """)
 
         # Load existing API key if present
-        if api_key := self.settings.get_api_key('google'):
-            self.api_input.setText(api_key)
+        if api_key := self.settings.get_api_key(provider):
+            api_input.setText(api_key)
 
         # Toggle visibility button
-        self.toggle_button = QPushButton("👁")
-        self.toggle_button.setFixedSize(30, 30)
-        self.toggle_button.setStyleSheet("""
+        toggle_button = QPushButton("👁")
+        toggle_button.setFixedSize(30, 30)
+        toggle_button.setStyleSheet("""
             QPushButton {
                 border-radius: 4px;
                 font-size: 14px;
             }
         """)
-        self.toggle_button.clicked.connect(self.toggle_key_visibility)
+        toggle_button.clicked.connect(
+            lambda: self.toggle_key_visibility(api_input, toggle_button))
 
-        key_layout.addWidget(self.api_input)
-        key_layout.addWidget(self.toggle_button)
+        key_layout.addWidget(api_input)
+        key_layout.addWidget(toggle_button)
 
-        google_layout.addWidget(google_label)
-        google_layout.addWidget(key_container)
+        section_layout.addWidget(label)
+        section_layout.addWidget(key_container)
 
-        # Status label (hidden by default)
-        self.status_label = QLabel()
-        self.status_label.setStyleSheet("""
+        # Status label
+        status_label = QLabel()
+        status_label.setStyleSheet("""
             QLabel {
                 padding: 5px;
                 border-radius: 4px;
@@ -89,72 +111,75 @@ class APIKeysTab(QWidget):
                 color: #f44336;
             }
         """)
-        self.status_label.hide()
-        google_layout.addWidget(self.status_label)
+        status_label.hide()
+        section_layout.addWidget(status_label)
 
         # Save button
-        save_button = QPushButton("Save API Key")
+        save_button = QPushButton(f"Save {title}")
         save_button.setStyleSheet("""
             QPushButton {
                 padding: 8px 16px;
                 font-size: 13px;
                 font-weight: bold;
                 border-radius: 4px;
-                max-width: 150px;
+                max-width: 200px;
             }
         """)
-        save_button.clicked.connect(self.save_api_key)
+        save_button.clicked.connect(lambda: self.save_api_key(
+            provider, api_input, status_label))
 
-        google_layout.addWidget(save_button)
-        layout.addWidget(google_section)
+        section_layout.addWidget(save_button)
 
-        # Add stretch to push everything to the top
-        layout.addStretch()
+        # Store references
+        setattr(self, f"{provider}_input", api_input)
+        setattr(self, f"{provider}_status", status_label)
+        setattr(self, f"{provider}_toggle", toggle_button)
 
-    def toggle_key_visibility(self):
+        return section
+
+    def toggle_key_visibility(self, input_field: QLineEdit, toggle_button: QPushButton):
         """Toggle API key visibility."""
-        if self.api_input.echoMode() == QLineEdit.EchoMode.Password:
-            self.api_input.setEchoMode(QLineEdit.EchoMode.Normal)
-            self.toggle_button.setText("🔒")
+        if input_field.echoMode() == QLineEdit.EchoMode.Password:
+            input_field.setEchoMode(QLineEdit.EchoMode.Normal)
+            toggle_button.setText("🔒")
         else:
-            self.api_input.setEchoMode(QLineEdit.EchoMode.Password)
-            self.toggle_button.setText("👁")
+            input_field.setEchoMode(QLineEdit.EchoMode.Password)
+            toggle_button.setText("👁")
 
-    def show_status(self, message: str, is_error: bool = False):
+    def show_status(self, label: QLabel, message: str, is_error: bool = False):
         """Show a status message with appropriate styling."""
-        self.status_label.setText(message)
-        self.status_label.setProperty(
-            "status", "error" if is_error else "success")
-        self.status_label.style().unpolish(self.status_label)
-        self.status_label.style().polish(self.status_label)
-        self.status_label.show()
+        label.setText(message)
+        label.setProperty("status", "error" if is_error else "success")
+        label.style().unpolish(label)
+        label.style().polish(label)
+        label.show()
 
-    def save_api_key(self):
+    def save_api_key(self, provider: str, input_field: QLineEdit, status_label: QLabel):
         """Save the API key."""
-        api_key = self.api_input.text().strip()
+        api_key = input_field.text().strip()
 
         if not api_key:
-            self.show_status("Please enter an API key", True)
+            self.show_status(status_label, "Please enter an API key", True)
             return
 
-        if self.settings.set_api_key('google', api_key):
+        if self.settings.set_api_key(provider, api_key):
             # Hide the key after saving
-            self.api_input.setEchoMode(QLineEdit.EchoMode.Password)
-            self.toggle_button.setText("👁")
+            input_field.setEchoMode(QLineEdit.EchoMode.Password)
+            getattr(self, f"{provider}_toggle").setText("👁")
 
             # Show success message
-            self.show_status("API key saved successfully!")
+            self.show_status(status_label, "API key saved successfully!")
 
             # Show confirmation dialog
             QMessageBox.information(
                 self,
                 "Success",
-                "API key has been saved successfully. You can now use Dasi with the new API key.",
+                f"{provider.title()} API key has been saved successfully.",
                 QMessageBox.StandardButton.Ok
             )
         else:
             # Show error message
-            self.show_status("Failed to save API key", True)
+            self.show_status(status_label, "Failed to save API key", True)
             QMessageBox.critical(
                 self,
                 "Error",
