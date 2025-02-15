@@ -13,6 +13,8 @@ class LLMHandler:
         self.llm = None
         self.settings = Settings()
         self.current_provider = None
+
+        # Fixed system prompt
         self.system_prompt = """You are Dasi, an intelligent desktop copilot that helps users with their daily computer tasks. You appear when users press Ctrl+Alt+Shift+I, showing a popup near their cursor. You help users with tasks like:
 - Understanding and troubleshooting code
 - Explaining error messages and logs
@@ -30,6 +32,14 @@ IMPORTANT RULES:
 - Keep responses concise and to the point
 - Focus on being practically helpful for the current task"""
 
+        # Get custom instructions
+        custom_instructions = self.settings.get(
+            'general', 'custom_instructions', default="").strip()
+
+        # Combine system prompt with custom instructions if they exist
+        if custom_instructions:
+            self.system_prompt = f"{self.system_prompt}\n\nCustom Instructions:\n{custom_instructions}"
+
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", self.system_prompt),
             ("human", "{query}")
@@ -43,6 +53,16 @@ IMPORTANT RULES:
         # Reload settings when models are changed
         self.settings.load_settings()
 
+        # Update system prompt with any new custom instructions
+        custom_instructions = self.settings.get(
+            'general', 'custom_instructions', default="").strip()
+        if custom_instructions:
+            self.system_prompt = f"{self.system_prompt}\n\nCustom Instructions:\n{custom_instructions}"
+            self.prompt = ChatPromptTemplate.from_messages([
+                ("system", self.system_prompt),
+                ("human", "{query}")
+            ])
+
     def initialize_llm(self, model_name: str = "gemini-pro") -> bool:
         """Initialize the LLM with the current API key and specified model. Returns True if successful."""
         try:
@@ -55,8 +75,6 @@ IMPORTANT RULES:
                 (m for m in selected_models if m['id'] == model_name), None)
 
             if not model_info:
-                logging.warning(
-                    f"Model {model_name} not found in selected models")
                 return False
 
             provider = model_info['provider']
@@ -65,8 +83,11 @@ IMPORTANT RULES:
             # Get API key for the provider
             api_key = self.settings.get_api_key(provider)
             if not api_key:
-                logging.warning(f"No API key found for {provider} in settings")
                 return False
+
+            # Get temperature from settings
+            temperature = self.settings.get(
+                'general', 'temperature', default=0.7)
 
             # Initialize appropriate LLM based on provider
             if provider == 'google':
@@ -77,22 +98,19 @@ IMPORTANT RULES:
                 self.llm = ChatGoogleGenerativeAI(
                     model=model_id,
                     google_api_key=api_key,
-                    temperature=0.7,
+                    temperature=temperature,
                 )
             else:  # OpenRouter
-                site_url = self.settings.get('general', 'openrouter_site_url')
-                site_name = self.settings.get(
-                    'general', 'openrouter_site_name')
-
+                # Use fixed OpenRouter settings
                 headers = {
-                    'HTTP-Referer': site_url,
-                    'X-Title': site_name,
+                    'HTTP-Referer': 'https://github.com/mithuns/dasi',
+                    'X-Title': 'Dasi',
                     'Content-Type': 'application/json'
                 }
 
                 self.llm = ChatOpenAI(
                     model=model_id,
-                    temperature=0.7,
+                    temperature=temperature,
                     streaming=True,
                     openai_api_key=api_key,
                     base_url="https://openrouter.ai/api/v1",

@@ -76,13 +76,13 @@ class SettingsWindow(QMainWindow):
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
 
         # Create sidebar buttons
+        self.general_btn = SidebarButton("General")
         self.api_keys_btn = SidebarButton("API Keys")
         self.models_btn = SidebarButton("Models")
-        self.general_btn = SidebarButton("General")
 
+        sidebar_layout.addWidget(self.general_btn)
         sidebar_layout.addWidget(self.api_keys_btn)
         sidebar_layout.addWidget(self.models_btn)
-        sidebar_layout.addWidget(self.general_btn)
         sidebar_layout.addStretch()
 
         # Create stacked widget for content
@@ -94,18 +94,18 @@ class SettingsWindow(QMainWindow):
         """)
 
         # Create and add tabs
+        self.general_tab = GeneralTab(self.settings)
         self.api_keys_tab = APIKeysTab(self.settings)
         self.models_tab = ModelsTab(self.settings)
-        self.general_tab = GeneralTab(self.settings)
 
+        self.content.addWidget(self.general_tab)
         self.content.addWidget(self.api_keys_tab)
         self.content.addWidget(self.models_tab)
-        self.content.addWidget(self.general_tab)
 
         # Connect button signals
-        self.api_keys_btn.clicked.connect(lambda: self.switch_tab(0))
-        self.models_btn.clicked.connect(lambda: self.switch_tab(1))
-        self.general_btn.clicked.connect(lambda: self.switch_tab(2))
+        self.general_btn.clicked.connect(lambda: self.switch_tab(0))
+        self.api_keys_btn.clicked.connect(lambda: self.switch_tab(1))
+        self.models_btn.clicked.connect(lambda: self.switch_tab(2))
 
         # Add widgets to main layout
         main_layout.addWidget(sidebar)
@@ -119,7 +119,7 @@ class SettingsWindow(QMainWindow):
         self.content.setCurrentIndex(index)
 
         # Update button states
-        buttons = [self.api_keys_btn, self.models_btn, self.general_btn]
+        buttons = [self.general_btn, self.api_keys_btn, self.models_btn]
         for i, btn in enumerate(buttons):
             btn.setChecked(i == index)
 
