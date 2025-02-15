@@ -7,7 +7,7 @@ from pathlib import Path
 from hotkey_listener import HotkeyListener
 from ui.ui import CopilotUI
 from llm_handler import LLMHandler
-from ui.settings_window import Settings, SettingsWindow
+from ui.settings import Settings, SettingsWindow
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QPixmap, QPainter
 from PyQt6.QtCore import Qt
@@ -225,7 +225,7 @@ class Dasi:
             if query.startswith('!'):
                 # Parse method and response
                 method, response = query[1:].split(':', 1)
-                
+
                 # Insert based on method
                 if method == 'paste':
                     # Use clipboard paste
@@ -259,7 +259,7 @@ def check_api_key():
     """Check if API key exists in settings."""
     try:
         settings = Settings()
-        return bool(settings.get('google_api_key'))
+        return bool(settings.get_api_key('google'))
     except Exception as e:
         logging.error(f"Error checking API key: {str(e)}", exc_info=True)
         return False
