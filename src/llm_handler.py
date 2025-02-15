@@ -4,6 +4,7 @@ from typing import Optional, Callable
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
+from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from ui.settings import Settings
 
@@ -101,6 +102,12 @@ IMPORTANT RULES:
                     model=model_id,
                     temperature=temperature,
                     base_url="http://localhost:11434",
+                )
+            elif provider == 'groq':
+                self.llm = ChatGroq(
+                    model=model_id,
+                    groq_api_key=self.settings.get_api_key('groq'),
+                    temperature=temperature,
                 )
             else:  # OpenRouter
                 # Use fixed OpenRouter settings
