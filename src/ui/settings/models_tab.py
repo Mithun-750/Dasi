@@ -1,5 +1,6 @@
 import requests
 import logging
+import json
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -71,8 +72,8 @@ class ModelFetchWorker(QThread):
             headers = {
                 'Authorization': f'Bearer {api_key}',
                 'Content-Type': 'application/json',
-                'HTTP-Referer': self.settings.get('general', 'openrouter_site_url'),
-                'X-Title': self.settings.get('general', 'openrouter_site_name')
+                'HTTP-Referer': 'https://github.com/mithuns/dasi',
+                'X-Title': 'Dasi'
             }
 
             response = requests.get(
@@ -97,17 +98,42 @@ class ModelFetchWorker(QThread):
             logging.error(f"Error fetching OpenRouter models: {str(e)}")
             return []
 
+    def fetch_ollama_models(self):
+        """Fetch models from local Ollama instance."""
+        try:
+            response = requests.get('http://localhost:11434/api/tags')
+            response.raise_for_status()
+            models = response.json().get('models', [])
+
+            text_models = []
+            for model in models:
+                model_info = {
+                    'id': model['name'],
+                    'provider': 'ollama',
+                    'name': model['name']
+                }
+                text_models.append(model_info)
+            return text_models
+        except requests.exceptions.ConnectionError:
+            logging.warning("Ollama server not running or not accessible")
+            return []
+        except Exception as e:
+            logging.error(f"Error fetching Ollama models: {str(e)}")
+            return []
+
     def run(self):
         try:
-            # Fetch models from both providers
+            # Fetch models from all providers
             google_models = self.fetch_google_models()
             openrouter_models = self.fetch_openrouter_models()
+            ollama_models = self.fetch_ollama_models()
 
             # Combine all models
-            all_models = google_models + openrouter_models
+            all_models = google_models + openrouter_models + ollama_models
 
             if not all_models:
-                self.error.emit("No models found. Please check your API keys.")
+                self.error.emit(
+                    "No models found. Please check your API keys and Ollama installation.")
                 return
 
             self.finished.emit(all_models)
