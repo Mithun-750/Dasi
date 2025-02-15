@@ -164,11 +164,12 @@ class ModelFetchWorker(QThread):
             groq_models = self.fetch_groq_models()
 
             # Combine all models
-            all_models = google_models + openrouter_models + ollama_models + groq_models
+            all_models = (google_models + openrouter_models +
+                          ollama_models + groq_models)
 
             if not all_models:
                 self.error.emit(
-                    "No models found. Please check your API keys and Ollama installation.")
+                    "No models found. Please check your API keys and model configurations.")
                 return
 
             self.finished.emit(all_models)
@@ -477,14 +478,22 @@ class ModelsTab(QWidget):
         super().closeEvent(event)
 
     def fetch_models(self):
-        """Fetch available models from Google API."""
+        """Fetch available models."""
         # Clean up any existing worker first
         self.cleanup()
 
-        api_key = self.settings.get_api_key('google')
-        if not api_key:
+        # Check if we have any API keys or custom models configured
+        google_key = self.settings.get_api_key('google')
+        custom_model_id = self.settings.get(
+            'models', 'custom_openai', 'model_id')
+        custom_base_url = self.settings.get(
+            'models', 'custom_openai', 'base_url')
+        custom_api_key = self.settings.get_api_key('custom_openai')
+
+        if not google_key and not (custom_model_id and custom_base_url and custom_api_key):
             self.model_dropdown.clear()
-            self.model_dropdown.addItem("Please add Google API key first")
+            self.model_dropdown.addItem(
+                "Please configure at least one model provider")
             self.model_dropdown.setEnabled(False)
             return
 
@@ -505,6 +514,19 @@ class ModelsTab(QWidget):
         """Handle successful model fetch."""
         self.available_models = models
         self.model_dropdown.clear()
+
+        # Check for custom OpenAI model
+        custom_model_id = self.settings.get(
+            'models', 'custom_openai', 'model_id')
+        custom_base_url = self.settings.get(
+            'models', 'custom_openai', 'base_url')
+        if custom_model_id and custom_base_url:
+            custom_model = {
+                'id': custom_model_id,
+                'provider': 'custom_openai',
+                'name': f"Custom: {custom_model_id}"
+            }
+            models.append(custom_model)
 
         # Add models to dropdown with provider info
         for model in models:
