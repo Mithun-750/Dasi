@@ -215,7 +215,7 @@ class Dasi:
             sys.exit(1)  # Force exit if clean shutdown fails
         sys.exit(0)
 
-    def process_query(self, query: str) -> str:
+    def process_query(self, query: str, callback=None) -> str:
         """Process query and return response. If query starts with '!', it's a response to be typed."""
         try:
             if query.startswith('!'):
@@ -225,7 +225,7 @@ class Dasi:
                 return response
             else:
                 # This is a query to be processed
-                response = self.llm_handler.get_response(query)
+                response = self.llm_handler.get_response(query, callback)
                 return response if response else "Error: Failed to get response"
         except Exception as e:
             logging.error(f"Error processing query: {str(e)}", exc_info=True)

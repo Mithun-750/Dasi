@@ -42,8 +42,8 @@ class LLMHandler:
             ("human", "{query}")
         ])
 
-    def get_response(self, query: str) -> Optional[str]:
-        """Get response from LLM for the given query."""
+    def get_response(self, query: str, callback=None) -> Optional[str]:
+        """Get response from LLM for the given query. If callback is provided, stream the response."""
         try:
             # Parse context and query
             if "Context:" in query:
@@ -104,8 +104,18 @@ class LLMHandler:
                 messages = self.prompt.invoke({"query": query})
 
             # Get response
-            response = self.llm.invoke(messages)
-            return response.content.strip()
+            if callback:
+                # Stream response
+                response_content = []
+                for chunk in self.llm.stream(messages):
+                    if chunk.content:
+                        response_content.append(chunk.content)
+                        callback(''.join(response_content))
+                return ''.join(response_content)
+            else:
+                # Get response all at once
+                response = self.llm.invoke(messages)
+                return response.content.strip()
         except Exception as e:
             print(f"Error getting LLM response: {e}")
             return None

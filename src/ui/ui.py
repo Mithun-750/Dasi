@@ -17,24 +17,36 @@ class UISignals(QObject):
 class QueryWorker(QThread):
     """Worker thread for processing queries."""
 
-    def __init__(self, process_fn: Callable[[str], str], query: str, signals: UISignals):
+    def __init__(self, process_fn: Callable[[str, Optional[Callable[[str], None]]], str], query: str, signals: UISignals):
         super().__init__()
         self.process_fn = process_fn
         self.query = query
         self.signals = signals
+        self.is_stopped = False
 
     def run(self):
         """Process the query and emit result."""
         try:
-            result = self.process_fn(self.query)
-            if result:
-                self.signals.process_response.emit(result)
-            else:
+            # Pass a callback to handle streaming updates
+            def stream_callback(partial_response: str):
+                if not self.is_stopped:
+                    self.signals.process_response.emit(partial_response)
+            
+            result = self.process_fn(self.query, stream_callback)
+            if not self.is_stopped and not result:
                 self.signals.process_error.emit("No response received")
+            # Signal completion
+            if not self.is_stopped:
+                self.signals.process_response.emit("<COMPLETE>")
         except Exception as e:
-            self.signals.process_error.emit(str(e))
+            if not self.is_stopped:
+                self.signals.process_error.emit(str(e))
         finally:
             self.quit()
+    
+    def stop(self):
+        """Stop the worker cleanly."""
+        self.is_stopped = True
 
 
 class DasiWindow(QWidget):
@@ -195,17 +207,32 @@ class DasiWindow(QWidget):
 
         # Action buttons (hidden by default)
         self.action_frame = QFrame()
-        action_layout = QHBoxLayout()
-        action_layout.setContentsMargins(5, 0, 5, 5)
+        self.action_layout = QHBoxLayout()  # Make it instance variable
+        self.action_layout.setContentsMargins(5, 0, 5, 5)
+        
+        # Create stop button (hidden by default)
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.setObjectName("stopButton")
+        self.stop_button.clicked.connect(self._handle_stop)
+        self.stop_button.hide()
+        
+        # Create accept/reject buttons
+        self.accept_button = QPushButton("Accept")
+        self.reject_button = QPushButton("Reject")
+        
+        # Add stop button to layout but don't show it yet
+        self.action_layout.addWidget(self.stop_button)
 
+        # Configure accept/reject buttons
         self.accept_button = QPushButton("Accept")
         self.accept_button.clicked.connect(self._handle_accept)
         self.reject_button = QPushButton("Reject")
         self.reject_button.clicked.connect(self._handle_reject)
 
-        action_layout.addWidget(self.accept_button)
-        action_layout.addWidget(self.reject_button)
-        self.action_frame.setLayout(action_layout)
+        # Add buttons to action layout
+        self.action_layout.addWidget(self.accept_button)
+        self.action_layout.addWidget(self.reject_button)
+        self.action_frame.setLayout(self.action_layout)
         self.action_frame.hide()
 
         right_layout.addWidget(self.response_preview, 1)
@@ -295,6 +322,13 @@ class DasiWindow(QWidget):
             QPushButton:hover {
                 background-color: #5a5a5a;
             }
+            #stopButton {
+                background-color: #ff4444;
+                min-width: 60px;
+            }
+            #stopButton:hover {
+                background-color: #ff6666;
+            }
             QProgressBar {
                 border: none;
                 background-color: #363636;
@@ -358,14 +392,30 @@ class DasiWindow(QWidget):
         """Handle mouse release for dragging."""
         self.old_pos = None
 
+    def _handle_stop(self):
+        """Handle stop button click."""
+        if self.worker and self.worker.isRunning():
+            self.worker.stop()
+            self.worker.terminate()
+            self.worker.wait()
+            # Switch to accept/reject buttons and keep the content
+            self.progress_bar.hide()
+            self.input_field.setEnabled(True)
+            self.stop_button.hide()
+            self.accept_button.show()
+            self.reject_button.show()
+
     def _handle_submit(self):
         """Handle submit action."""
         query = self.input_field.toPlainText().strip()
         if query:
-            # Show loading state
+            # Show loading state and stop button
             self.input_field.setEnabled(False)
             self.progress_bar.setRange(0, 0)  # Indeterminate progress
             self.progress_bar.show()
+            self.stop_button.show()
+            self.accept_button.hide()
+            self.reject_button.hide()
 
             # Build context dictionary
             context = {}
@@ -407,18 +457,25 @@ class DasiWindow(QWidget):
         self.response_preview.setText(f"Error: {error_msg}")
         self.response_preview.show()
 
-        # Show reject button only
+        # Show reject button only, hide stop button
         self.action_frame.show()
+        self.stop_button.hide()
         self.accept_button.hide()
+        self.reject_button.show()
 
         # Adjust window size
         self.setFixedHeight(250)
 
     def _handle_response(self, response: str):
         """Handle query response (runs in main thread)."""
-        # Hide loading state
-        self.progress_bar.hide()
-        self.input_field.setEnabled(True)
+        # Check for completion signal
+        if response == "<COMPLETE>":
+            self.progress_bar.hide()
+            self.input_field.setEnabled(True)
+            self.stop_button.hide()
+            self.accept_button.show()
+            self.reject_button.show()
+            return
 
         # Store the response
         self.last_response = response
@@ -429,7 +486,6 @@ class DasiWindow(QWidget):
 
         # Show action buttons and right panel
         self.action_frame.show()
-        self.accept_button.show()
         self.right_panel.show()
 
         # Adjust window size
