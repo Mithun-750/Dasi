@@ -30,8 +30,6 @@ class Settings(QObject):
                 'selected_models': [],
             },
             'general': {
-                'openrouter_site_url': 'https://github.com/mithuns/dasi',
-                'openrouter_site_name': 'Dasi'
             }
         }
 

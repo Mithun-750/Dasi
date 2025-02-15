@@ -81,8 +81,18 @@ class APIKeysTab(QWidget):
         toggle_button.setFixedSize(30, 30)
         toggle_button.setStyleSheet("""
             QPushButton {
-                border-radius: 4px;
+                border-radius: 6px;
                 font-size: 14px;
+                background-color: #404040;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }
+            QPushButton:pressed {
+                background-color: #333333;
+                padding-top: 1px;
+                padding-left: 1px;
             }
         """)
         toggle_button.clicked.connect(
@@ -121,8 +131,18 @@ class APIKeysTab(QWidget):
                 padding: 8px 16px;
                 font-size: 13px;
                 font-weight: bold;
-                border-radius: 4px;
+                border-radius: 6px;
                 max-width: 200px;
+                background-color: #2b5c99;
+                color: white;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #366bb3;
+            }
+            QPushButton:pressed {
+                background-color: #1f4573;
+                padding: 9px 16px 7px 16px;
             }
         """)
         save_button.clicked.connect(lambda: self.save_api_key(

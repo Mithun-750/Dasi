@@ -311,7 +311,21 @@ class ModelsTab(QWidget):
                 padding: 8px 16px;
                 font-size: 13px;
                 font-weight: bold;
-                border-radius: 4px;
+                border-radius: 6px;
+                background-color: #2b5c99;
+                color: white;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #366bb3;
+            }
+            QPushButton:pressed {
+                background-color: #1f4573;
+                padding: 9px 16px 7px 16px;
+            }
+            QPushButton:disabled {
+                background-color: #404040;
+                color: #666666;
             }
         """)
         add_button.clicked.connect(self.add_model)
@@ -351,6 +365,24 @@ class ModelsTab(QWidget):
             QListWidget::item:hover {
                 background-color: #404040;
             }
+            QScrollBar:vertical {
+                border: none;
+                background-color: #2b2b2b;
+                width: 10px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #404040;
+                min-height: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
         """)
         # Set size policy to expand
         self.models_list.setSizePolicy(
@@ -367,8 +399,27 @@ class ModelsTab(QWidget):
         if not self.available_models and not self.fetch_worker:
             self.fetch_models()
 
+    def cleanup(self):
+        """Clean up any running threads."""
+        if self.fetch_worker and self.fetch_worker.isRunning():
+            self.fetch_worker.quit()
+            self.fetch_worker.wait()
+
+    def hideEvent(self, event):
+        """Called when the tab is hidden."""
+        self.cleanup()
+        super().hideEvent(event)
+
+    def closeEvent(self, event):
+        """Called when the window is closed."""
+        self.cleanup()
+        super().closeEvent(event)
+
     def fetch_models(self):
         """Fetch available models from Google API."""
+        # Clean up any existing worker first
+        self.cleanup()
+
         api_key = self.settings.get_api_key('google')
         if not api_key:
             self.model_dropdown.clear()
@@ -450,9 +501,15 @@ class ModelsTab(QWidget):
                 line-height: 24px;
                 min-width: 24px;
                 max-width: 24px;
+                border: none;
             }
             QPushButton:hover {
                 background-color: #ff6666;
+            }
+            QPushButton:pressed {
+                background-color: #cc3333;
+                padding-top: 1px;
+                padding-left: 1px;
             }
         """)
         remove_btn.clicked.connect(lambda: self.remove_model(model_info['id']))
