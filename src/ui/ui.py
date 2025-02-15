@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTextEdit,
                              QFrame, QLabel, QPushButton, QHBoxLayout, QProgressBar,
-                             QGridLayout)
+                             QGridLayout, QComboBox, QSizePolicy)
 from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QFont, QClipboard
 from typing import Callable, Optional, Tuple
@@ -207,7 +207,7 @@ class DasiWindow(QWidget):
 
         # Action buttons (hidden by default)
         self.action_frame = QFrame()
-        self.action_layout = QHBoxLayout()  # Make it instance variable
+        self.action_layout = QVBoxLayout()  # Vertical layout for combo box above buttons
         self.action_layout.setContentsMargins(5, 0, 5, 5)
         
         # Create stop button (hidden by default)
@@ -215,6 +215,13 @@ class DasiWindow(QWidget):
         self.stop_button.setObjectName("stopButton")
         self.stop_button.clicked.connect(self._handle_stop)
         self.stop_button.hide()
+        
+        # Create insertion method selector
+        self.insert_method = QComboBox()
+        self.insert_method.setObjectName("insertMethod")
+        self.insert_method.addItem("⚡ Copy/Paste", "paste")
+        self.insert_method.addItem("⌨ Type Text", "type")
+        self.insert_method.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
         # Create accept/reject buttons
         self.accept_button = QPushButton("Accept")
@@ -229,9 +236,15 @@ class DasiWindow(QWidget):
         self.reject_button = QPushButton("Reject")
         self.reject_button.clicked.connect(self._handle_reject)
 
-        # Add buttons to action layout
-        self.action_layout.addWidget(self.accept_button)
-        self.action_layout.addWidget(self.reject_button)
+        # Create button layout
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(5)
+        button_layout.addWidget(self.accept_button)
+        button_layout.addWidget(self.reject_button)
+
+        # Add widgets to action layout vertically
+        self.action_layout.addWidget(self.insert_method)
+        self.action_layout.addLayout(button_layout)
         self.action_frame.setLayout(self.action_layout)
         self.action_frame.hide()
 
@@ -329,6 +342,48 @@ class DasiWindow(QWidget):
             #stopButton:hover {
                 background-color: #ff6666;
             }
+            #insertMethod {
+                background-color: #363636;
+                border: 1px solid #4a4a4a;
+                border-radius: 3px;
+                padding: 5px 8px;
+                color: #cccccc;
+                min-height: 28px;
+                font-size: 11px;
+            }
+            #insertMethod::drop-down {
+                border: none;
+                width: 20px;
+                padding-right: 8px;
+            }
+            #insertMethod::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid #888;
+                margin-right: 4px;
+            }
+            #insertMethod:hover {
+                background-color: #404040;
+                border-color: #5a5a5a;
+                color: white;
+            }
+            #insertMethod QAbstractItemView {
+                background-color: #363636;
+                border: 1px solid #4a4a4a;
+                color: #cccccc;
+                selection-background-color: #4a4a4a;
+                selection-color: white;
+                outline: none;
+            }
+            #insertMethod QAbstractItemView::item {
+                padding: 5px 8px;
+                min-height: 24px;
+            }
+            #insertMethod QAbstractItemView::item:hover {
+                background-color: #404040;
+                color: white;
+            }
             QProgressBar {
                 border: none;
                 background-color: #363636;
@@ -402,6 +457,7 @@ class DasiWindow(QWidget):
             self.progress_bar.hide()
             self.input_field.setEnabled(True)
             self.stop_button.hide()
+            self.insert_method.show()
             self.accept_button.show()
             self.reject_button.show()
 
@@ -414,6 +470,7 @@ class DasiWindow(QWidget):
             self.progress_bar.setRange(0, 0)  # Indeterminate progress
             self.progress_bar.show()
             self.stop_button.show()
+            self.insert_method.hide()
             self.accept_button.hide()
             self.reject_button.hide()
 
@@ -473,6 +530,7 @@ class DasiWindow(QWidget):
             self.progress_bar.hide()
             self.input_field.setEnabled(True)
             self.stop_button.hide()
+            self.insert_method.show()
             self.accept_button.show()
             self.reject_button.show()
             return
@@ -501,13 +559,20 @@ class DasiWindow(QWidget):
             # Clear clipboard selection
             clipboard = QApplication.clipboard()
             clipboard.clear(QClipboard.Mode.Selection)
+            
+            # Get selected insertion method
+            method = self.insert_method.currentData()
+            
+            # Format query with method and response
+            query = f"!{method}:{response}"
+            
+            # Process the response with selected method
+            self.process_query(query)
+            
         self.right_panel.hide()
 
         # Reset window size
         self.setFixedWidth(320)
-
-        # Add prefix to indicate this is a response to be typed
-        self.process_query("!" + response)
 
     def _handle_reject(self):
         """Reject the generated response."""
