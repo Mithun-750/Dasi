@@ -1,25 +1,16 @@
 import os
-from typing import Optional
+import logging
+from typing import Optional, Callable
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from ui.settings_window import Settings
+from ui.settings import Settings
 
 
 class LLMHandler:
     def __init__(self):
         """Initialize LLM handler with Gemini model."""
-        settings = Settings()
-        api_key = settings.get('google_api_key')
-        if not api_key:
-            raise ValueError("Google API key not found in settings")
-
-        self.llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-pro",
-            temperature=0.7,
-            google_api_key=api_key
-        )
-
-        # Create prompt template for direct responses
+        self.llm = None
+        self.settings = Settings()
         self.prompt = ChatPromptTemplate([
             ("system", """
             You are Dasi, an intelligent desktop copilot that helps users with their daily computer tasks. You appear when users press Ctrl+Alt+Shift+I, showing a popup near their cursor. You help users with tasks like:
@@ -41,27 +32,54 @@ class LLMHandler:
             """),
             ("human", "{query}")
         ])
+        self.initialize_llm()
 
-    def get_response(self, query: str, callback=None) -> Optional[str]:
+    def initialize_llm(self) -> bool:
+        """Initialize the LLM with the current API key. Returns True if successful."""
+        try:
+            api_key = self.settings.get_api_key('google')
+            if not api_key:
+                logging.warning("No API key found in settings")
+                return False
+
+            self.llm = ChatGoogleGenerativeAI(
+                model="gemini-pro",
+                google_api_key=api_key,
+                temperature=0.7,
+                convert_system_message_to_human=True
+            )
+            return True
+        except Exception as e:
+            logging.error(f"Error initializing LLM: {str(e)}", exc_info=True)
+            return False
+
+    def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None) -> str:
         """Get response from LLM for the given query. If callback is provided, stream the response."""
+        # Check if LLM is initialized, try to initialize if not
+        if not self.llm and not self.initialize_llm():
+            return "Please add your Google API key in settings to use Dasi."
+
         try:
             # Parse context and query
             if "Context:" in query:
                 context_section, actual_query = query.split("\n\nQuery:\n", 1)
-                context_section = context_section.replace("Context:\n", "").strip()
-                
+                context_section = context_section.replace(
+                    "Context:\n", "").strip()
+
                 # Parse different types of context
                 context = {}
                 if "Selected Text:" in context_section:
-                    selected_text = context_section.split("Selected Text:\n", 1)[1]
+                    selected_text = context_section.split(
+                        "Selected Text:\n", 1)[1]
                     selected_text = selected_text.split("\n\n", 1)[0].strip()
                     context['selected_text'] = selected_text
-                
+
                 if "Last Response:" in context_section:
-                    last_response = context_section.split("Last Response:\n", 1)[1]
+                    last_response = context_section.split(
+                        "Last Response:\n", 1)[1]
                     last_response = last_response.split("\n\n", 1)[0].strip()
                     context['last_response'] = last_response
-                
+
                 # Create a special prompt for queries with context
                 context_prompt = ChatPromptTemplate([
                     ("system", """
@@ -86,14 +104,16 @@ class LLMHandler:
                     """),
                     ("human", "{query}")
                 ])
-                
+
                 # Build context description
                 context_desc = []
                 if 'selected_text' in context:
-                    context_desc.append(f"Selected Text (what the user has highlighted):\n{context['selected_text']}")
+                    context_desc.append(
+                        f"Selected Text (what the user has highlighted):\n{context['selected_text']}")
                 if 'last_response' in context:
-                    context_desc.append(f"Previous Response:\n{context['last_response']}")
-                
+                    context_desc.append(
+                        f"Previous Response:\n{context['last_response']}")
+
                 # Format prompt with context and actual query
                 messages = context_prompt.invoke({
                     "context_desc": "\n\n".join(context_desc),
@@ -117,5 +137,6 @@ class LLMHandler:
                 response = self.llm.invoke(messages)
                 return response.content.strip()
         except Exception as e:
-            print(f"Error getting LLM response: {e}")
-            return None
+            logging.error(
+                f"Error getting LLM response: {str(e)}", exc_info=True)
+            return f"Error: {str(e)}"
