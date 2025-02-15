@@ -475,15 +475,21 @@ class ModelsTab(QWidget):
         if current_index >= 0:
             model_info = self.model_dropdown.itemData(current_index)
             if model_info and model_info['id'] not in self.settings.get_selected_model_ids():
+                # Add model to settings
                 if self.settings.add_selected_model(
                     model_info['id'],
                     model_info['provider'],
                     model_info['name']
                 ):
+                    # Reload settings from disk to ensure we have latest data
+                    self.settings.load_settings()
+                    # Update UI
                     self.add_model_to_list(model_info)
 
     def remove_model(self, model_id: str):
         """Remove a model from the list."""
         if self.settings.remove_selected_model(model_id):
+            # Reload settings from disk
+            self.settings.load_settings()
             # Refresh the list
             self.load_selected_models()

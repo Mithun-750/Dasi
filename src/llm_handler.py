@@ -34,11 +34,21 @@ class LLMHandler:
             """),
             ("human", "{query}")
         ])
+        # Connect to settings changes
+        self.settings.models_changed.connect(self.on_models_changed)
         self.initialize_llm()
+
+    def on_models_changed(self):
+        """Handle changes to the models list."""
+        # Reload settings when models are changed
+        self.settings.load_settings()
 
     def initialize_llm(self, model_name: str = "gemini-pro") -> bool:
         """Initialize the LLM with the current API key and specified model. Returns True if successful."""
         try:
+            # Reload settings to ensure we have the latest data
+            self.settings.load_settings()
+
             # Get model info from settings
             selected_models = self.settings.get_selected_models()
             model_info = next(

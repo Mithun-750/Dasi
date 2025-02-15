@@ -126,6 +126,8 @@ class Settings(QObject):
             current_models.append(model_info)
             success = self.set(current_models, 'models', 'selected_models')
             if success:
+                # Reload settings to ensure we have latest data
+                self.load_settings()
                 self.models_changed.emit()
             return success
         return True
@@ -137,6 +139,8 @@ class Settings(QObject):
         if len(filtered_models) != len(current_models):
             success = self.set(filtered_models, 'models', 'selected_models')
             if success:
+                # Reload settings to ensure we have latest data
+                self.load_settings()
                 self.models_changed.emit()
             return success
         return True
