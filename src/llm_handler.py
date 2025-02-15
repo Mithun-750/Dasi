@@ -3,6 +3,7 @@ import logging
 from typing import Optional, Callable
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from ui.settings import Settings
 
@@ -80,11 +81,6 @@ IMPORTANT RULES:
             provider = model_info['provider']
             model_id = model_info['id']
 
-            # Get API key for the provider
-            api_key = self.settings.get_api_key(provider)
-            if not api_key:
-                return False
-
             # Get temperature from settings
             temperature = self.settings.get(
                 'general', 'temperature', default=0.7)
@@ -97,8 +93,14 @@ IMPORTANT RULES:
 
                 self.llm = ChatGoogleGenerativeAI(
                     model=model_id,
-                    google_api_key=api_key,
+                    google_api_key=self.settings.get_api_key('google'),
                     temperature=temperature,
+                )
+            elif provider == 'ollama':
+                self.llm = ChatOllama(
+                    model=model_id,
+                    temperature=temperature,
+                    base_url="http://localhost:11434",
                 )
             else:  # OpenRouter
                 # Use fixed OpenRouter settings
@@ -112,7 +114,7 @@ IMPORTANT RULES:
                     model=model_id,
                     temperature=temperature,
                     streaming=True,
-                    openai_api_key=api_key,
+                    openai_api_key=self.settings.get_api_key('openrouter'),
                     base_url="https://openrouter.ai/api/v1",
                     default_headers=headers
                 )
