@@ -65,11 +65,22 @@ IMPORTANT RULES:
                 ("human", "{query}")
             ])
 
-    def initialize_llm(self, model_name: str = "gemini-pro") -> bool:
+    def initialize_llm(self, model_name: str = None) -> bool:
         """Initialize the LLM with the current API key and specified model. Returns True if successful."""
         try:
             # Reload settings to ensure we have the latest data
             self.settings.load_settings()
+
+            # If no model specified, use default model from settings
+            if model_name is None:
+                model_name = self.settings.get('models', 'default_model')
+                if not model_name:
+                    # If no default model set, use first available model
+                    selected_models = self.settings.get_selected_models()
+                    if selected_models:
+                        model_name = selected_models[0]['id']
+                    else:
+                        return False
 
             # Get model info from settings
             selected_models = self.settings.get_selected_models()
@@ -88,12 +99,9 @@ IMPORTANT RULES:
 
             # Initialize appropriate LLM based on provider
             if provider == 'google':
-                # Clean up model name for Google models (remove 'models/' prefix if present)
-                if model_id.startswith('models/'):
-                    model_id = model_id.replace('models/', '', 1)
-
+                # Keep the full model ID for Gemini models
                 self.llm = ChatGoogleGenerativeAI(
-                    model=model_id,
+                    model=model_id,  # Keep the full model ID including 'models/' prefix
                     google_api_key=self.settings.get_api_key('google'),
                     temperature=temperature,
                 )

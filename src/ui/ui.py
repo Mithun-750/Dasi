@@ -685,16 +685,23 @@ class DasiWindow(QWidget):
             self.model_selector.setEnabled(False)
             return
 
+        # Get default model ID
+        default_model_id = self.settings.get('models', 'default_model')
+        default_index = 0  # Default to first model if no default set
+
         # Add models with their metadata
-        for model in selected_models:
+        for index, model in enumerate(selected_models):
             display_text = f"{model['name']} ({model['provider']})"
             # Store the full model info in the item data
             self.model_selector.addItem(display_text, model)
+            # If this is the default model, store its index
+            if default_model_id and model['id'] == default_model_id:
+                default_index = index
 
         self.model_selector.setEnabled(True)
 
-        # Set the first model as default
-        self.model_selector.setCurrentIndex(0)
+        # Set the default model as current
+        self.model_selector.setCurrentIndex(default_index)
 
     def showEvent(self, event):
         """Called when the window becomes visible."""

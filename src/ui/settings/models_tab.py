@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QEvent, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QEvent, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QPalette
 from .settings_manager import Settings
 
@@ -465,7 +465,10 @@ class ModelsTab(QWidget):
         """Clean up any running threads."""
         if self.fetch_worker and self.fetch_worker.isRunning():
             self.fetch_worker.quit()
-            self.fetch_worker.wait()
+            self.fetch_worker.wait(2000)  # Wait up to 2 seconds
+            if self.fetch_worker.isRunning():
+                self.fetch_worker.terminate()
+                self.fetch_worker.wait()
 
     def hideEvent(self, event):
         """Called when the tab is hidden."""
@@ -571,10 +574,56 @@ class ModelsTab(QWidget):
             }
         """)
 
+        # Create button container for better alignment
+        button_container = QWidget()
+        button_container.setObjectName("buttonContainer")
+        button_layout = QHBoxLayout(button_container)
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setSpacing(8)
+
+        # Default model indicator and button
+        is_default = self.settings.get(
+            'models', 'default_model') == model_info['id']
+        default_label = QLabel("Default")
+        default_label.setStyleSheet("""
+            QLabel {
+                color: #4caf50;
+                font-size: 12px;
+                padding: 4px 8px;
+                background-color: #1e4620;
+                border-radius: 3px;
+            }
+        """)
+        default_label.setVisible(is_default)
+
+        default_btn = QPushButton("Set Default")
+        default_btn.setObjectName("defaultButton")
+        default_btn.setStyleSheet("""
+            QPushButton#defaultButton {
+                background-color: #2b5c99;
+                border: none;
+                border-radius: 3px;
+                padding: 4px 8px;
+                font-size: 12px;
+                min-width: 80px;
+            }
+            QPushButton#defaultButton:hover {
+                background-color: #366bb3;
+            }
+            QPushButton#defaultButton:pressed {
+                background-color: #1f4573;
+            }
+        """)
+        # Hide by default, will be shown on hover
+        default_btn.setVisible(False)
+        default_btn.clicked.connect(
+            lambda: self.set_default_model(model_info['id']))
+
         remove_btn = QPushButton("×")
+        remove_btn.setObjectName("removeButton")
         remove_btn.setFixedSize(24, 24)
         remove_btn.setStyleSheet("""
-            QPushButton {
+            QPushButton#removeButton {
                 background-color: #ff4444;
                 border-radius: 12px;
                 font-weight: bold;
@@ -584,30 +633,83 @@ class ModelsTab(QWidget):
                 line-height: 24px;
                 min-width: 24px;
                 max-width: 24px;
+                min-height: 24px;
+                max-height: 24px;
+                text-align: center;
                 border: none;
             }
-            QPushButton:hover {
+            QPushButton#removeButton:hover {
                 background-color: #ff6666;
             }
-            QPushButton:pressed {
+            QPushButton#removeButton:pressed {
                 background-color: #cc3333;
                 padding-top: 1px;
                 padding-left: 1px;
             }
         """)
+        # Hide by default, will be shown on hover
+        remove_btn.setVisible(False)
         remove_btn.clicked.connect(lambda: self.remove_model(model_info['id']))
+
+        button_layout.addWidget(default_label)
+        button_layout.addWidget(default_btn)
+        button_layout.addWidget(remove_btn)
 
         layout.addWidget(label)
         layout.addStretch()
-        layout.addWidget(remove_btn)
+        layout.addWidget(button_container)
 
         widget.setLayout(layout)
 
-        item_height = max(40, remove_btn.height(
-        ) + layout.contentsMargins().top() + layout.contentsMargins().bottom())
-        item.setSizeHint(widget.sizeHint())
+        # Create event filter for hover effects
+        class HoverEventFilter(QObject):
+            def __init__(self, parent=None):
+                super().__init__(parent)
+                self.default_btn = default_btn
+                self.remove_btn = remove_btn
+                self.is_default = is_default
+
+            def eventFilter(self, obj, event):
+                if event.type() == QEvent.Type.Enter:
+                    if not self.is_default:
+                        self.default_btn.setVisible(True)
+                    self.remove_btn.setVisible(True)
+                elif event.type() == QEvent.Type.Leave:
+                    self.default_btn.setVisible(False)
+                    self.remove_btn.setVisible(False)
+                return False
+
+        # Install event filter on the widget
+        hover_filter = HoverEventFilter(widget)
+        widget.installEventFilter(hover_filter)
+        # Store reference to prevent garbage collection
+        widget.hover_filter = hover_filter
+
+        # Calculate item height to ensure enough space for all elements
+        padding = layout.contentsMargins().top() + layout.contentsMargins().bottom()
+        min_height = max(40, remove_btn.height() +
+                         padding + 8)  # Added extra padding
+        size_hint = widget.sizeHint()
+        size_hint.setHeight(min_height)
+        item.setSizeHint(size_hint)
 
         self.models_list.setItemWidget(item, widget)
+
+    def set_default_model(self, model_id: str):
+        """Set a model as the default model."""
+        # Save the default model in settings
+        self.settings.set(model_id, 'models', 'default_model')
+
+        # Refresh the list to update the UI
+        self.load_selected_models()
+
+        # Show confirmation message
+        QMessageBox.information(
+            self,
+            "Success",
+            f"Default model has been set successfully.",
+            QMessageBox.StandardButton.Ok
+        )
 
     def add_model(self):
         """Add selected model to the list."""
