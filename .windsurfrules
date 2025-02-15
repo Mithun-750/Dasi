@@ -1,5 +1,3 @@
-# .windsurfrules
-
 [Project]
 Name = Dasi
 Version = 1.0
@@ -8,7 +6,7 @@ Description = "Dasi is a desktop copilot that provides inline LLM support using 
 [Architecture]
 Modules = ["main.py", "hotkey_listener.py", "ui.py", "llm_handler.py"]
 Dependencies = ["pyautogui", "pynput", "customtkinter",
-"langchain_google_genai", "python-dotenv", "windsurf"]
+                "langchain_google_genai", "python-dotenv", "windsurf"]
 Integration = "LangChain integration with Gemini Google API using API keys from the environment."
 
 [Functionality]
@@ -33,7 +31,7 @@ Requirements = "Python 3.8+, required libraries installed via pip, and a valid G
 [Development]
 Modularity = "The project is organized into distinct modules for hotkey listening, UI management, and LLM handling."
 FutureEnhancements = ["Refine UI styling and responsiveness", "Improve multi-monitor support",
-"Add additional LLM integrations", "Enhance error handling and logging mechanisms"]
+                      "Add additional LLM integrations", "Enhance error handling and logging mechanisms"]
 
 [Notes]
 
