@@ -109,6 +109,20 @@ IMPORTANT RULES:
                     groq_api_key=self.settings.get_api_key('groq'),
                     temperature=temperature,
                 )
+            elif provider == 'custom_openai':
+                # Get custom OpenAI settings
+                base_url = self.settings.get(
+                    'models', 'custom_openai', 'base_url')
+                if not base_url:
+                    return False
+
+                self.llm = ChatOpenAI(
+                    model=model_id,
+                    temperature=temperature,
+                    streaming=True,
+                    openai_api_key=self.settings.get_api_key('custom_openai'),
+                    base_url=base_url.rstrip('/') + '/v1',
+                )
             else:  # OpenRouter
                 # Use fixed OpenRouter settings
                 headers = {
@@ -155,11 +169,11 @@ IMPORTANT RULES:
 
             if needs_init:
                 if not self.initialize_llm(model):
-                    return "Please add the appropriate API key in settings to use this model."
+                    return "⚠️ Please add the appropriate API key in settings to use this model."
 
         # Check if LLM is initialized, try to initialize if not
         if not self.llm and not self.initialize_llm():
-            return "Please add your API key in settings to use Dasi."
+            return "⚠️ Please add your API key in settings to use Dasi."
 
         try:
             # Parse context and query
@@ -213,7 +227,23 @@ Available Context:
         except Exception as e:
             logging.error(
                 f"Error getting LLM response: {str(e)}", exc_info=True)
-            return f"Error: {str(e)}"
+
+            # Format error message for UI
+            error_msg = str(e)
+            if "NotFoundError" in error_msg:
+                if "Model" in error_msg and "does not exist" in error_msg:
+                    return "⚠️ Error: The selected model is not available. Please choose a different model in settings."
+            elif "AuthenticationError" in error_msg:
+                return "⚠️ Error: Invalid API key. Please check your API key in settings."
+            elif "RateLimitError" in error_msg:
+                return "⚠️ Error: Rate limit exceeded. Please try again in a moment."
+            elif "InvalidRequestError" in error_msg:
+                return "⚠️ Error: Invalid request. Please try again with different input."
+            elif "ServiceUnavailableError" in error_msg:
+                return "⚠️ Error: Service is currently unavailable. Please try again later."
+
+            # For other errors, provide a cleaner message
+            return f"⚠️ Error: {error_msg}"
 
     def _format_context(self, context: dict) -> str:
         """Format context dictionary into a string."""

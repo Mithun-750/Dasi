@@ -6,6 +6,8 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QMessageBox,
+    QScrollArea,
+    QFrame,
 )
 from PyQt6.QtCore import Qt
 from .settings_manager import Settings
@@ -18,14 +20,50 @@ class APIKeysTab(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(20, 20, 20, 20)
+        # Create main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(20, 20, 20, 20)
 
         # Title
         title = QLabel("API Keys")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(title)
+        main_layout.addWidget(title)
+
+        # Create scroll area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background-color: #2b2b2b;
+                width: 10px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #404040;
+                min-height: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
+
+        # Create content widget for scroll area
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setSpacing(20)
+        layout.setContentsMargins(0, 0, 20, 0)  # Right margin for scrollbar
 
         # Google API Key section
         google_section = self.create_api_key_section(
@@ -51,8 +89,18 @@ class APIKeysTab(QWidget):
         )
         layout.addWidget(groq_section)
 
+        # Custom OpenAI section
+        custom_openai_section = self.create_custom_openai_section()
+        layout.addWidget(custom_openai_section)
+
         # Add stretch to push everything to the top
         layout.addStretch()
+
+        # Set the content widget to the scroll area
+        scroll.setWidget(content)
+
+        # Add scroll area to main layout
+        main_layout.addWidget(scroll)
 
     def create_api_key_section(self, title: str, provider: str, placeholder: str) -> QWidget:
         """Create a section for an API key input."""
@@ -213,4 +261,76 @@ class APIKeysTab(QWidget):
                 "Error",
                 "Failed to save API key. Please try again.",
                 QMessageBox.StandardButton.Ok
+            )
+
+    def create_custom_openai_section(self):
+        """Create section for custom OpenAI-compatible model configuration."""
+        section = QWidget()
+        layout = QVBoxLayout()
+        section.setLayout(layout)
+
+        # Title
+        title = QLabel("Custom OpenAI-Compatible Model")
+        title.setStyleSheet("font-weight: bold;")
+        layout.addWidget(title)
+
+        # Base URL input
+        base_url_layout = QHBoxLayout()
+        base_url_label = QLabel("Base URL:")
+        self.base_url_input = QLineEdit()
+        self.base_url_input.setPlaceholderText(
+            "Enter base URL (e.g., http://localhost:8000)")
+        current_url = self.settings.get(
+            'models', 'custom_openai', 'base_url', default='')
+        self.base_url_input.setText(current_url)
+        self.base_url_input.textChanged.connect(
+            self.save_custom_openai_settings)
+        base_url_layout.addWidget(base_url_label)
+        base_url_layout.addWidget(self.base_url_input)
+        layout.addLayout(base_url_layout)
+
+        # Model ID input
+        model_id_layout = QHBoxLayout()
+        model_id_label = QLabel("Model ID:")
+        self.model_id_input = QLineEdit()
+        self.model_id_input.setPlaceholderText(
+            "Enter model ID (e.g., gpt-3.5-turbo)")
+        current_model_id = self.settings.get(
+            'models', 'custom_openai', 'model_id', default='')
+        self.model_id_input.setText(current_model_id)
+        self.model_id_input.textChanged.connect(
+            self.save_custom_openai_settings)
+        model_id_layout.addWidget(model_id_label)
+        model_id_layout.addWidget(self.model_id_input)
+        layout.addLayout(model_id_layout)
+
+        # API Key input
+        api_key_section = self.create_api_key_section(
+            "API Key",
+            "custom_openai",
+            "Enter API key for custom OpenAI-compatible model..."
+        )
+        layout.addWidget(api_key_section)
+
+        return section
+
+    def save_custom_openai_settings(self):
+        """Save custom OpenAI settings when changed."""
+        base_url = self.base_url_input.text().strip()
+        model_id = self.model_id_input.text().strip()
+
+        # Ensure the models.custom_openai dictionary exists
+        if not self.settings.get('models', 'custom_openai'):
+            self.settings.set({}, 'models', 'custom_openai')
+
+        # Save the base URL and model ID
+        self.settings.set(base_url, 'models', 'custom_openai', 'base_url')
+        self.settings.set(model_id, 'models', 'custom_openai', 'model_id')
+
+        # If both base URL and model ID are set, add to selected models
+        if base_url and model_id:
+            self.settings.add_selected_model(
+                model_id,
+                'custom_openai',
+                f"Custom: {model_id}"
             )

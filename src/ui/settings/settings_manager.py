@@ -23,11 +23,17 @@ class Settings(QObject):
         self.settings = {
             'api_keys': {
                 'google': '',
-                'openrouter': ''
+                'openrouter': '',
+                'groq': '',
+                'custom_openai': ''  # API key for custom OpenAI-compatible model
             },
             'models': {
                 # List of {id: str, provider: str, name: str}
                 'selected_models': [],
+                'custom_openai': {
+                    'base_url': '',  # Base URL for custom OpenAI-compatible endpoint
+                    'models': []  # List of available model names
+                }
             },
             'general': {
             }
@@ -67,13 +73,13 @@ class Settings(QObject):
 
     def get(self, *keys, default=None):
         """Get a nested setting value."""
-        current = self.settings
-        for key in keys:
-            if isinstance(current, dict):
-                current = current.get(key, default)
-            else:
-                return default
-        return current
+        try:
+            current = self.settings
+            for key in keys:
+                current = current[key]
+            return current
+        except (KeyError, TypeError):
+            return default
 
     def set(self, value, *keys):
         """Set a nested setting value and save."""
