@@ -43,6 +43,14 @@ class APIKeysTab(QWidget):
         )
         layout.addWidget(openrouter_section)
 
+        # Groq API Key section
+        groq_section = self.create_api_key_section(
+            "Groq API Key",
+            "groq",
+            "Enter your Groq API key here..."
+        )
+        layout.addWidget(groq_section)
+
         # Add stretch to push everything to the top
         layout.addStretch()
 
