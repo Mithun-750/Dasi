@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import pyautogui
+import pyperclip
 from pathlib import Path
 from hotkey_listener import HotkeyListener
 from ui.ui import CopilotUI
@@ -216,12 +217,23 @@ class Dasi:
         sys.exit(0)
 
     def process_query(self, query: str, callback=None) -> str:
-        """Process query and return response. If query starts with '!', it's a response to be typed."""
+        """Process query and return response. 
+        If query starts with '!', it's a response to be inserted.
+        Format: !<method>:<text> where method is 'paste' or 'type'
+        """
         try:
             if query.startswith('!'):
-                # This is a response to be typed
-                response = query[1:]  # Remove the ! prefix
-                pyautogui.write(response, interval=0.01)
+                # Parse method and response
+                method, response = query[1:].split(':', 1)
+                
+                # Insert based on method
+                if method == 'paste':
+                    # Use clipboard paste
+                    pyperclip.copy(response)
+                    pyautogui.hotkey('ctrl', 'v')
+                else:
+                    # Simulate typing
+                    pyautogui.write(response, interval=0.01)
                 return response
             else:
                 # This is a query to be processed
