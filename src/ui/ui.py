@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QFont, QClipboard
 from typing import Callable, Optional, Tuple
 import sys
+from .settings import Settings
 
 
 class UISignals(QObject):
@@ -17,11 +18,13 @@ class UISignals(QObject):
 class QueryWorker(QThread):
     """Worker thread for processing queries."""
 
-    def __init__(self, process_fn: Callable[[str, Optional[Callable[[str], None]]], str], query: str, signals: UISignals):
+    def __init__(self, process_fn: Callable[[str, Optional[Callable[[str], None]], Optional[str]], str],
+                 query: str, signals: UISignals, model: Optional[str] = None):
         super().__init__()
         self.process_fn = process_fn
         self.query = query
         self.signals = signals
+        self.model = model
         self.is_stopped = False
 
     def run(self):
@@ -32,7 +35,7 @@ class QueryWorker(QThread):
                 if not self.is_stopped:
                     self.signals.process_response.emit(partial_response)
 
-            result = self.process_fn(self.query, stream_callback)
+            result = self.process_fn(self.query, stream_callback, self.model)
             if not self.is_stopped and not result:
                 self.signals.process_error.emit("No response received")
             # Signal completion
@@ -82,6 +85,10 @@ class DasiWindow(QWidget):
         self.selected_text = None  # Store selected text
         self.last_response = None  # Store last response
         self.conversation_context = {}  # Store conversation context
+        self.settings = Settings()  # Initialize settings
+
+        # Connect to settings signals
+        self.settings.models_changed.connect(self.update_model_selector)
 
         # Window flags
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint |
@@ -182,13 +189,64 @@ class DasiWindow(QWidget):
         self.input_field.setPlaceholderText("Type your query...")
         self.input_field.setMinimumHeight(80)
 
-        # Loading progress bar (hidden by default)
+        # Model selector
+        model_container = QWidget()
+        model_layout = QHBoxLayout(model_container)
+        model_layout.setContentsMargins(0, 5, 0, 5)
+        model_layout.setSpacing(5)
+
+        model_label = QLabel("Model:")
+        model_label.setStyleSheet("""
+            QLabel {
+                color: #888888;
+                font-size: 11px;
+            }
+        """)
+
+        self.model_selector = QComboBox()
+        self.model_selector.setStyleSheet("""
+            QComboBox {
+                background-color: #363636;
+                border: none;
+                border-radius: 3px;
+                padding: 3px 8px;
+                font-size: 11px;
+                color: #cccccc;
+                min-width: 150px;
+            }
+            QComboBox::drop-down {
+                border: none;
+                padding-right: 8px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid #888;
+                margin-right: 4px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #363636;
+                border: 1px solid #4a4a4a;
+                selection-background-color: #404040;
+                selection-color: white;
+                padding: 4px;
+            }
+        """)
+        self.update_model_selector()
+
+        model_layout.addWidget(model_label)
+        model_layout.addWidget(self.model_selector)
+        model_layout.addStretch()
+
+        # Loading progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setFixedHeight(2)
         self.progress_bar.hide()
 
         left_layout.addWidget(self.input_field, 1)
+        left_layout.addWidget(model_container)
         left_layout.addWidget(self.progress_bar)
         left_panel.setLayout(left_layout)
 
@@ -514,9 +572,14 @@ class DasiWindow(QWidget):
             # Clear input field for next query
             self.input_field.clear()
 
+            # Get selected model
+            model = self.model_selector.currentText()
+            if model == "No models selected":
+                model = None
+
             # Process query in background
             self.worker = QueryWorker(
-                self.process_query, full_query, self.signals)
+                self.process_query, full_query, self.signals, model)
             self.worker.start()
 
     def _handle_error(self, error_msg: str):
@@ -602,6 +665,35 @@ class DasiWindow(QWidget):
 
         # Focus input field
         self.input_field.setFocus()
+
+    def update_model_selector(self):
+        """Update the model selector with currently selected models."""
+        # Reload settings from disk
+        self.settings.load_settings()
+
+        self.model_selector.clear()
+        selected_models = self.settings.get_selected_models()
+
+        if not selected_models:
+            self.model_selector.addItem("No models selected")
+            self.model_selector.setEnabled(False)
+            return
+
+        self.model_selector.addItems(selected_models)
+        self.model_selector.setEnabled(True)
+
+        # Set the first model as default
+        self.model_selector.setCurrentIndex(0)
+
+    def showEvent(self, event):
+        """Called when the window becomes visible."""
+        super().showEvent(event)
+        # Update model selector when window is shown
+        self.update_model_selector()
+
+    def get_selected_model(self) -> str:
+        """Get the currently selected model."""
+        return self.model_selector.currentText()
 
 
 class CopilotUI:

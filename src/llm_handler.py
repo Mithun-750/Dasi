@@ -34,8 +34,8 @@ class LLMHandler:
         ])
         self.initialize_llm()
 
-    def initialize_llm(self) -> bool:
-        """Initialize the LLM with the current API key. Returns True if successful."""
+    def initialize_llm(self, model_name: str = "gemini-pro") -> bool:
+        """Initialize the LLM with the current API key and specified model. Returns True if successful."""
         try:
             api_key = self.settings.get_api_key('google')
             if not api_key:
@@ -43,7 +43,7 @@ class LLMHandler:
                 return False
 
             self.llm = ChatGoogleGenerativeAI(
-                model="gemini-pro",
+                model=model_name,
                 google_api_key=api_key,
                 temperature=0.7,
                 convert_system_message_to_human=True
@@ -53,8 +53,13 @@ class LLMHandler:
             logging.error(f"Error initializing LLM: {str(e)}", exc_info=True)
             return False
 
-    def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None) -> str:
+    def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None) -> str:
         """Get response from LLM for the given query. If callback is provided, stream the response."""
+        # Initialize with specified model if provided
+        if model and (not self.llm or model != self.llm.model):
+            if not self.initialize_llm(model):
+                return "Please add your Google API key in settings to use Dasi."
+
         # Check if LLM is initialized, try to initialize if not
         if not self.llm and not self.initialize_llm():
             return "Please add your Google API key in settings to use Dasi."
