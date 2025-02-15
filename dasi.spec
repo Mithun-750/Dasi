@@ -43,11 +43,11 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name='dasi',
-    debug=True,  # Enable debug mode
+    debug=False,  # Enable debug mode
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,  # Temporarily enable console for debugging
+    console=False,  # Temporarily enable console for debugging
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

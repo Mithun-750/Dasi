@@ -38,7 +38,16 @@ class ModelFetchWorker(QThread):
             )
             response.raise_for_status()
             models = response.json().get('models', [])
-            self.finished.emit([model['name'] for model in models])
+
+            # Filter for models that support text generation
+            text_models = []
+            for model in models:
+                # Check if model supports text generation
+                if any(method in model.get('supportedGenerationMethods', [])
+                       for method in ['generateText', 'generateContent']):
+                    text_models.append(model['name'])
+
+            self.finished.emit(text_models)
         except Exception as e:
             self.error.emit(str(e))
 

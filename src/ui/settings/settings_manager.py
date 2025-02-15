@@ -2,10 +2,15 @@ import os
 import json
 from pathlib import Path
 from typing import List, Dict, Any
+from PyQt6.QtCore import QObject, pyqtSignal
 
 
-class Settings:
+class Settings(QObject):
+    """Settings manager with signals for changes."""
+    models_changed = pyqtSignal()  # Signal emitted when models list changes
+
     def __init__(self):
+        super().__init__()
         # Get config directory (following XDG specification)
         self.config_dir = Path(
             os.getenv('XDG_CONFIG_HOME', Path.home() / '.config')) / 'dasi'
@@ -95,14 +100,20 @@ class Settings:
 
     def set_selected_models(self, models: List[str]) -> bool:
         """Set list of selected models."""
-        return self.set(models, 'models', 'selected_models')
+        success = self.set(models, 'models', 'selected_models')
+        if success:
+            self.models_changed.emit()  # Emit signal when models change
+        return success
 
     def add_selected_model(self, model: str) -> bool:
         """Add a model to selected models if not already present."""
         current_models = self.get_selected_models()
         if model not in current_models:
             current_models.append(model)
-            return self.set_selected_models(current_models)
+            success = self.set_selected_models(current_models)
+            if success:
+                self.models_changed.emit()  # Emit signal when models change
+            return success
         return True
 
     def remove_selected_model(self, model: str) -> bool:
@@ -110,5 +121,8 @@ class Settings:
         current_models = self.get_selected_models()
         if model in current_models:
             current_models.remove(model)
-            return self.set_selected_models(current_models)
+            success = self.set_selected_models(current_models)
+            if success:
+                self.models_changed.emit()  # Emit signal when models change
+            return success
         return True
