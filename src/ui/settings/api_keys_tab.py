@@ -73,6 +73,14 @@ class APIKeysTab(QWidget):
         )
         layout.addWidget(google_section)
 
+        # OpenAI API Key section
+        openai_section = self.create_api_key_section(
+            "OpenAI API Key",
+            "openai",
+            "Enter your OpenAI API key here..."
+        )
+        layout.addWidget(openai_section)
+
         # OpenRouter API Key section
         openrouter_section = self.create_api_key_section(
             "OpenRouter API Key",

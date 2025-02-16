@@ -155,6 +155,40 @@ class ModelFetchWorker(QThread):
             logging.error(f"Error fetching Groq models: {str(e)}")
             return []
 
+    def fetch_openai_models(self):
+        """Fetch models from OpenAI API."""
+        api_key = self.settings.get_api_key('openai')
+        if not api_key:
+            return []
+
+        try:
+            headers = {
+                'Authorization': f'Bearer {api_key}',
+                'Content-Type': 'application/json'
+            }
+
+            response = requests.get(
+                'https://api.openai.com/v1/models',
+                headers=headers
+            )
+            response.raise_for_status()
+            models = response.json().get('data', [])
+
+            # Filter for chat models
+            text_models = []
+            for model in models:
+                if 'gpt' in model['id'].lower():  # Filter for GPT models
+                    model_info = {
+                        'id': model['id'],
+                        'provider': 'openai',
+                        'name': model['id']
+                    }
+                    text_models.append(model_info)
+            return text_models
+        except Exception as e:
+            logging.error(f"Error fetching OpenAI models: {str(e)}")
+            return []
+
     def run(self):
         try:
             # Fetch models from all providers
@@ -162,10 +196,11 @@ class ModelFetchWorker(QThread):
             openrouter_models = self.fetch_openrouter_models()
             ollama_models = self.fetch_ollama_models()
             groq_models = self.fetch_groq_models()
+            openai_models = self.fetch_openai_models()
 
             # Combine all models
             all_models = (google_models + openrouter_models +
-                          ollama_models + groq_models)
+                          ollama_models + groq_models + openai_models)
 
             if not all_models:
                 self.error.emit(
