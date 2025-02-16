@@ -20,12 +20,22 @@ class LLMHandler:
         self.current_provider = None
 
         # Fixed system prompt
-        self.system_prompt = """You are Dasi, an intelligent desktop copilot that helps users with their daily computer tasks. You appear when users press Ctrl+Alt+Shift+I, showing a popup near their cursor. You help users with tasks like:
-            - Understanding and troubleshooting code
-            - Explaining error messages and logs
-            - Providing quick answers and suggestions
-            - Generating text, code, or commands
-            - Explaining documentation and concepts
+        self.system_prompt = """You are Dasi, an intelligent desktop copilot that helps users with their daily computer tasks. You appear when users press Ctrl+Alt+Shift+I, showing a popup near their cursor.
+
+            You operate in two modes:
+
+            1. CHAT MODE:
+            - Provide direct, conversational responses
+            - Focus on explaining, answering questions, and helping users understand
+            - Example: If user asks "explain this code", provide a clear explanation
+            - Keep responses informative but concise
+
+            2. COMPOSE MODE:
+            - Generate content that's ready to be pasted somewhere
+            - Treat every input as a request to compose/generate content
+            - Example: If user says "Hi", generate a proper greeting email/message
+            - Focus on producing polished, ready-to-use content
+            - No explanations or meta-commentary, just the content
 
             IMPORTANT RULES:
             - Never introduce yourself or add pleasantries
@@ -33,9 +43,8 @@ class LLMHandler:
             - Never wrap responses in quotes or code blocks unless specifically requested
             - Never say things like 'here's the response' or 'here's what I generated'
             - Just provide the direct answer or content requested
-            - If asked to generate content (email, code, etc), output only the content
             - Keep responses concise and to the point
-- Focus on being practically helpful for the current task"""
+            - Focus on being practically helpful for the current task"""
 
         # Get custom instructions
         custom_instructions = self.settings.get(
@@ -217,6 +226,7 @@ class LLMHandler:
 
         try:
             # Parse context and query
+            mode = 'chat'  # Default mode
             if "Context:" in query:
                 context_section, actual_query = query.split("\n\nQuery:\n", 1)
                 context_section = context_section.replace(
@@ -236,9 +246,22 @@ class LLMHandler:
                     last_response = last_response.split("\n\n", 1)[0].strip()
                     context['last_response'] = last_response
 
+                if "Mode:" in context_section:
+                    mode = context_section.split("Mode:", 1)[1].split("\n", 1)[0].strip()
+
                 # Create a special prompt for queries with context
+                mode_instruction = ""
+                if mode == 'compose':
+                    mode_instruction = """You are in COMPOSE MODE. Generate content that can be directly pasted. 
+                    Treat the query as a request to generate/compose content, even if it's a question or greeting."""
+                else:
+                    mode_instruction = """You are in CHAT MODE. Provide direct, conversational responses.
+                    Focus on explaining and answering questions clearly and concisely."""
+
                 context_prompt = ChatPromptTemplate.from_messages([
                     ("system", f"""{self.system_prompt}
+
+                    {mode_instruction}
 
                     Available Context:
 {self._format_context(context)}"""),
@@ -285,13 +308,24 @@ class LLMHandler:
             # For other errors, provide a cleaner message
             return f"⚠️ Error: {error_msg}"
 
+    def _preformat(self, msg: str) -> str:
+        """Allow {{key}} to be used for formatting in text that already uses curly braces.
+        First switch existing double braces to temporary markers,
+        then escape single braces by doubling them,
+        finally restore the original double braces.
+        """
+        msg = msg.replace('{{', '<<<').replace('}}', '>>>')  # Preserve intended format strings
+        msg = msg.replace('{', '{{').replace('}', '}}')      # Escape unintended braces
+        msg = msg.replace('<<<', '{').replace('>>>', '}')    # Restore intended format strings
+        return msg
+
     def _format_context(self, context: dict) -> str:
-        """Format context dictionary into a string."""
+        """Format context dictionary into a string, safely handling curly braces."""
         context_parts = []
         if 'selected_text' in context:
-            context_parts.append(
-                f"Selected Text (what the user has highlighted):\n{context['selected_text']}")
+            text = self._preformat(context['selected_text'])
+            context_parts.append(f"Selected Text (what the user has highlighted):\n{text}")
         if 'last_response' in context:
-            context_parts.append(
-                f"Previous Response:\n{context['last_response']}")
+            text = self._preformat(context['last_response'])
+            context_parts.append(f"Previous Response:\n{text}")
         return "\n\n".join(context_parts)

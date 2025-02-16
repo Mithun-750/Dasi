@@ -5,7 +5,7 @@ import pyautogui
 import pyperclip
 from pathlib import Path
 from hotkey_listener import HotkeyListener
-from ui.ui import CopilotUI
+from ui.popup_window import CopilotUI
 from llm_handler import LLMHandler
 from ui.settings import Settings, SettingsWindow
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
