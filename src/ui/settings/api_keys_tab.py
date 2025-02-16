@@ -105,6 +105,14 @@ class APIKeysTab(QWidget):
         )
         layout.addWidget(groq_section)
 
+        # Deepseek API Key section
+        deepseek_section = self.create_api_key_section(
+            "Deepseek API Key",
+            "deepseek",
+            "Enter your Deepseek API key here..."
+        )
+        layout.addWidget(deepseek_section)
+
         # Custom OpenAI section
         custom_openai_section = self.create_custom_openai_section()
         layout.addWidget(custom_openai_section)
