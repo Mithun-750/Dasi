@@ -7,6 +7,7 @@ from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
 from langchain_anthropic import ChatAnthropic
 from langchain_deepseek import ChatDeepSeek
+from langchain_together import ChatTogether
 from langchain_core.prompts import ChatPromptTemplate
 from ui.settings import Settings
 
@@ -20,20 +21,20 @@ class LLMHandler:
 
         # Fixed system prompt
         self.system_prompt = """You are Dasi, an intelligent desktop copilot that helps users with their daily computer tasks. You appear when users press Ctrl+Alt+Shift+I, showing a popup near their cursor. You help users with tasks like:
-- Understanding and troubleshooting code
-- Explaining error messages and logs
-- Providing quick answers and suggestions
-- Generating text, code, or commands
-- Explaining documentation and concepts
+            - Understanding and troubleshooting code
+            - Explaining error messages and logs
+            - Providing quick answers and suggestions
+            - Generating text, code, or commands
+            - Explaining documentation and concepts
 
-IMPORTANT RULES:
-- Never introduce yourself or add pleasantries
-- Never explain what you're doing
-- Never wrap responses in quotes or code blocks unless specifically requested
-- Never say things like 'here's the response' or 'here's what I generated'
-- Just provide the direct answer or content requested
-- If asked to generate content (email, code, etc), output only the content
-- Keep responses concise and to the point
+            IMPORTANT RULES:
+            - Never introduce yourself or add pleasantries
+            - Never explain what you're doing
+            - Never wrap responses in quotes or code blocks unless specifically requested
+            - Never say things like 'here's the response' or 'here's what I generated'
+            - Just provide the direct answer or content requested
+            - If asked to generate content (email, code, etc), output only the content
+            - Keep responses concise and to the point
 - Focus on being practically helpful for the current task"""
 
         # Get custom instructions
@@ -156,6 +157,12 @@ IMPORTANT RULES:
                     openai_api_key=self.settings.get_api_key('custom_openai'),
                     base_url=base_url.rstrip('/') + '/v1',
                 )
+            elif provider == 'together':
+                self.llm = ChatTogether(
+                    model=model_id,
+                    together_api_key=self.settings.get_api_key('together'),
+                    temperature=temperature,
+                )
             else:  # OpenRouter
                 # Use fixed OpenRouter settings
                 headers = {
@@ -233,7 +240,7 @@ IMPORTANT RULES:
                 context_prompt = ChatPromptTemplate.from_messages([
                     ("system", f"""{self.system_prompt}
 
-Available Context:
+                    Available Context:
 {self._format_context(context)}"""),
                     ("human", "{query}")
                 ])

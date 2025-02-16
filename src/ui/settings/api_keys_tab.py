@@ -113,6 +113,14 @@ class APIKeysTab(QWidget):
         )
         layout.addWidget(deepseek_section)
 
+        # Together API Key section
+        together_section = self.create_api_key_section(
+            "Together AI API Key",
+            "together",
+            "Enter your Together AI API key here..."
+        )
+        layout.addWidget(together_section)
+
         # Custom OpenAI section
         custom_openai_section = self.create_custom_openai_section()
         layout.addWidget(custom_openai_section)

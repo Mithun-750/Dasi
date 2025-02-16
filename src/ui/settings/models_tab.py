@@ -258,6 +258,39 @@ class ModelFetchWorker(QThread):
             logging.error(f"Error fetching Deepseek models: {str(e)}")
             return []
 
+    def fetch_together_models(self):
+        """Fetch models from Together AI API."""
+        api_key = self.settings.get_api_key('together')
+        if not api_key:
+            return []
+
+        try:
+            headers = {
+                'Authorization': f'Bearer {api_key}',
+                'Content-Type': 'application/json'
+            }
+
+            response = requests.get(
+                'https://api.together.xyz/v1/models',
+                headers=headers
+            )
+            response.raise_for_status()
+            models = response.json()
+
+            # Format models
+            text_models = []
+            for model in models:
+                model_info = {
+                    'id': model['id'],
+                    'provider': 'together',
+                    'name': model.get('name', model['id'])
+                }
+                text_models.append(model_info)
+            return text_models
+        except Exception as e:
+            logging.error(f"Error fetching Together AI models: {str(e)}")
+            return []
+
     def run(self):
         try:
             # Fetch models from all providers
@@ -268,11 +301,12 @@ class ModelFetchWorker(QThread):
             openai_models = self.fetch_openai_models()
             anthropic_models = self.fetch_anthropic_models()
             deepseek_models = self.fetch_deepseek_models()
+            together_models = self.fetch_together_models()
 
             # Combine all models
             all_models = (google_models + openrouter_models +
                           ollama_models + groq_models + openai_models +
-                          anthropic_models + deepseek_models)
+                          anthropic_models + deepseek_models + together_models)
 
             if not all_models:
                 self.error.emit(
@@ -821,7 +855,7 @@ class ModelsTab(QWidget):
     def add_model(self):
         """Add selected model to the list."""
         current_index = self.model_dropdown.currentIndex()
-        if current_index >= 0:
+        if (current_index >= 0):
             model_info = self.model_dropdown.itemData(current_index)
             if model_info and model_info['id'] not in self.settings.get_selected_model_ids():
                 # Add model to settings
