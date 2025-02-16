@@ -23,6 +23,7 @@ from .settings_manager import Settings
 import sys
 import os
 from PyQt6.QtWidgets import QApplication
+import logging
 
 
 class SearchableComboBox(QComboBox):
@@ -386,6 +387,39 @@ class GeneralTab(QWidget):
         hotkey_layout.addWidget(hotkey_description)
         hotkey_layout.addWidget(hotkey_container)
 
+        # Startup Settings Section
+        startup_section = QFrame()
+        startup_layout = QVBoxLayout(startup_section)
+        startup_layout.setSpacing(10)
+
+        startup_label = QLabel("Startup Settings")
+        startup_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+
+        startup_description = QLabel(
+            "Configure whether Dasi should automatically start when you log in."
+        )
+        startup_description.setWordWrap(True)
+        startup_description.setStyleSheet("color: #888888; font-size: 12px;")
+
+        self.startup_checkbox = QCheckBox("Start Dasi on system startup")
+        self.startup_checkbox.setStyleSheet("""
+            QCheckBox {
+                font-size: 12px;
+                padding: 5px;
+            }
+            QCheckBox:hover {
+                background-color: #404040;
+                border-radius: 4px;
+            }
+        """)
+        
+        # Load current startup setting
+        self.startup_checkbox.setChecked(self.settings.get('general', 'start_on_boot', default=False))
+
+        startup_layout.addWidget(startup_label)
+        startup_layout.addWidget(startup_description)
+        startup_layout.addWidget(self.startup_checkbox)
+
         # Save button
         save_button = QPushButton("Save Settings")
         save_button.setStyleSheet("""
@@ -413,6 +447,7 @@ class GeneralTab(QWidget):
         layout.addWidget(instructions_section)
         layout.addWidget(llm_section)
         layout.addWidget(hotkey_section)
+        layout.addWidget(startup_section)
         layout.addWidget(save_button)
         layout.addStretch()
 
@@ -441,6 +476,11 @@ class GeneralTab(QWidget):
                 'key': self.key_selector.currentText()
             }
             self.settings.set(hotkey_settings, 'general', 'hotkey')
+
+            # Save startup setting and update startup file
+            start_on_boot = self.startup_checkbox.isChecked()
+            self.settings.set(start_on_boot, 'general', 'start_on_boot')
+            self._update_startup_file(start_on_boot)
 
             # Create custom message box with restart button
             msg_box = QMessageBox(self)
@@ -490,3 +530,44 @@ class GeneralTab(QWidget):
                 f"Failed to save settings: {str(e)}",
                 QMessageBox.StandardButton.Ok
             )
+
+    def _update_startup_file(self, enable: bool):
+        """Update the startup file in the autostart directory."""
+        try:
+            # Get user's autostart directory
+            config_dir = os.path.expanduser('~/.config/autostart')
+            os.makedirs(config_dir, exist_ok=True)
+            desktop_file = os.path.join(config_dir, 'dasi.desktop')
+
+            if enable:
+                # Get the executable path
+                if getattr(sys, 'frozen', False):
+                    # If we're running as a bundled app
+                    exec_path = sys.executable
+                else:
+                    # If we're running in development
+                    exec_path = os.path.abspath(sys.argv[0])
+
+                # Create desktop entry content
+                content = f"""[Desktop Entry]
+Type=Application
+Name=Dasi
+Comment=Desktop AI Assistant
+Exec={exec_path}
+Icon=dasi
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true
+"""
+                # Write the desktop entry file
+                with open(desktop_file, 'w') as f:
+                    f.write(content)
+                os.chmod(desktop_file, 0o755)
+            else:
+                # Remove the desktop entry file if it exists
+                if os.path.exists(desktop_file):
+                    os.remove(desktop_file)
+
+        except Exception as e:
+            logging.error(f"Failed to update startup file: {str(e)}")
+            raise

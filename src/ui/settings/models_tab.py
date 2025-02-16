@@ -541,7 +541,7 @@ class ModelsTab(QWidget):
         dropdown_container = QWidget()
         dropdown_layout = QVBoxLayout(dropdown_container)
         dropdown_layout.setContentsMargins(0, 0, 0, 0)
-        dropdown_layout.setSpacing(0)
+        dropdown_layout.setSpacing(8)
         dropdown_layout.addWidget(selection_widget)
         dropdown_layout.addWidget(self.progress_bar)
 
