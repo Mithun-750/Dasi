@@ -1,6 +1,7 @@
 # Core dependencies
 langchain-google-genai>=0.0.10  # LLM integration with Gemini API
 langchain-openai>=0.0.5  # OpenAI/OpenRouter integration
+langchain-anthropic>=0.0.1  # Anthropic integration
 langchain-ollama>=0.0.1  # Ollama integration
 langchain-groq>=0.0.1  # Groq integration
 pynput>=1.7.6  # Global hotkey support

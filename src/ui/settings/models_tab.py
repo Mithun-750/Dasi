@@ -189,6 +189,42 @@ class ModelFetchWorker(QThread):
             logging.error(f"Error fetching OpenAI models: {str(e)}")
             return []
 
+    def fetch_anthropic_models(self):
+        """Fetch models from Anthropic API."""
+        api_key = self.settings.get_api_key('anthropic')
+        if not api_key:
+            logging.error("Anthropic API key not found.")
+            return []
+
+        try:
+            headers = {
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01',
+                'Content-Type': 'application/json'
+            }
+
+            response = requests.get(
+                'https://api.anthropic.com/v1/models', headers=headers)
+
+            if response.status_code == 200:
+                models = response.json().get('data', [])
+                text_models = [
+                    {
+                        'id': model['id'],
+                        'provider': 'anthropic',
+                        'name': model.get('display_name', model['id'])
+                    }
+                    for model in models
+                ]
+                return text_models
+            else:
+                logging.error(
+                    f"Failed to fetch models. Status code: {response.status_code}, Response: {response.text}")
+                return []
+        except Exception as e:
+            logging.error(f"Error fetching Anthropic models: {str(e)}")
+            return []
+
     def run(self):
         try:
             # Fetch models from all providers
@@ -197,10 +233,11 @@ class ModelFetchWorker(QThread):
             ollama_models = self.fetch_ollama_models()
             groq_models = self.fetch_groq_models()
             openai_models = self.fetch_openai_models()
+            anthropic_models = self.fetch_anthropic_models()
 
             # Combine all models
             all_models = (google_models + openrouter_models +
-                          ollama_models + groq_models + openai_models)
+                          ollama_models + groq_models + openai_models + anthropic_models)
 
             if not all_models:
                 self.error.emit(
