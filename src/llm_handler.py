@@ -6,6 +6,7 @@ from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
 from langchain_anthropic import ChatAnthropic
+from langchain_deepseek import ChatDeepSeek
 from langchain_core.prompts import ChatPromptTemplate
 from ui.settings import Settings
 
@@ -129,6 +130,15 @@ IMPORTANT RULES:
                 self.llm = ChatAnthropic(
                     model=model_id,
                     anthropic_api_key=self.settings.get_api_key('anthropic'),
+                    temperature=temperature,
+                    streaming=True,
+                )
+            elif provider == 'deepseek':
+                api_key = self.settings.get_api_key('deepseek')
+                # Set environment variable for Deepseek
+                os.environ["DEEPSEEK_API_KEY"] = api_key
+                self.llm = ChatDeepSeek(
+                    model=model_id,
                     temperature=temperature,
                     streaming=True,
                 )
