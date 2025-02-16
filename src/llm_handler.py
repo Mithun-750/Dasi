@@ -105,6 +105,13 @@ IMPORTANT RULES:
                     google_api_key=self.settings.get_api_key('google'),
                     temperature=temperature,
                 )
+            elif provider == 'openai':
+                self.llm = ChatOpenAI(
+                    model=model_id,
+                    temperature=temperature,
+                    streaming=True,
+                    openai_api_key=self.settings.get_api_key('openai'),
+                )
             elif provider == 'ollama':
                 self.llm = ChatOllama(
                     model=model_id,
