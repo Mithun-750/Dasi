@@ -1,10 +1,11 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTextEdit,
                              QFrame, QLabel, QPushButton, QHBoxLayout, QProgressBar,
-                             QGridLayout, QComboBox, QSizePolicy)
-from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, QObject
-from PyQt6.QtGui import QFont, QClipboard
+                             QGridLayout, QComboBox, QSizePolicy, QRadioButton, QButtonGroup)
+from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, QObject, QSize
+from PyQt6.QtGui import QFont, QClipboard, QIcon, QPixmap
 from typing import Callable, Optional, Tuple
 import sys
+import os
 from .settings import Settings
 import logging
 
@@ -113,14 +114,53 @@ class DasiWindow(QWidget):
         frame_layout.setContentsMargins(0, 0, 0, 0)
         frame_layout.setSpacing(0)
 
-        # Header with title and drag support
+        # Header with logo and title
         header = QFrame()
         header.setObjectName("header")
         header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(10, 5, 10, 5)
+        header_layout.setContentsMargins(12, 8, 12, 8)
+        header_layout.setSpacing(8)
+
+        # Add logo
+        logo_label = QLabel()
+        logo_label.setObjectName("logoLabel")
+        
+        # Get the absolute path to the icon
+        if getattr(sys, 'frozen', False):
+            # If we're running as a bundled app
+            base_path = sys._MEIPASS
+        else:
+            # If we're running in development
+            base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+        # Try multiple icon paths
+        potential_icon_paths = [
+            os.path.join(base_path, 'src', 'assets', 'Dasi.png'),
+            os.path.join(base_path, 'assets', 'Dasi.png'),
+        ]
+
+        icon_path = None
+        for path in potential_icon_paths:
+            if os.path.exists(path):
+                icon_path = path
+                break
+
+        if icon_path:
+            pixmap = QPixmap(icon_path)
+            # Scale the logo to 20x20 pixels while maintaining aspect ratio
+            scaled_pixmap = pixmap.scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            logo_label.setPixmap(scaled_pixmap)
+        else:
+            logging.warning("Logo not found")
+
+        # Title with custom font
         title = QLabel("Dasi")
-        title.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        title.setObjectName("titleLabel")
+        title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
+
+        header_layout.addWidget(logo_label)
         header_layout.addWidget(title)
+        header_layout.addStretch()
         header.setLayout(header_layout)
 
         # Content area with horizontal layout
@@ -190,30 +230,92 @@ class DasiWindow(QWidget):
         self.input_field.setPlaceholderText("Type your query...")
         self.input_field.setMinimumHeight(80)
 
-        # Model selector
-        model_container = QWidget()
-        model_layout = QHBoxLayout(model_container)
-        model_layout.setContentsMargins(0, 5, 0, 5)
-        model_layout.setSpacing(5)
-
-        model_label = QLabel("Model:")
-        model_label.setStyleSheet("""
-            QLabel {
-                color: #888888;
-                font-size: 11px;
+        # Create control bar for mode and model selection
+        control_bar = QFrame()
+        control_bar.setObjectName("controlBar")
+        control_bar.setStyleSheet("""
+            #controlBar {
+                background-color: #363636;
+                border-radius: 4px;
+                padding: 4px;
             }
         """)
+        control_layout = QVBoxLayout(control_bar)
+        control_layout.setContentsMargins(8, 4, 8, 4)
+        control_layout.setSpacing(8)
+
+        # Create mode selector container
+        mode_container = QFrame()
+        mode_container.setObjectName("modeContainer")
+        mode_layout = QHBoxLayout(mode_container)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(0)
+
+        # Create radio buttons
+        self.mode_group = QButtonGroup()
+        self.chat_mode = QRadioButton("Chat")
+        self.compose_mode = QRadioButton("Compose")
+        self.chat_mode.setChecked(True)  # Default to chat mode
+        
+        # Style radio buttons
+        radio_style = """
+            QRadioButton {
+                color: #cccccc;
+                font-size: 12px;
+                padding: 6px 12px;
+                border-radius: 3px;
+                background-color: transparent;
+                border: none;
+                text-align: center;
+            }
+            QRadioButton:hover {
+                background-color: #404040;
+            }
+            QRadioButton:checked {
+                color: white;
+                background-color: #2b5c99;
+            }
+            QRadioButton::indicator {
+                width: 0px;
+                height: 0px;
+            }
+        """
+        self.chat_mode.setStyleSheet(radio_style)
+        self.compose_mode.setStyleSheet(radio_style)
+        
+        # Set size policies to make buttons expand horizontally
+        self.chat_mode.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.compose_mode.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        
+        # Add to button group
+        self.mode_group.addButton(self.chat_mode)
+        self.mode_group.addButton(self.compose_mode)
+        
+        # Connect mode change signal
+        self.mode_group.buttonClicked.connect(self._handle_mode_change)
+        
+        mode_layout.addWidget(self.chat_mode)
+        mode_layout.addWidget(self.compose_mode)
+
+        # Create model selector container
+        model_container = QWidget()
+        model_layout = QHBoxLayout(model_container)
+        model_layout.setContentsMargins(0, 0, 0, 0)
+        model_layout.setSpacing(8)
 
         self.model_selector = QComboBox()
         self.model_selector.setStyleSheet("""
             QComboBox {
-                background-color: #363636;
-                border: none;
+                background-color: #2b2b2b;
+                border: 1px solid #404040;
                 border-radius: 3px;
-                padding: 3px 8px;
-                font-size: 11px;
+                padding: 5px 8px;
+                font-size: 12px;
                 color: #cccccc;
-                min-width: 150px;
+            }
+            QComboBox:hover {
+                border-color: #4a4a4a;
+                background-color: #323232;
             }
             QComboBox::drop-down {
                 border: none;
@@ -227,18 +329,33 @@ class DasiWindow(QWidget):
                 margin-right: 4px;
             }
             QComboBox QAbstractItemView {
-                background-color: #363636;
-                border: 1px solid #4a4a4a;
-                selection-background-color: #404040;
+                background-color: #2b2b2b;
+                border: 1px solid #404040;
+                selection-background-color: #2b5c99;
                 selection-color: white;
                 padding: 4px;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 6px 8px;
+                min-height: 24px;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #363636;
+            }
+            QComboBox::item {
+                color: #cccccc;
+            }
+            QComboBox::drop-down:button {
+                border: none;
             }
         """)
         self.update_model_selector()
 
-        model_layout.addWidget(model_label)
         model_layout.addWidget(self.model_selector)
-        model_layout.addStretch()
+
+        # Add all elements to control bar vertically
+        control_layout.addWidget(mode_container)
+        control_layout.addWidget(model_container)
 
         # Loading progress bar
         self.progress_bar = QProgressBar()
@@ -247,7 +364,7 @@ class DasiWindow(QWidget):
         self.progress_bar.hide()
 
         left_layout.addWidget(self.input_field, 1)
-        left_layout.addWidget(model_container)
+        left_layout.addWidget(control_bar)
         left_layout.addWidget(self.progress_bar)
         left_panel.setLayout(left_layout)
 
@@ -338,10 +455,22 @@ class DasiWindow(QWidget):
                 border: 1px solid #3f3f3f;
             }
             #header {
-                background-color: #363636;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #363636, stop:1 #2b2b2b);
                 border-top-left-radius: 10px;
                 border-top-right-radius: 10px;
-                padding: 5px;
+                border-bottom: 1px solid #404040;
+            }
+            #logoLabel {
+                min-width: 20px;
+                max-width: 20px;
+                min-height: 20px;
+                max-height: 20px;
+            }
+            #titleLabel {
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: bold;
             }
             #rightPanel {
                 background-color: #323232;
@@ -559,6 +688,9 @@ class DasiWindow(QWidget):
             if self.last_response:
                 context['last_response'] = self.last_response
 
+            # Add mode to context
+            context['mode'] = 'compose' if self.compose_mode.isChecked() else 'chat'
+
             # Format query with context
             if context:
                 full_query = "Context:\n"
@@ -566,6 +698,7 @@ class DasiWindow(QWidget):
                     full_query += f"Selected Text:\n{context['selected_text']}\n\n"
                 if 'last_response' in context:
                     full_query += f"Last Response:\n{context['last_response']}\n\n"
+                full_query += f"Mode: {context['mode']}\n\n"
                 full_query += f"Query:\n{query}"
             else:
                 full_query = query
@@ -614,9 +747,10 @@ class DasiWindow(QWidget):
             self.progress_bar.hide()
             self.input_field.setEnabled(True)
             self.stop_button.hide()
-            self.insert_method.show()
-            self.accept_button.show()
-            self.reject_button.show()
+            if self.compose_mode.isChecked():
+                self.insert_method.show()
+                self.accept_button.show()
+                self.reject_button.show()
             return
 
         # Store the response
@@ -628,6 +762,14 @@ class DasiWindow(QWidget):
 
         # Show action buttons and right panel
         self.action_frame.show()
+        if self.compose_mode.isChecked():
+            self.insert_method.show()
+            self.accept_button.show()
+            self.reject_button.show()
+        else:
+            self.insert_method.hide()
+            self.accept_button.hide()
+            self.reject_button.hide()
         self.right_panel.show()
 
         # Adjust window size
@@ -691,9 +833,33 @@ class DasiWindow(QWidget):
 
         # Add models with their metadata
         for index, model in enumerate(selected_models):
-            display_text = f"{model['name']} ({model['provider']})"
-            # Store the full model info in the item data
+            # Create a more concise display text
+            provider = model['provider']
+            name = model['name']
+            
+            # Format provider name to be more concise
+            provider_display = {
+                'google': 'Google',
+                'openai': 'OpenAI',
+                'anthropic': 'Anthropic',
+                'ollama': 'Ollama',
+                'groq': 'Groq',
+                'deepseek': 'Deepseek',
+                'together': 'Together',
+                'openrouter': 'OpenRouter',
+                'custom_openai': 'Custom'
+            }.get(provider, provider)
+            
+            # Create shorter display text for combobox
+            display_text = f"{name[:30]}... ({provider_display})" if len(name) > 30 else f"{name} ({provider_display})"
+            
+            # Full text for tooltip
+            full_text = f"{name}\nProvider: {provider_display}"
+            
             self.model_selector.addItem(display_text, model)
+            # Set tooltip for the current index
+            self.model_selector.setItemData(index, full_text, Qt.ItemDataRole.ToolTipRole)
+            
             # If this is the default model, store its index
             if default_model_id and model['id'] == default_model_id:
                 default_index = index
@@ -702,6 +868,10 @@ class DasiWindow(QWidget):
 
         # Set the default model as current
         self.model_selector.setCurrentIndex(default_index)
+
+        # Configure size policy to expand horizontally
+        self.model_selector.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.model_selector.setMaxVisibleItems(10)  # Show max 10 items in dropdown
 
     def showEvent(self, event):
         """Called when the window becomes visible."""
@@ -717,6 +887,19 @@ class DasiWindow(QWidget):
             if model_info:
                 return model_info['id']
         return None
+
+    def _handle_mode_change(self, button):
+        """Handle mode change between Chat and Compose."""
+        is_compose = button == self.compose_mode
+        # Show/hide action elements based on mode
+        if is_compose:
+            self.insert_method.show()
+            self.accept_button.show()
+            self.reject_button.show()
+        else:
+            self.insert_method.hide()
+            self.accept_button.hide()
+            self.reject_button.hide()
 
 
 class CopilotUI:
@@ -765,7 +948,7 @@ class CopilotUI:
 
         # Create window in main thread
         self.window = DasiWindow(self.process_query, self.signals)
-        self.window.setFixedSize(320, 280)
+        self.window.setFixedSize(320, 350)
         self.window.hide()
 
         # Connect signals
