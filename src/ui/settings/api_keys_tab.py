@@ -73,6 +73,14 @@ class APIKeysTab(QWidget):
         )
         layout.addWidget(google_section)
 
+        # Anthropic API Key section
+        anthropic_section = self.create_api_key_section(
+            "Anthropic API Key",
+            "anthropic",
+            "Enter your Anthropic API key here..."
+        )
+        layout.addWidget(anthropic_section)
+
         # OpenAI API Key section
         openai_section = self.create_api_key_section(
             "OpenAI API Key",

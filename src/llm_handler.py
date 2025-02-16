@@ -5,6 +5,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
+from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 from ui.settings import Settings
 
@@ -123,6 +124,13 @@ IMPORTANT RULES:
                     model=model_id,
                     groq_api_key=self.settings.get_api_key('groq'),
                     temperature=temperature,
+                )
+            elif provider == 'anthropic':
+                self.llm = ChatAnthropic(
+                    model=model_id,
+                    anthropic_api_key=self.settings.get_api_key('anthropic'),
+                    temperature=temperature,
+                    streaming=True,
                 )
             elif provider == 'custom_openai':
                 # Get custom OpenAI settings
