@@ -1,77 +1,135 @@
-# Dasi
+# <img src="src/assets/Dasi.png" alt="Dasi Logo" width="32" style="vertical-align: middle"> Dasi
+
+<div align="center">
 
 A powerful desktop copilot that provides inline LLM support using LangChain and multiple AI model providers.
 
-## Features
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![PyQt](https://img.shields.io/badge/PyQt-6.0+-blue.svg)](https://www.riverbankcomputing.com/software/pyqt/)
+[![LangChain](https://img.shields.io/badge/LangChain-Latest-orange.svg)](https://python.langchain.com/)
 
-- **Global Hotkey**: Activate with Ctrl+Alt+Shift+I (customizable in settings)
-- **Smart Popup**: Modern, borderless input window that appears near your cursor
-- **Multiple AI Models Support**:
-  - Google Gemini
-  - OpenAI
-  - Anthropic
-  - Groq
-  - Ollama (local models)
-  - Deepseek
-  - Together AI
-  - OpenRouter
-  - Custom OpenAI-compatible endpoints
+[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Configuration](#configuration) • [Contributing](#contributing)
+
+</div>
+
+## 🌟 Features
+
+### Core Functionality
+- **Global Hotkey**: Instant activation with Ctrl+Alt+Shift+I (customizable)
+- **Smart Popup**: Modern, borderless interface that appears near your cursor
+- **Context-Aware**: Utilizes selected text for enhanced responses
 - **Dual Operation Modes**:
-  - Chat Mode: For conversational interactions and explanations
-  - Compose Mode: For generating content to be inserted
-- **Prompt Chunks**: Create and reuse prompt templates with @mentions
-- **Context-Aware**: Can use selected text as context for queries
-- **Flexible Output**: Choose between copy/paste or simulated typing for responses
-- **Customizable Settings**:
-  - API configurations
+  - 💬 **Chat Mode**: Interactive conversations and explanations
+  - ✍️ **Compose Mode**: Direct content generation and insertion
+
+### AI Integration
+- **Multiple Model Providers**:
+  - 🧠 Google Gemini
+  - 🤖 OpenAI
+  - 🔮 Anthropic
+  - ⚡ Groq
+  - 🏠 Ollama (local models)
+  - 🌊 Deepseek
+  - 🤝 Together AI
+  - 🌐 OpenRouter
+  - 🛠️ Custom OpenAI-compatible endpoints
+
+### Advanced Features
+- **Prompt Chunks**: Template system with @mention support
+- **Flexible Output**: Choose between copy/paste or simulated typing
+- **Rich Settings**:
+  - API configuration
   - Model selection and defaults
   - Custom instructions
   - Temperature control
   - Startup behavior
 
-## Setup
+## 🚀 Installation
 
-1. Install dependencies:
+### Prerequisites
+- Python 3.8 or higher
+- pip package manager
+
+### Steps
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Mithun-750/Dasi.git
+   cd Dasi
+   ```
+
+2. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-2. Configure API Keys:
-   - Launch Dasi and open Settings (from system tray icon)
-   - Go to "API Keys" tab
-   - Add your API key(s) for desired providers
-   - Select models in the "Models" tab
-
-3. Run the application:
+3. Launch the application:
    ```bash
    python src/main.py
    ```
 
-## Usage
+## 💡 Usage
 
-1. Press Ctrl+Alt+Shift+I (or your configured hotkey) anywhere to open Dasi
-2. Type @ to access saved prompt chunks
-3. Enter your query and press Enter
-4. For Compose Mode:
-   - Select output method (Copy/Paste or Type Text)
-   - Click Accept to insert the response
-   - Click Reject to dismiss
+### Quick Start
+1. Press `Ctrl+Alt+Shift+I` to summon Dasi
+2. Type your query or use @mentions for prompt chunks
+3. Press Enter to submit
 
-## Prompt Chunks
+### Compose Mode
+1. Switch to Compose mode using the toggle
+2. Enter your generation request
+3. Choose output method (Copy/Paste or Type Text)
+4. Click Accept to insert or Reject to dismiss
 
-Create reusable prompt templates:
+### Prompt Chunks
+Create reusable templates:
 1. Open Settings → Prompt Chunks
 2. Click "Create New Chunk"
 3. Enter title and content
-4. Use with @mention in queries (e.g., "@test_chat")
+4. Reference in queries with @mention (e.g., "@email_template")
 
-## Developed and tested on
+## ⚙️ Configuration
 
-- Pop!\_OS 22.04 LTS (GNOME desktop)
-- Python 3.8+
-- X11 display server
-- Required libraries (see requirements.txt)
+### API Setup
+1. Launch Dasi and access Settings via system tray
+2. Navigate to "API Keys" tab
+3. Add your API keys for desired providers
+4. Select and configure models in "Models" tab
 
-## Development Status
+### Customization
+- **Custom Instructions**: Add global context for all queries
+- **Temperature**: Adjust response creativity
+- **Startup**: Configure autostart and initial behavior
+- **Hotkeys**: Customize activation shortcuts
 
-This is an actively developed project. For bugs or feature requests, please open an issue on GitHub.
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+### Development Setup
+1. Fork the repository
+2. Create a feature branch
+3. Install development dependencies:
+   ```bash
+   pip install -r requirements-dev.txt
+   ```
+4. Make your changes
+5. Submit a pull request
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [LangChain](https://python.langchain.com/) for the AI integration framework
+- [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) for the GUI framework
+- [Cursor IDE](https://cursor.sh/) for the incredible development environment that helped build this project
+- All the AI model providers for their APIs
+
+---
+
+<div align="center">
+Made with ❤️ by <a href="https://github.com/Mithun-750">Mithun</a>
+</div>
