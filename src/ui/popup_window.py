@@ -209,9 +209,16 @@ class DasiWindow(QWidget):
         title.setObjectName("titleLabel")
         title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
 
+        # Add close button
+        close_button = QPushButton("×")
+        close_button.setObjectName("closeButton")
+        close_button.clicked.connect(self._handle_escape)
+        close_button.setFixedSize(24, 24)
+
         header_layout.addWidget(logo_label)
         header_layout.addWidget(title)
         header_layout.addStretch()
+        header_layout.addWidget(close_button)
         header.setLayout(header_layout)
 
         # Content area with horizontal layout
@@ -522,6 +529,24 @@ class DasiWindow(QWidget):
                 color: #ffffff;
                 font-size: 13px;
                 font-weight: bold;
+            }
+            #closeButton {
+                background-color: transparent;
+                color: #888888;
+                border: none;
+                font-size: 20px;
+                font-weight: bold;
+                padding: 0;
+                margin: 0;
+                min-width: 24px;
+                max-width: 24px;
+                min-height: 24px;
+                max-height: 24px;
+            }
+            #closeButton:hover {
+                color: #ffffff;
+                background-color: #ff4444;
+                border-radius: 12px;
             }
             #rightPanel {
                 background-color: #323232;
@@ -1075,6 +1100,13 @@ class DasiWindow(QWidget):
             self.insert_method.hide()
             self.accept_button.hide()
             self.reject_button.hide()
+
+    def keyPressEvent(self, event):
+        """Handle global key events for the window."""
+        if event.key() == Qt.Key.Key_Escape:
+            self._handle_escape()
+        else:
+            super().keyPressEvent(event)
 
 
 class CopilotUI:
