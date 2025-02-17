@@ -62,19 +62,19 @@ A powerful desktop copilot that provides inline LLM support using LangChain and 
 
 2. Run the installation script:
    ```bash
-   python install.py
+   python installer.py install
    ```
 
    This will:
-   - Set up a virtual environment (or use existing one)
+   - Set up a virtual environment (or use an existing one)
    - Install all dependencies
-   - Build the application
-   - Create desktop shortcut/launcher
+   - Build the application using PyInstaller
+   - Create a desktop shortcut/launcher (desktop entry on Linux, shortcut on Windows, or symlink on macOS)
 
 3. Launch Dasi:
-   - Linux: From your applications menu or run `dist/dasi/dasi`
-   - macOS: From Applications folder or run `dist/dasi/dasi`
-   - Windows: From Start Menu or run `dist\dasi\dasi.exe`
+   - **Linux:** From your applications menu or run `dist/dasi/dasi`
+   - **macOS:** From the Applications folder or run `dist/dasi/dasi`
+   - **Windows:** From the Start Menu or run `dist\dasi\dasi.exe`
 
 ### Development Setup
 
@@ -113,17 +113,16 @@ This setup is recommended for:
 
 ### Uninstallation
 
-To uninstall Dasi:
-
+To uninstall Dasi, run:
 ```bash
-python uninstall.py
+python installer.py uninstall
 ```
 
 This will remove:
-- Application shortcuts
+- Application shortcuts (desktop entry/shortcut/symlink)
 - Configuration files
-- Build artifacts
-- Virtual environment
+- Build artifacts  
+*Note:* The source code and virtual environment remain intact.
 
 ## 💡 Usage
 
