@@ -435,8 +435,27 @@ class DasiWindow(QWidget):
 
         # Response preview (hidden by default)
         self.response_preview = QTextEdit()
-        self.response_preview.setReadOnly(True)
+        self.response_preview.setReadOnly(True)  # Start as read-only
         self.response_preview.setFixedWidth(300)
+        self.response_preview.setStyleSheet("""
+            QTextEdit {
+                background-color: #363636;
+                border: none;
+                border-radius: 5px;
+                padding: 5px;
+                selection-background-color: #4a4a4a;
+                font-size: 12px;
+                color: #ffffff;
+                font-family: "Helvetica", sans-serif;
+            }
+            QTextEdit[editable="true"] {
+                background-color: #404040;
+                border: 1px solid #505050;
+            }
+            QTextEdit[editable="true"]:focus {
+                border: 1px solid #606060;
+            }
+        """)
         self.response_preview.hide()
 
         # Action buttons (hidden by default)
@@ -948,7 +967,17 @@ class DasiWindow(QWidget):
             # Clear and re-enable input field only on successful completion
             self.input_field.clear()
             self.input_field.setEnabled(True)
+            
             if self.compose_mode.isChecked():
+                # Make response preview editable in compose mode
+                self.response_preview.setReadOnly(False)
+                self.response_preview.setProperty("editable", True)
+                self.response_preview.style().unpolish(self.response_preview)
+                self.response_preview.style().polish(self.response_preview)
+                # Add a hint that it's editable
+                current_text = self.response_preview.toPlainText()
+                self.response_preview.setPlaceholderText("You can edit this response before accepting...")
+                
                 self.insert_method.show()
                 self.accept_button.show()
                 self.reject_button.show()
@@ -957,7 +986,11 @@ class DasiWindow(QWidget):
         # Store the response
         self.last_response = response
 
-        # Show response preview
+        # Show response preview (as read-only during streaming)
+        self.response_preview.setReadOnly(True)
+        self.response_preview.setProperty("editable", False)
+        self.response_preview.style().unpolish(self.response_preview)
+        self.response_preview.style().polish(self.response_preview)
         self.response_preview.setText(response)
         self.response_preview.show()
 
@@ -995,6 +1028,12 @@ class DasiWindow(QWidget):
 
             # Process the response with selected method
             self.process_query(query)
+
+            # Reset response preview to read-only state
+            self.response_preview.setReadOnly(True)
+            self.response_preview.setProperty("editable", False)
+            self.response_preview.style().unpolish(self.response_preview)
+            self.response_preview.style().polish(self.response_preview)
 
         self.right_panel.hide()
 
