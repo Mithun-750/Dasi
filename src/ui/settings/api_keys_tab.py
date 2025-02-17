@@ -186,8 +186,33 @@ class APIKeysTab(QWidget):
         toggle_button.clicked.connect(
             lambda: self.toggle_key_visibility(api_input, toggle_button))
 
+        # Clear button
+        clear_button = QPushButton("×")
+        clear_button.setFixedSize(30, 30)
+        clear_button.setStyleSheet("""
+            QPushButton {
+                border-radius: 6px;
+                font-size: 18px;
+                font-weight: bold;
+                background-color: #404040;
+                border: none;
+                color: #888888;
+            }
+            QPushButton:hover {
+                background-color: #ff4444;
+                color: white;
+            }
+            QPushButton:pressed {
+                background-color: #cc3333;
+                padding-top: 1px;
+                padding-left: 1px;
+            }
+        """)
+        clear_button.clicked.connect(lambda: self.clear_api_key(provider, api_input, status_label))
+
         key_layout.addWidget(api_input)
         key_layout.addWidget(toggle_button)
+        key_layout.addWidget(clear_button)
 
         section_layout.addWidget(label)
         section_layout.addWidget(key_container)
@@ -366,3 +391,25 @@ class APIKeysTab(QWidget):
                 'custom_openai',
                 f"Custom: {model_id}"
             )
+
+    def clear_api_key(self, provider: str, input_field: QLineEdit, status_label: QLabel):
+        """Clear the API key for the given provider."""
+        try:
+            # Clear the input field
+            input_field.clear()
+            
+            # Remove from settings
+            if self.settings.set_api_key(provider, ""):
+                self.show_status(status_label, "API key cleared successfully!")
+                
+                # Show confirmation dialog
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    f"{provider.title()} API key has been cleared.",
+                    QMessageBox.StandardButton.Ok
+                )
+            else:
+                self.show_status(status_label, "Failed to clear API key", True)
+        except Exception as e:
+            self.show_status(status_label, f"Error clearing API key: {str(e)}", True)

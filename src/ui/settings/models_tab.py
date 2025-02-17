@@ -492,6 +492,32 @@ class ModelsTab(QWidget):
         self.model_dropdown.addItem("Loading models...")
         self.model_dropdown.setEnabled(False)
 
+        # Refresh button
+        refresh_button = QPushButton("⟳")
+        refresh_button.setFixedSize(30, 30)
+        refresh_button.setStyleSheet("""
+            QPushButton {
+                border-radius: 6px;
+                font-size: 16px;
+                background-color: #404040;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }
+            QPushButton:pressed {
+                background-color: #333333;
+                padding-top: 1px;
+                padding-left: 1px;
+            }
+            QPushButton:disabled {
+                background-color: #363636;
+                color: #666666;
+            }
+        """)
+        refresh_button.clicked.connect(self.fetch_models)
+        refresh_button.setToolTip("Refresh models list")
+
         # Loading progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(False)
@@ -534,6 +560,7 @@ class ModelsTab(QWidget):
         add_button.clicked.connect(self.add_model)
 
         selection_layout.addWidget(self.model_dropdown)
+        selection_layout.addWidget(refresh_button)
         selection_layout.addWidget(add_button)
         selection_layout.addStretch()
 
@@ -654,6 +681,11 @@ class ModelsTab(QWidget):
         self.fetch_worker.error.connect(self._on_fetch_error)
         self.fetch_worker.start()
 
+        # Update UI to show fetching state
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setEnabled(False)
+            self.refresh_button.setText("⌛")
+
     def _on_fetch_success(self, models):
         """Handle successful model fetch."""
         self.available_models = models
@@ -682,6 +714,11 @@ class ModelsTab(QWidget):
         self.progress_bar.hide()
         self.fetch_worker = None
 
+        # Reset refresh button
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setEnabled(True)
+            self.refresh_button.setText("⟳")
+
     def _on_fetch_error(self, error):
         """Handle model fetch error."""
         self.model_dropdown.clear()
@@ -689,6 +726,12 @@ class ModelsTab(QWidget):
         self.model_dropdown.setEnabled(False)
         self.progress_bar.hide()
         self.fetch_worker = None
+
+        # Reset refresh button
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setEnabled(True)
+            self.refresh_button.setText("⟳")
+
         QMessageBox.warning(self, "Error", f"Failed to fetch models: {error}")
 
     def load_selected_models(self):
