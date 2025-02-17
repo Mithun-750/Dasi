@@ -24,6 +24,7 @@ import os
 import platform
 import subprocess
 import shutil
+import logging
 
 def create_virtualenv():
     if not os.path.exists(".venv"):
@@ -117,11 +118,53 @@ Categories=Utility;Development;
     else:
         print("Unsupported OS for launcher creation.")
 
+def get_config_directory():
+    system = platform.system()
+    if system == "Linux":
+        return os.path.join(os.path.expanduser("~"), ".config", "dasi")
+    elif system == "Windows":
+        return os.path.join(os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA"), "dasi")
+    elif system == "Darwin":
+        return os.path.join(os.path.expanduser("~"), "Library", "Application Support", "dasi")
+    else:
+        return None
+
+def initialize_prompt_chunks():
+    """
+    Initialize default prompt chunks in the user's configuration directory.
+    Default prompt chunks are copied from the project's "defaults/prompt_chunks" folder.
+    """
+    # Determine the source directory containing the default prompt chunks
+    default_chunks_dir = os.path.join(os.path.dirname(__file__), "defaults", "prompt_chunks")
+    if not os.path.exists(default_chunks_dir):
+        logging.warning(f"Default prompt chunks directory does not exist: {default_chunks_dir}")
+        return
+
+    # Determine the target configuration directory using the helper function
+    config_dir = get_config_directory()
+    if not config_dir:
+        logging.error("Could not determine configuration directory for prompt chunks.")
+        return
+
+    # Create the prompt_chunks folder inside the configuration directory if it doesn't exist
+    target_chunks_dir = os.path.join(config_dir, "prompt_chunks")
+    os.makedirs(target_chunks_dir, exist_ok=True)
+
+    # Copy each default prompt chunk (if it doesn't already exist)
+    for file_name in os.listdir(default_chunks_dir):
+        src_file = os.path.join(default_chunks_dir, file_name)
+        target_file = os.path.join(target_chunks_dir, file_name)
+        if not os.path.exists(target_file):
+            shutil.copy2(src_file, target_file)
+            logging.info(f"Initialized prompt chunk: {file_name}")
+
 def install():
     create_virtualenv()
     install_dependencies()
     build_dasi()
     create_launcher()
+    # Auto initialize default prompt chunks
+    initialize_prompt_chunks()
     print("Installation complete!")
 
 def remove_launcher():
@@ -146,17 +189,6 @@ def remove_launcher():
             print("Removed symlink at", link_path)
     else:
         print("Unsupported OS for launcher removal.")
-
-def get_config_directory():
-    system = platform.system()
-    if system == "Linux":
-        return os.path.join(os.path.expanduser("~"), ".config", "dasi")
-    elif system == "Windows":
-        return os.path.join(os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA"), "dasi")
-    elif system == "Darwin":
-        return os.path.join(os.path.expanduser("~"), "Library", "Application Support", "dasi")
-    else:
-        return None
 
 def uninstall():
     print("Uninstalling Dasi...")
