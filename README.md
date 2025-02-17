@@ -9,7 +9,7 @@ A powerful desktop copilot that provides inline LLM support using LangChain and 
 [![PyQt](https://img.shields.io/badge/PyQt-6.0+-blue.svg)](https://www.riverbankcomputing.com/software/pyqt/)
 [![LangChain](https://img.shields.io/badge/LangChain-Latest-orange.svg)](https://python.langchain.com/)
 
-[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Configuration](#configuration) • [Contributing](#contributing)
+[🌟 Features](#-features) • [🚀 Installation](#-installation) • [💡 Usage](#-usage) • [⚙️ Configuration](#%EF%B8%8F-configuration) • [🤝 Contributing](#-contributing)
 
 </div>
 
@@ -52,7 +52,7 @@ A powerful desktop copilot that provides inline LLM support using LangChain and 
 - pip package manager
 - For Windows users: `pywin32` and `winshell` packages (optional, for shortcut creation)
 
-### Automatic Installation
+### Installation
 
 1. Clone the repository:
    ```bash
@@ -76,9 +76,9 @@ A powerful desktop copilot that provides inline LLM support using LangChain and 
    - macOS: From Applications folder or run `dist/dasi/dasi`
    - Windows: From Start Menu or run `dist\dasi\dasi.exe`
 
-### Manual Installation
+### Development Setup
 
-If you prefer to install manually:
+If you want to run Dasi locally for development:
 
 1. Clone the repository:
    ```bash
@@ -86,7 +86,7 @@ If you prefer to install manually:
    cd Dasi
    ```
 
-2. Create and activate a virtual environment (optional):
+2. Create and activate a virtual environment:
    ```bash
    python -m venv .venv
    # On Linux/macOS:
@@ -100,10 +100,16 @@ If you prefer to install manually:
    pip install -r requirements.txt
    ```
 
-4. Launch the application:
+4. Run the application:
    ```bash
    python src/main.py
    ```
+
+This setup is recommended for:
+- Development and testing
+- Making contributions
+- Debugging issues
+- Testing new features
 
 ### Uninstallation
 
@@ -178,8 +184,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [Cursor IDE](https://cursor.sh/) for the incredible development environment that helped build this project
 - All the AI model providers for their APIs
 
----
-
-<div align="center">
-Made with ❤️ by <a href="https://www.mithun-u.me">Mithun</a>
-</div>
