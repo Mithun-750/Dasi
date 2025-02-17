@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTextEdit,
                              QGridLayout, QComboBox, QSizePolicy, QRadioButton, QButtonGroup,
                              QCompleter, QListView)
 from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, QObject, QSize, QStringListModel
-from PyQt6.QtGui import QFont, QClipboard, QIcon, QPixmap, QTextCursor
+from PyQt6.QtGui import QFont, QClipboard, QIcon, QPixmap, QTextCursor, QSyntaxHighlighter, QTextCharFormat, QColor
 from typing import Callable, Optional, Tuple, List
 import sys
 import os
@@ -57,6 +57,44 @@ class QueryWorker(QThread):
         self.is_stopped = True
 
 
+class MentionHighlighter(QSyntaxHighlighter):
+    """Syntax highlighter for @mentions in the input field."""
+    def __init__(self, parent=None, chunks_dir: Optional[Path] = None):
+        super().__init__(parent)
+        self.mention_format = QTextCharFormat()
+        self.mention_format.setBackground(QColor("#2b5c99"))  # Blue background
+        self.mention_format.setForeground(QColor("#ffffff"))  # White text
+        
+        self.invalid_mention_format = QTextCharFormat()
+        self.invalid_mention_format.setForeground(QColor("#888888"))  # Gray text for invalid mentions
+        
+        self.chunks_dir = chunks_dir
+        self.available_chunks = set()
+        self.update_available_chunks()
+
+    def update_available_chunks(self):
+        """Update the set of available chunk titles."""
+        self.available_chunks.clear()
+        if self.chunks_dir and self.chunks_dir.exists():
+            for file_path in self.chunks_dir.glob("*.md"):
+                self.available_chunks.add(file_path.stem.lower())
+
+    def highlightBlock(self, text: str):
+        """Highlight @mentions in the text."""
+        # Match @word patterns
+        pattern = r'@\w+(?:_\w+)*'
+        for match in re.finditer(pattern, text):
+            start = match.start()
+            length = match.end() - start
+            mention = text[start+1:start+length].lower()  # Remove @ and convert to lowercase
+            
+            # Apply appropriate format based on whether the chunk exists
+            if mention in self.available_chunks:
+                self.setFormat(start, length, self.mention_format)
+            else:
+                self.setFormat(start, length, self.invalid_mention_format)
+
+
 class DasiWindow(QWidget):
     def reset_context(self):
         """Reset all context including selected text and last response."""
@@ -94,6 +132,7 @@ class DasiWindow(QWidget):
         self.chunks_dir = Path(self.settings.config_dir) / 'prompt_chunks'
         self.completer = None
         self.chunk_titles = []
+        self.highlighter = None  # Initialize highlighter reference
 
         # Connect to settings signals
         self.settings.models_changed.connect(self.update_model_selector)
@@ -105,6 +144,11 @@ class DasiWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
 
         self.setup_ui()
+        
+        # Add syntax highlighter with chunks directory
+        self.highlighter = MentionHighlighter(self.input_field.document(), self.chunks_dir)
+        
+        # Setup completer after highlighter is created
         self.setup_completer()
 
     def setup_ui(self):
@@ -519,6 +563,12 @@ class DasiWindow(QWidget):
                 padding: 5px;
                 selection-background-color: #4a4a4a;
                 font-size: 12px;
+                color: #ffffff;
+                font-family: "Helvetica", sans-serif;
+            }
+            QTextEdit::selection {
+                background-color: #4a4a4a;
+                color: #ffffff;
             }
             QPushButton {
                 background-color: #4a4a4a;
@@ -643,6 +693,10 @@ class DasiWindow(QWidget):
         # Update completer model if it exists
         if self.completer:
             self.completer.setModel(QStringListModel(self.chunk_titles))
+        
+        # Update highlighter's available chunks
+        if self.highlighter:
+            self.highlighter.update_available_chunks()
 
     def get_word_under_cursor(self) -> Tuple[str, int]:
         """Get the word being typed and its start position."""
