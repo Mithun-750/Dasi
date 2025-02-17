@@ -830,13 +830,16 @@ class DasiWindow(QWidget):
             self.worker.stop()
             self.worker.terminate()
             self.worker.wait()
-            # Switch to accept/reject buttons and keep the content
-            self.progress_bar.hide()
+            # Re-enable input field with existing content
             self.input_field.setEnabled(True)
+            # Hide loading indicators
+            self.progress_bar.hide()
             self.stop_button.hide()
-            self.insert_method.show()
-            self.accept_button.show()
-            self.reject_button.show()
+            # Show appropriate buttons based on mode
+            if self.compose_mode.isChecked():
+                self.insert_method.show()
+                self.accept_button.show()
+                self.reject_button.show()
 
     def _handle_submit(self):
         """Handle submit action."""
@@ -880,10 +883,6 @@ class DasiWindow(QWidget):
             else:
                 full_query = query
 
-
-            # Clear input field for next query
-            self.input_field.clear()
-
             # Get selected model
             current_index = self.model_selector.currentIndex()
             model = None
@@ -924,15 +923,16 @@ class DasiWindow(QWidget):
         """Handle query error."""
         # Hide loading state
         self.progress_bar.hide()
+        self.stop_button.hide()
+        # Re-enable input field with existing content
         self.input_field.setEnabled(True)
 
         # Show error in preview
         self.response_preview.setText(f"Error: {error_msg}")
         self.response_preview.show()
 
-        # Show reject button only, hide stop button
+        # Show reject button only
         self.action_frame.show()
-        self.stop_button.hide()
         self.accept_button.hide()
         self.reject_button.show()
 
@@ -944,8 +944,10 @@ class DasiWindow(QWidget):
         # Check for completion signal
         if response == "<COMPLETE>":
             self.progress_bar.hide()
-            self.input_field.setEnabled(True)
             self.stop_button.hide()
+            # Clear and re-enable input field only on successful completion
+            self.input_field.clear()
+            self.input_field.setEnabled(True)
             if self.compose_mode.isChecked():
                 self.insert_method.show()
                 self.accept_button.show()
@@ -1007,8 +1009,15 @@ class DasiWindow(QWidget):
         # Reset window size
         self.setFixedWidth(320)
 
-        # Reset context
-        self.reset_context()
+        if not self.compose_mode.isChecked():
+            self.reset_context()
+        else:
+            # In compose mode, only clear the last response
+            self.last_response = None
+            # Hide context label if there's no selected text
+            if not self.selected_text:
+                self.context_label.hide()
+                self.ignore_button.hide()
 
         # Focus input field
         self.input_field.setFocus()
