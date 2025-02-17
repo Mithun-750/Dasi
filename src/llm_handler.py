@@ -22,28 +22,12 @@ class LLMHandler:
         # Fixed system prompt
         self.system_prompt = """You are Dasi, an intelligent desktop copilot that helps users with their daily computer tasks. You appear when users press Ctrl+Alt+Shift+I, showing a popup near their cursor.
 
-            You operate in two modes:
-
-            1. CHAT MODE:
-            - Provide direct, conversational responses
-            - Focus on explaining, answering questions, and helping users understand
-            - Example: If user asks "explain this code", provide a clear explanation
-            - Keep responses informative but concise
-
-            2. COMPOSE MODE:
-            - Generate content that's ready to be pasted somewhere
-            - Treat every input as a request to compose/generate content
-            - Example: If user says "Hi", generate a proper greeting email/message
-            - Focus on producing polished, ready-to-use content
-            - No explanations or meta-commentary, just the content
-
             IMPORTANT RULES:
-            - Never introduce yourself or add pleasantries
-            - Never explain what you're doing
             - Never wrap responses in quotes or code blocks unless specifically requested
             - Never say things like 'here's the response' or 'here's what I generated'
             - Just provide the direct answer or content requested
             - Keep responses concise and to the point
+            - **Ambiguous References:** If the user uses terms like "this", "that", or similar ambiguous references without specifying a subject, assume that the reference applies to the "Selected Text" provided in the context.
             - Focus on being practically helpful for the current task"""
 
         # Get custom instructions
@@ -252,11 +236,18 @@ class LLMHandler:
                 # Create a special prompt for queries with context
                 mode_instruction = ""
                 if mode == 'compose':
-                    mode_instruction = """You are in COMPOSE MODE. Generate content that can be directly pasted. 
-                    Treat the query as a request to generate/compose content, even if it's a question or greeting."""
+                    mode_instruction = """You are in COMPOSE MODE:
+                    - Generate content that can be directly pasted somewhere
+                    - Treat every input as a request to compose/generate content
+                    - Example: If user says "Hi", generate a proper greeting email/message
+                    - Focus on producing polished, ready-to-use content
+                    - No explanations or meta-commentary, just the content"""
                 else:
-                    mode_instruction = """You are in CHAT MODE. Provide direct, conversational responses.
-                    Focus on explaining and answering questions clearly and concisely."""
+                    mode_instruction = """You are in CHAT MODE:
+                    - Provide friendly, conversational responses with a helpful tone
+                    - Focus on explaining things clearly, like a knowledgeable friend
+                    - Example: If user asks "explain this code", break it down in an approachable way
+                    - Keep responses helpful and concise while maintaining a warm demeanor"""
 
                 context_prompt = ChatPromptTemplate.from_messages([
                     ("system", f"""{self.system_prompt}
