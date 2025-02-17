@@ -18,12 +18,14 @@ from .settings_manager import Settings
 from .api_keys_tab import APIKeysTab
 from .models_tab import ModelsTab
 from .general_tab import GeneralTab
+from .prompt_chunks_tab import PromptChunksTab
 
 
 class SidebarButton(QPushButton):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self.setCheckable(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet("""
             QPushButton {
                 text-align: left;
@@ -79,10 +81,12 @@ class SettingsWindow(QMainWindow):
         self.general_btn = SidebarButton("General")
         self.api_keys_btn = SidebarButton("API Keys")
         self.models_btn = SidebarButton("Models")
+        self.prompt_chunks_btn = SidebarButton("Prompt Chunks")
 
         sidebar_layout.addWidget(self.general_btn)
         sidebar_layout.addWidget(self.api_keys_btn)
         sidebar_layout.addWidget(self.models_btn)
+        sidebar_layout.addWidget(self.prompt_chunks_btn)
         sidebar_layout.addStretch()
 
         # Create stacked widget for content
@@ -97,15 +101,18 @@ class SettingsWindow(QMainWindow):
         self.general_tab = GeneralTab(self.settings)
         self.api_keys_tab = APIKeysTab(self.settings)
         self.models_tab = ModelsTab(self.settings)
+        self.prompt_chunks_tab = PromptChunksTab(self.settings)
 
         self.content.addWidget(self.general_tab)
         self.content.addWidget(self.api_keys_tab)
         self.content.addWidget(self.models_tab)
+        self.content.addWidget(self.prompt_chunks_tab)
 
         # Connect button signals
         self.general_btn.clicked.connect(lambda: self.switch_tab(0))
         self.api_keys_btn.clicked.connect(lambda: self.switch_tab(1))
         self.models_btn.clicked.connect(lambda: self.switch_tab(2))
+        self.prompt_chunks_btn.clicked.connect(lambda: self.switch_tab(3))
 
         # Add widgets to main layout
         main_layout.addWidget(sidebar)
@@ -119,7 +126,7 @@ class SettingsWindow(QMainWindow):
         self.content.setCurrentIndex(index)
 
         # Update button states
-        buttons = [self.general_btn, self.api_keys_btn, self.models_btn]
+        buttons = [self.general_btn, self.api_keys_btn, self.models_btn, self.prompt_chunks_btn]
         for i, btn in enumerate(buttons):
             btn.setChecked(i == index)
 
