@@ -1,13 +1,16 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTextEdit,
                              QFrame, QLabel, QPushButton, QHBoxLayout, QProgressBar,
-                             QGridLayout, QComboBox, QSizePolicy, QRadioButton, QButtonGroup)
-from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, QObject, QSize
-from PyQt6.QtGui import QFont, QClipboard, QIcon, QPixmap
-from typing import Callable, Optional, Tuple
+                             QGridLayout, QComboBox, QSizePolicy, QRadioButton, QButtonGroup,
+                             QCompleter, QListView)
+from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, QObject, QSize, QStringListModel
+from PyQt6.QtGui import QFont, QClipboard, QIcon, QPixmap, QTextCursor
+from typing import Callable, Optional, Tuple, List
 import sys
 import os
+from pathlib import Path
 from .settings import Settings
 import logging
+import re
 
 
 class UISignals(QObject):
@@ -88,6 +91,9 @@ class DasiWindow(QWidget):
         self.last_response = None  # Store last response
         self.conversation_context = {}  # Store conversation context
         self.settings = Settings()  # Initialize settings
+        self.chunks_dir = Path(self.settings.config_dir) / 'prompt_chunks'
+        self.completer = None
+        self.chunk_titles = []
 
         # Connect to settings signals
         self.settings.models_changed.connect(self.update_model_selector)
@@ -99,6 +105,7 @@ class DasiWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
 
         self.setup_ui()
+        self.setup_completer()
 
     def setup_ui(self):
         """Set up the UI components."""
@@ -592,15 +599,104 @@ class DasiWindow(QWidget):
         # Set up key bindings
         self.input_field.installEventFilter(self)
 
+    def setup_completer(self):
+        """Set up auto-completion for @ mentions."""
+        self.update_chunk_titles()
+        self.completer = QCompleter(self.chunk_titles)
+        self.completer.setWidget(self.input_field)
+        self.completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer.activated.connect(self.insert_completion)
+
+        # Style the completer popup
+        popup = self.completer.popup()
+        if isinstance(popup, QListView):
+            popup.setStyleSheet("""
+                QListView {
+                    background-color: #2b2b2b;
+                    border: 1px solid #3f3f3f;
+                    border-radius: 4px;
+                    padding: 4px;
+                }
+                QListView::item {
+                    padding: 4px 8px;
+                    border-radius: 2px;
+                }
+                QListView::item:selected {
+                    background-color: #2b5c99;
+                    color: white;
+                }
+                QListView::item:hover {
+                    background-color: #404040;
+                }
+            """)
+
+    def update_chunk_titles(self):
+        """Update the list of available chunk titles."""
+        self.chunk_titles = []
+        if self.chunks_dir.exists():
+            for file_path in self.chunks_dir.glob("*.md"):
+                # Use filename as is
+                title = file_path.stem
+                self.chunk_titles.append(title)
+        
+        # Update completer model if it exists
+        if self.completer:
+            self.completer.setModel(QStringListModel(self.chunk_titles))
+
+    def get_word_under_cursor(self) -> Tuple[str, int]:
+        """Get the word being typed and its start position."""
+        cursor = self.input_field.textCursor()
+        text = self.input_field.toPlainText()
+        pos = cursor.position()
+        
+        # Find the start of the current word
+        start = pos
+        while start > 0 and text[start-1] not in [' ', '\n', '\t']:
+            start -= 1
+            
+        current_word = text[start:pos]
+        return current_word, start
+
+    def insert_completion(self, completion: str):
+        """Insert the completed chunk title."""
+        cursor = self.input_field.textCursor()
+        current_word, start = self.get_word_under_cursor()
+        
+        # Calculate how many characters to remove
+        extra = len(current_word)
+        
+        cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, extra)
+        cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, extra)
+        
+        # Convert the completion to lowercase and replace spaces with underscores
+        formatted_completion = completion.lower().replace(' ', '_')
+        # Insert with @ prefix
+        cursor.insertText('@' + formatted_completion)
+        self.input_field.setTextCursor(cursor)
+
     def eventFilter(self, obj, event) -> bool:
         """Handle key events."""
         from PyQt6.QtCore import QEvent
-        if (obj is self.input_field or obj is self.response_preview) and event.type() == QEvent.Type.KeyPress:
+        if obj is self.input_field and event.type() == QEvent.Type.KeyPress:
             # The event is already a QKeyEvent when it comes from Qt
             key_event = event
 
-            # Handle Return key (submit) - only for input field
-            if obj is self.input_field and key_event.key() == Qt.Key.Key_Return and not key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            # Handle @ key for completion
+            if key_event.text() == '@':
+                # Show completer after typing @
+                self.completer.setCompletionPrefix("")
+                self.completer.complete()
+                return False  # Let the @ be inserted
+
+            # Handle completion navigation
+            if self.completer and self.completer.popup().isVisible():
+                if key_event.key() in [Qt.Key.Key_Enter, Qt.Key.Key_Return, Qt.Key.Key_Tab]:
+                    self.completer.popup().hide()
+                    return True
+
+            # Handle Return key (submit)
+            if key_event.key() == Qt.Key.Key_Return and not key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                 self._handle_submit()
                 return True
 
@@ -609,19 +705,18 @@ class DasiWindow(QWidget):
                 self._handle_escape()
                 return True
 
-            # Handle Shift+Return (newline) - only for input field
-            if obj is self.input_field and key_event.key() == Qt.Key.Key_Return and key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                return False  # Let Qt handle it normally
+            # Handle Shift+Return (newline)
+            if key_event.key() == Qt.Key.Key_Return and key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                return False
+
+            # Update completer for normal typing
+            current_word, _ = self.get_word_under_cursor()
+            if current_word.startswith('@'):
+                self.completer.setCompletionPrefix(current_word[1:])
+                if len(current_word) > 1:
+                    self.completer.complete()
 
         return super().eventFilter(obj, event)
-
-    def keyPressEvent(self, event):
-        """Handle global key events."""
-        if event.key() == Qt.Key.Key_Escape:
-            self._handle_escape()
-            event.accept()
-        else:
-            super().keyPressEvent(event)
 
     def _handle_escape(self):
         """Handle escape key press."""
@@ -668,6 +763,9 @@ class DasiWindow(QWidget):
         """Handle submit action."""
         query = self.input_field.toPlainText().strip()
         if query:
+            # Replace @mentions with chunk content
+            query = self._replace_chunks(query)
+
             # Show loading state and stop button
             self.input_field.setEnabled(False)
             self.progress_bar.setRange(0, 0)  # Indeterminate progress
@@ -703,6 +801,11 @@ class DasiWindow(QWidget):
             else:
                 full_query = query
 
+            # Print the full request for debugging
+            print("\n=== FULL REQUEST ===")
+            print(full_query)
+            print("===================\n")
+
             # Clear input field for next query
             self.input_field.clear()
 
@@ -720,6 +823,27 @@ class DasiWindow(QWidget):
             self.worker = QueryWorker(
                 self.process_query, full_query, self.signals, model)
             self.worker.start()
+
+    def _replace_chunks(self, query: str) -> str:
+        """Replace @mentions with their corresponding chunk content."""
+        # Find all @mentions
+        mentions = re.finditer(r'@(\w+(?:_\w+)*)', query)
+        
+        # Replace each mention with its chunk content
+        offset = 0
+        for match in mentions:
+            chunk_title = match.group(1)  # Get the title without @
+            sanitized_title = chunk_title.lower()  # Convert to lowercase for filename
+            chunk_file = self.chunks_dir / f"{sanitized_title}.md"
+            
+            if chunk_file.exists():
+                chunk_content = chunk_file.read_text().strip()
+                start = match.start() + offset
+                end = match.end() + offset
+                query = query[:start] + chunk_content + query[end:]
+                offset += len(chunk_content) - (end - start)
+        
+        return query
 
     def _handle_error(self, error_msg: str):
         """Handle query error."""
@@ -876,8 +1000,9 @@ class DasiWindow(QWidget):
     def showEvent(self, event):
         """Called when the window becomes visible."""
         super().showEvent(event)
-        # Update model selector when window is shown
+        # Update model selector and chunk titles when window is shown
         self.update_model_selector()
+        self.update_chunk_titles()
 
     def get_selected_model(self) -> str:
         """Get the currently selected model ID."""
