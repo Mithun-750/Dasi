@@ -855,10 +855,6 @@ class DasiWindow(QWidget):
             else:
                 full_query = query
 
-            # Print the full request for debugging
-            print("\n=== FULL REQUEST ===")
-            print(full_query)
-            print("===================\n")
 
             # Clear input field for next query
             self.input_field.clear()
