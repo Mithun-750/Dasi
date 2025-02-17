@@ -50,8 +50,9 @@ A powerful desktop copilot that provides inline LLM support using LangChain and 
 ### Prerequisites
 - Python 3.8 or higher
 - pip package manager
+- For Windows users: `pywin32` and `winshell` packages (optional, for shortcut creation)
 
-### Steps
+### Automatic Installation
 
 1. Clone the repository:
    ```bash
@@ -59,15 +60,64 @@ A powerful desktop copilot that provides inline LLM support using LangChain and 
    cd Dasi
    ```
 
-2. Install dependencies:
+2. Run the installation script:
+   ```bash
+   python install.py
+   ```
+
+   This will:
+   - Set up a virtual environment (or use existing one)
+   - Install all dependencies
+   - Build the application
+   - Create desktop shortcut/launcher
+
+3. Launch Dasi:
+   - Linux: From your applications menu or run `dist/dasi/dasi`
+   - macOS: From Applications folder or run `dist/dasi/dasi`
+   - Windows: From Start Menu or run `dist\dasi\dasi.exe`
+
+### Manual Installation
+
+If you prefer to install manually:
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Mithun-750/Dasi.git
+   cd Dasi
+   ```
+
+2. Create and activate a virtual environment (optional):
+   ```bash
+   python -m venv .venv
+   # On Linux/macOS:
+   source .venv/bin/activate
+   # On Windows:
+   .venv\Scripts\activate
+   ```
+
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Launch the application:
+4. Launch the application:
    ```bash
    python src/main.py
    ```
+
+### Uninstallation
+
+To uninstall Dasi:
+
+```bash
+python uninstall.py
+```
+
+This will remove:
+- Application shortcuts
+- Configuration files
+- Build artifacts
+- Virtual environment
 
 ## 💡 Usage
 
@@ -131,5 +181,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 <div align="center">
-Made with ❤️ by <a href="https://github.com/Mithun-750">Mithun</a>
+Made with ❤️ by <a href="https://www.mithun-u.me">Mithun</a>
 </div>
