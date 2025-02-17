@@ -992,6 +992,11 @@ class DasiWindow(QWidget):
         self.response_preview.style().unpolish(self.response_preview)
         self.response_preview.style().polish(self.response_preview)
         self.response_preview.setText(response)
+        
+        # Auto-scroll to bottom
+        scrollbar = self.response_preview.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+        
         self.response_preview.show()
 
         # Show action buttons and right panel
