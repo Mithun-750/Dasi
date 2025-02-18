@@ -1,4 +1,6 @@
 # Core dependencies
+langchain-core>=0.1.22  # Core LangChain functionality
+langchain-community>=0.0.24  # Community integrations including message history
 langchain-google-genai>=0.0.10  # LLM integration with Gemini API
 langchain-openai>=0.0.5  # OpenAI/OpenRouter integration
 langchain-anthropic>=0.0.1  # Anthropic integration
@@ -6,9 +8,11 @@ langchain-ollama>=0.0.1  # Ollama integration
 langchain-groq>=0.0.1  # Groq integration
 langchain-deepseek>=0.0.1  # Deepseek integration
 langchain-together>=0.0.1  # Together AI integration
+
+# UI and System dependencies
 pynput>=1.7.6  # Global hotkey support
 pyautogui>=0.9.54  # Cursor position and typing simulation
 PyQt6>=6.8.1  # Modern UI framework
 python-dotenv>=1.0.0  # Environment variable management
 pyqtdarktheme>=0.1.7  # Modern dark theme for PyQt6
-pyperclip>=1.8.2
+pyperclip>=1.8.2  # Clipboard management
