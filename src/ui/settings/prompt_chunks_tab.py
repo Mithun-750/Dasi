@@ -47,13 +47,25 @@ class ChunkCard(QFrame):
         # Title
         title_label = QLabel(self.title)
         title_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        title_label.setMaximumHeight(20)
         layout.addWidget(title_label)
 
         # Preview of content
-        preview = self.content[:150] + "..." if len(self.content) > 150 else self.content
-        content_label = QLabel(preview)
+        content_label = QLabel()
         content_label.setWordWrap(True)
-        content_label.setStyleSheet("color: #cccccc; font-size: 12px;")
+        content_label.setStyleSheet("""
+            color: #cccccc; 
+            font-size: 12px;
+            padding-bottom: 4px;
+        """)
+        content_label.setMaximumHeight(70)  # Limit height to prevent overflow
+        
+        # Elide text if too long
+        metrics = content_label.fontMetrics()
+        preview = self.content[:300]  # Take first 300 chars
+        elided_text = metrics.elidedText(preview, Qt.TextElideMode.ElideRight, content_label.width() * 2)
+        content_label.setText(elided_text)
+        
         layout.addWidget(content_label)
 
     def mousePressEvent(self, event):
