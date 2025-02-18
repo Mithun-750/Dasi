@@ -11,6 +11,7 @@ from ui.settings import Settings, SettingsWindow
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QPixmap, QPainter
 from PyQt6.QtCore import Qt
+from typing import Optional, Callable
 
 
 def setup_logging():
@@ -243,30 +244,36 @@ class Dasi:
             sys.exit(1)  # Force exit if clean shutdown fails
         sys.exit(0)
 
-    def process_query(self, query: str, callback=None, model=None) -> str:
-        """Process query and return response. 
-        If query starts with '!', it's a response to be inserted.
-        Format: !<method>:<text> where method is 'paste' or 'type'
-        """
+    def process_query(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None) -> str:
+        """Process a query and return the response."""
         try:
+            # Handle special commands
             if query.startswith('!'):
-                # Parse method and response
-                method, response = query[1:].split(':', 1)
-
-                # Insert based on method
-                if method == 'paste':
-                    # Use clipboard paste
-                    pyperclip.copy(response)
-                    pyautogui.hotkey('ctrl', 'v')
+                if query.startswith('!clear_session:'):
+                    session_id = query.split(':', 1)[1]
+                    self.llm_handler.clear_chat_history(session_id)
+                    return ""
+                elif query.startswith('!session:'):
+                    # Extract session ID and actual query
+                    _, rest = query.split(':', 1)
+                    session_id, actual_query = rest.split('|', 1)
+                    return self.llm_handler.get_response(actual_query, callback, model, session_id)
+                elif query.startswith('!paste:'):
+                    # Handle paste command
+                    text = query[6:]  # Remove !paste: prefix
+                    pyautogui.write(text)
+                    return ""
+                elif query.startswith('!type:'):
+                    # Handle type command
+                    text = query[6:]  # Remove !type: prefix
+                    pyautogui.write(text, interval=0.01)
+                    return ""
                 else:
-                    # Simulate typing
-                    pyautogui.write(response, interval=0.01)
-                return response
-            else:
-                # This is a query to be processed
-                response = self.llm_handler.get_response(
-                    query, callback, model)
-                return response if response else "Error: Failed to get response"
+                    return "Unknown command"
+
+            # Process normal query
+            return self.llm_handler.get_response(query, callback, model)
+
         except Exception as e:
             logging.error(f"Error processing query: {str(e)}", exc_info=True)
             return f"Error: {str(e)}"

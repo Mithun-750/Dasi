@@ -11,6 +11,7 @@ from pathlib import Path
 from .settings import Settings
 import logging
 import re
+import uuid
 
 
 class UISignals(QObject):
@@ -23,13 +24,15 @@ class UISignals(QObject):
 class QueryWorker(QThread):
     """Worker thread for processing queries."""
 
-    def __init__(self, process_fn: Callable[[str, Optional[Callable[[str], None]], Optional[str]], str],
-                 query: str, signals: UISignals, model: Optional[str] = None):
+    def __init__(self, process_fn: Callable[[str], str],
+                 query: str, signals: UISignals, model: Optional[str] = None,
+                 session_id: Optional[str] = None):
         super().__init__()
         self.process_fn = process_fn
         self.query = query
         self.signals = signals
         self.model = model
+        self.session_id = session_id
         self.is_stopped = False
 
     def run(self):
@@ -39,6 +42,10 @@ class QueryWorker(QThread):
             def stream_callback(partial_response: str):
                 if not self.is_stopped:
                     self.signals.process_response.emit(partial_response)
+
+            # Add session ID to query if available
+            if self.session_id:
+                self.query = f"!session:{self.session_id}|{self.query}"
 
             result = self.process_fn(self.query, stream_callback, self.model)
             if not self.is_stopped and not result:
@@ -120,6 +127,9 @@ class DasiWindow(QWidget):
     """Main popup window for Dasi."""
 
     def __init__(self, process_query: Callable[[str], str], signals: UISignals):
+        # Initialize session ID
+        self.session_id = str(uuid.uuid4())
+        
         super().__init__()
         self.process_query = process_query
         self.signals = signals
@@ -209,6 +219,13 @@ class DasiWindow(QWidget):
         title.setObjectName("titleLabel")
         title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
 
+        # Add reset session button before close button
+        self.reset_session_button = QPushButton("Reset Session")
+        self.reset_session_button.setObjectName("resetSessionButton")
+        self.reset_session_button.clicked.connect(self._handle_reset_session)
+        self.reset_session_button.setFixedWidth(100)
+        self.reset_session_button.hide()  # Hide by default
+
         # Add close button
         close_button = QPushButton("×")
         close_button.setObjectName("closeButton")
@@ -218,6 +235,7 @@ class DasiWindow(QWidget):
         header_layout.addWidget(logo_label)
         header_layout.addWidget(title)
         header_layout.addStretch()
+        header_layout.addWidget(self.reset_session_button)
         header_layout.addWidget(close_button)
         header.setLayout(header_layout)
 
@@ -688,6 +706,18 @@ class DasiWindow(QWidget):
                 background-color: #323232;
                 border-radius: 3px;
             }
+            #resetSessionButton {
+                background-color: #404040;
+                border: none;
+                border-radius: 3px;
+                padding: 5px 10px;
+                color: #cccccc;
+                font-size: 11px;
+            }
+            #resetSessionButton:hover {
+                background-color: #505050;
+                color: white;
+            }
         """)
 
         # Set up key bindings
@@ -883,10 +913,6 @@ class DasiWindow(QWidget):
             if self.selected_text:
                 context['selected_text'] = self.selected_text
 
-            # Add last response if available
-            if self.last_response:
-                context['last_response'] = self.last_response
-
             # Add mode to context
             context['mode'] = 'compose' if self.compose_mode.isChecked() else 'chat'
 
@@ -895,8 +921,6 @@ class DasiWindow(QWidget):
                 full_query = "Context:\n"
                 if 'selected_text' in context:
                     full_query += f"Selected Text:\n{context['selected_text']}\n\n"
-                if 'last_response' in context:
-                    full_query += f"Last Response:\n{context['last_response']}\n\n"
                 full_query += f"Mode: {context['mode']}\n\n"
                 full_query += f"Query:\n{query}"
             else:
@@ -912,9 +936,9 @@ class DasiWindow(QWidget):
                     logging.info(
                         f"Selected model: {model_info['name']} (ID: {model})")
 
-            # Process query in background
+            # Process query in background with session ID
             self.worker = QueryWorker(
-                self.process_query, full_query, self.signals, model)
+                self.process_query, full_query, self.signals, model, self.session_id)
             self.worker.start()
 
     def _replace_chunks(self, query: str) -> str:
@@ -964,9 +988,13 @@ class DasiWindow(QWidget):
         if response == "<COMPLETE>":
             self.progress_bar.hide()
             self.stop_button.hide()
+            
             # Clear and re-enable input field only on successful completion
             self.input_field.clear()
             self.input_field.setEnabled(True)
+            
+            # Show reset session button since we now have history
+            self.reset_session_button.show()
             
             if self.compose_mode.isChecked():
                 # Make response preview editable in compose mode
@@ -975,7 +1003,6 @@ class DasiWindow(QWidget):
                 self.response_preview.style().unpolish(self.response_preview)
                 self.response_preview.style().polish(self.response_preview)
                 # Add a hint that it's editable
-                current_text = self.response_preview.toPlainText()
                 self.response_preview.setPlaceholderText("You can edit this response before accepting...")
                 
                 self.insert_method.show()
@@ -1160,6 +1187,21 @@ class DasiWindow(QWidget):
             self._handle_escape()
         else:
             super().keyPressEvent(event)
+
+    def _handle_reset_session(self):
+        """Handle reset session button click."""
+        # Generate new session ID
+        self.session_id = str(uuid.uuid4())
+        # Clear conversation history in LLM handler
+        self.process_query(f"!clear_session:{self.session_id}")
+        # Reset UI
+        self.reset_context()
+        self.input_field.clear()
+        self.response_preview.clear()
+        self.right_panel.hide()
+        self.setFixedWidth(320)
+        # Hide reset button since history is now cleared
+        self.reset_session_button.hide()
 
 
 class CopilotUI:

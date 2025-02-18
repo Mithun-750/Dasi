@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Optional, Callable
+from typing import Optional, Callable, List, Dict
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
@@ -8,8 +8,12 @@ from langchain_groq import ChatGroq
 from langchain_anthropic import ChatAnthropic
 from langchain_deepseek import ChatDeepSeek
 from langchain_together import ChatTogether
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from ui.settings import Settings
+from langchain_community.chat_message_histories import SQLChatMessageHistory
+from langchain_core.chat_history import BaseChatMessageHistory
+from pathlib import Path
 
 
 class LLMHandler:
@@ -18,6 +22,15 @@ class LLMHandler:
         self.llm = None
         self.settings = Settings()
         self.current_provider = None
+        
+        # Initialize database path
+        self.db_path = str(Path(self.settings.config_dir) / 'chat_history.db')
+        
+        # Store message histories by session
+        self.message_histories: Dict[str, BaseChatMessageHistory] = {}
+        
+        # Get chat history limit from settings or use default
+        self.history_limit = self.settings.get('general', 'chat_history_limit', default=20)
 
         # Fixed system prompt
         self.system_prompt = """You are Dasi, an intelligent desktop copilot that helps users with their daily computer tasks. You appear when users press Ctrl+Alt+Shift+I, showing a popup near their cursor.
@@ -38,10 +51,13 @@ class LLMHandler:
         if custom_instructions:
             self.system_prompt = f"{self.system_prompt}\n\nCustom Instructions:\n{custom_instructions}"
 
+        # Create base prompt template with memory
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", self.system_prompt),
+            MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{query}")
         ])
+
         # Connect to settings changes
         self.settings.models_changed.connect(self.on_models_changed)
         self.initialize_llm()
@@ -58,6 +74,7 @@ class LLMHandler:
             self.system_prompt = f"{self.system_prompt}\n\nCustom Instructions:\n{custom_instructions}"
             self.prompt = ChatPromptTemplate.from_messages([
                 ("system", self.system_prompt),
+                MessagesPlaceholder(variable_name="chat_history"),
                 ("human", "{query}")
             ])
 
@@ -180,22 +197,35 @@ class LLMHandler:
             logging.error(f"Error initializing LLM: {str(e)}", exc_info=True)
             return False
 
-    def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None) -> str:
+    def _get_message_history(self, session_id: str) -> BaseChatMessageHistory:
+        """Get or create message history for a session."""
+        if session_id not in self.message_histories:
+            self.message_histories[session_id] = SQLChatMessageHistory(
+                session_id=session_id,
+                connection=f"sqlite:///{self.db_path}"
+            )
+        return self.message_histories[session_id]
+
+    def clear_chat_history(self, session_id: str):
+        """Clear chat history for a specific session."""
+        history = self._get_message_history(session_id)
+        history.clear()
+        if session_id in self.message_histories:
+            del self.message_histories[session_id]
+
+    def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default") -> str:
         """Get response from LLM for the given query. If callback is provided, stream the response."""
         # Initialize with specified model if provided
         if model:
             needs_init = True
             if self.llm:
                 current_model = None
-                # Try different ways to get the current model name
                 if hasattr(self.llm, 'model'):
                     current_model = self.llm.model
                 elif hasattr(self.llm, 'model_name'):
                     current_model = self.llm.model_name
 
-                # Clean up model names for comparison
                 if current_model:
-                    # Remove any 'models/' prefix
                     current_model = current_model.replace('models/', '')
                     model = model.replace('models/', '')
                     needs_init = current_model != model
@@ -204,66 +234,67 @@ class LLMHandler:
                 if not self.initialize_llm(model):
                     return "⚠️ Please add the appropriate API key in settings to use this model."
 
-        # Check if LLM is initialized, try to initialize if not
         if not self.llm and not self.initialize_llm():
             return "⚠️ Please add your API key in settings to use Dasi."
 
         try:
+            # Get message history for this session
+            message_history = self._get_message_history(session_id)
+            
             # Parse context and query
-            mode = 'chat'  # Default mode
+            mode = 'chat'
+            context = {}
+            actual_query = query
+
             if "Context:" in query:
                 context_section, actual_query = query.split("\n\nQuery:\n", 1)
-                context_section = context_section.replace(
-                    "Context:\n", "").strip()
+                context_section = context_section.replace("Context:\n", "").strip()
 
                 # Parse different types of context
-                context = {}
                 if "Selected Text:" in context_section:
-                    selected_text = context_section.split(
-                        "Selected Text:\n", 1)[1]
+                    selected_text = context_section.split("Selected Text:\n", 1)[1]
                     selected_text = selected_text.split("\n\n", 1)[0].strip()
                     context['selected_text'] = selected_text
-
-                if "Last Response:" in context_section:
-                    last_response = context_section.split(
-                        "Last Response:\n", 1)[1]
-                    last_response = last_response.split("\n\n", 1)[0].strip()
-                    context['last_response'] = last_response
 
                 if "Mode:" in context_section:
                     mode = context_section.split("Mode:", 1)[1].split("\n", 1)[0].strip()
 
-                # Create a special prompt for queries with context
-                mode_instruction = ""
-                if mode == 'compose':
-                    mode_instruction = """You are in COMPOSE MODE:
-                    - Generate content that can be directly pasted somewhere
-                    - Treat every input as a request to compose/generate content
-                    - Example: If user says "Hi", generate a proper greeting email/message
-                    - Focus on producing polished, ready-to-use content
-                    - No explanations or meta-commentary, just the content"""
-                else:
-                    mode_instruction = """You are in CHAT MODE:
-                    - Provide friendly, conversational responses with a helpful tone
-                    - Focus on explaining things clearly, like a knowledgeable friend
-                    - Example: If user asks "explain this code", break it down in an approachable way
-                    - Keep responses helpful and concise while maintaining a warm demeanor"""
-
-                context_prompt = ChatPromptTemplate.from_messages([
-                    ("system", f"""{self.system_prompt}
-
-                    {mode_instruction}
-
-                    Available Context:
-{self._format_context(context)}"""),
-                    ("human", "{query}")
-                ])
-
-                # Format prompt with actual query
-                messages = context_prompt.invoke({"query": actual_query})
+            # Build the messages list
+            messages = []
+            
+            # Add mode-specific instruction to system prompt
+            mode_instruction = ""
+            if mode == 'compose':
+                mode_instruction = """You are in COMPOSE MODE:
+                - Generate content that can be directly pasted somewhere
+                - Treat every input as a request to compose/generate content
+                - Example: If user says "Hi", generate a proper greeting email/message
+                - Focus on producing polished, ready-to-use content
+                - No explanations or meta-commentary, just the content"""
             else:
-                # Use default prompt for queries without context
-                messages = self.prompt.invoke({"query": query})
+                mode_instruction = """You are in CHAT MODE:
+                - Provide friendly, conversational responses with a helpful tone
+                - Focus on explaining things clearly, like a knowledgeable friend
+                - Example: If user asks "explain this code", break it down in an approachable way
+                - Keep responses helpful and concise while maintaining a warm demeanor"""
+
+            # Combine all system instructions
+            full_system_prompt = f"{self.system_prompt}\n\n{mode_instruction}"
+            if context:
+                context_msg = self._format_context(context)
+                if context_msg:
+                    full_system_prompt += f"\n\nContext:\n{context_msg}"
+
+            # Add system message first
+            messages.append(SystemMessage(content=full_system_prompt))
+
+            # Add chat history (limited to configured number of messages)
+            history_messages = message_history.messages[-self.history_limit:] if message_history.messages else []
+            messages.extend(history_messages)
+
+            # Add current query
+            query_message = HumanMessage(content=actual_query)
+            messages.append(query_message)
 
             # Get response
             if callback:
@@ -273,17 +304,23 @@ class LLMHandler:
                     if chunk.content:
                         response_content.append(chunk.content)
                         callback(''.join(response_content))
-                return ''.join(response_content)
+                final_response = ''.join(response_content)
             else:
                 # Get response all at once
                 response = self.llm.invoke(messages)
-                return response.content.strip()
-        except Exception as e:
-            logging.error(
-                f"Error getting LLM response: {str(e)}", exc_info=True)
+                final_response = response.content.strip()
 
-            # Format error message for UI
+            # Add the exchange to history
+            message_history.add_message(query_message)
+            message_history.add_message(AIMessage(content=final_response))
+
+            return final_response
+
+        except Exception as e:
+            logging.error(f"Error getting LLM response: {str(e)}", exc_info=True)
             error_msg = str(e)
+            
+            # Format error messages...
             if "NotFoundError" in error_msg:
                 if "Model" in error_msg and "does not exist" in error_msg:
                     return "⚠️ Error: The selected model is not available. Please choose a different model in settings."
@@ -296,7 +333,6 @@ class LLMHandler:
             elif "ServiceUnavailableError" in error_msg:
                 return "⚠️ Error: Service is currently unavailable. Please try again later."
 
-            # For other errors, provide a cleaner message
             return f"⚠️ Error: {error_msg}"
 
     def _preformat(self, msg: str) -> str:
@@ -316,7 +352,14 @@ class LLMHandler:
         if 'selected_text' in context:
             text = self._preformat(context['selected_text'])
             context_parts.append(f"Selected Text (what the user has highlighted):\n{text}")
-        if 'last_response' in context:
-            text = self._preformat(context['last_response'])
-            context_parts.append(f"Previous Response:\n{text}")
+        if 'conversation_history' in context:
+            history = context['conversation_history']
+            if history:
+                history_text = "Recent Conversation History:\n"
+                # Only show last 5 exchanges to keep context manageable
+                for i, (q, r) in enumerate(history[-5:], 1):
+                    q_text = self._preformat(q)
+                    r_text = self._preformat(r)
+                    history_text += f"{i}. User: {q_text}\n   Assistant: {r_text}\n"
+                context_parts.append(history_text)
         return "\n\n".join(context_parts)
