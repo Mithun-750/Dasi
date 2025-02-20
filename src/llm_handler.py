@@ -213,6 +213,17 @@ class LLMHandler:
         if session_id in self.message_histories:
             del self.message_histories[session_id]
 
+    def _preformat(self, msg: str) -> str:
+        """Allow {{key}} to be used for formatting in text that already uses curly braces.
+        First switch existing double braces to temporary markers,
+        then escape single braces by doubling them,
+        finally restore the original double braces.
+        """
+        msg = msg.replace('{{', '<<<').replace('}}', '>>>')  # Preserve intended format strings
+        msg = msg.replace('{', '{{').replace('}', '}}')      # Escape unintended braces
+        msg = msg.replace('<<<', '{').replace('>>>', '}')    # Restore intended format strings
+        return msg
+
     def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default") -> str:
         """Get response from LLM for the given query. If callback is provided, stream the response."""
         # Initialize with specified model if provided
@@ -281,10 +292,6 @@ class LLMHandler:
 
             # Combine all system instructions
             full_system_prompt = f"{self.system_prompt}\n\n{mode_instruction}"
-            if context:
-                context_msg = self._format_context(context)
-                if context_msg:
-                    full_system_prompt += f"\n\nContext:\n{context_msg}"
 
             # Add system message first
             messages.append(SystemMessage(content=full_system_prompt))
@@ -292,6 +299,10 @@ class LLMHandler:
             # Add chat history (limited to configured number of messages)
             history_messages = message_history.messages[-self.history_limit:] if message_history.messages else []
             messages.extend(history_messages)
+
+            # Format user query with selected text if available
+            if 'selected_text' in context:
+                actual_query = f"{actual_query}\n\nSelected Text:\n{context['selected_text']}"
 
             # Add current query
             query_message = HumanMessage(content=actual_query)
@@ -335,32 +346,3 @@ class LLMHandler:
                 return "⚠️ Error: Service is currently unavailable. Please try again later."
 
             return f"⚠️ Error: {error_msg}"
-
-    def _preformat(self, msg: str) -> str:
-        """Allow {{key}} to be used for formatting in text that already uses curly braces.
-        First switch existing double braces to temporary markers,
-        then escape single braces by doubling them,
-        finally restore the original double braces.
-        """
-        msg = msg.replace('{{', '<<<').replace('}}', '>>>')  # Preserve intended format strings
-        msg = msg.replace('{', '{{').replace('}', '}}')      # Escape unintended braces
-        msg = msg.replace('<<<', '{').replace('>>>', '}')    # Restore intended format strings
-        return msg
-
-    def _format_context(self, context: dict) -> str:
-        """Format context dictionary into a string, safely handling curly braces."""
-        context_parts = []
-        if 'selected_text' in context:
-            text = self._preformat(context['selected_text'])
-            context_parts.append(f"Selected Text (what the user has highlighted):\n{text}")
-        if 'conversation_history' in context:
-            history = context['conversation_history']
-            if history:
-                history_text = "Recent Conversation History:\n"
-                # Only show last 5 exchanges to keep context manageable
-                for i, (q, r) in enumerate(history[-5:], 1):
-                    q_text = self._preformat(q)
-                    r_text = self._preformat(r)
-                    history_text += f"{i}. User: {q_text}\n   Assistant: {r_text}\n"
-                context_parts.append(history_text)
-        return "\n\n".join(context_parts)
