@@ -88,9 +88,15 @@ If you want to run Dasi locally for development:
 
 2. Create and activate a virtual environment:
    ```bash
-   python -m venv .venv
-   # On Linux/macOS:
+   # Create virtual environment
+   python3 -m venv .venv
+   
+   # On Linux/macOS with bash/zsh:
    source .venv/bin/activate
+   
+   # On Linux with fish shell:
+   source .venv/bin/activate.fish
+   
    # On Windows:
    .venv\Scripts\activate
    ```
