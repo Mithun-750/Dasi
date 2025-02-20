@@ -270,6 +270,7 @@ class LLMHandler:
                 - Treat every input as a request to compose/generate content
                 - Example: If user says "Hi", generate a proper greeting email/message
                 - Focus on producing polished, ready-to-use content
+                - Do not wrap your output in markdown formatting, code blocks, or triple backticks
                 - No explanations or meta-commentary, just the content"""
             else:
                 mode_instruction = """You are in CHAT MODE:
