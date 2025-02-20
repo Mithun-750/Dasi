@@ -1190,12 +1190,19 @@ class DasiWindow(QWidget):
 
     def _handle_reset_session(self):
         """Handle reset session button click."""
+        # Store current selected text
+        current_selected_text = self.selected_text
+        
         # Generate new session ID
         self.session_id = str(uuid.uuid4())
         # Clear conversation history in LLM handler
         self.process_query(f"!clear_session:{self.session_id}")
-        # Reset UI
+        
+        # Reset UI but preserve selected text
         self.reset_context()
+        if current_selected_text:
+            self.set_selected_text(current_selected_text)
+            
         self.input_field.clear()
         self.response_preview.clear()
         self.right_panel.hide()
