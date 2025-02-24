@@ -217,8 +217,7 @@ class GeneralTab(QWidget):
             "These will be added to Dasi's core behavior."
         )
         instructions_description.setWordWrap(True)
-        instructions_description.setStyleSheet(
-            "color: #888888; font-size: 12px;")
+        instructions_description.setStyleSheet("color: #888888; font-size: 12px;")
 
         self.custom_instructions = QTextEdit()
         self.custom_instructions.setMinimumHeight(100)
@@ -239,6 +238,9 @@ class GeneralTab(QWidget):
         custom_instructions = self.settings.get(
             'general', 'custom_instructions', default="")
         self.custom_instructions.setText(custom_instructions)
+        
+        # Connect textChanged signal for auto-save
+        self.custom_instructions.textChanged.connect(self._save_custom_instructions)
 
         instructions_layout.addWidget(instructions_label)
         instructions_layout.addWidget(instructions_description)
@@ -273,6 +275,9 @@ class GeneralTab(QWidget):
                 min-width: 80px;
             }
         """)
+        
+        # Connect valueChanged signal for auto-save
+        self.temperature.valueChanged.connect(self._save_temperature)
 
         temp_layout.addWidget(temp_label)
         temp_layout.addWidget(self.temperature)
@@ -383,9 +388,33 @@ class GeneralTab(QWidget):
         hotkey_layout_inner.addWidget(self.key_selector)
         hotkey_layout_inner.addStretch()
 
+        # Add save button for hotkey settings
+        save_hotkey_button = QPushButton("Apply Hotkey")
+        save_hotkey_button.setStyleSheet("""
+            QPushButton {
+                padding: 8px 16px;
+                font-size: 13px;
+                font-weight: bold;
+                border-radius: 6px;
+                max-width: 200px;
+                background-color: #2b5c99;
+                color: white;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #366bb3;
+            }
+            QPushButton:pressed {
+                background-color: #1f4573;
+                padding: 9px 16px 7px 16px;
+            }
+        """)
+        save_hotkey_button.clicked.connect(self._save_hotkey_settings)
+
         hotkey_layout.addWidget(hotkey_label)
         hotkey_layout.addWidget(hotkey_description)
         hotkey_layout.addWidget(hotkey_container)
+        hotkey_layout.addWidget(save_hotkey_button)
 
         # Startup Settings Section
         startup_section = QFrame()
@@ -415,57 +444,38 @@ class GeneralTab(QWidget):
         
         # Load current startup setting
         self.startup_checkbox.setChecked(self.settings.get('general', 'start_on_boot', default=False))
+        
+        # Connect stateChanged signal for auto-save
+        self.startup_checkbox.stateChanged.connect(self._save_startup_settings)
 
         startup_layout.addWidget(startup_label)
         startup_layout.addWidget(startup_description)
         startup_layout.addWidget(self.startup_checkbox)
-
-        # Save button
-        save_button = QPushButton("Save Settings")
-        save_button.setStyleSheet("""
-            QPushButton {
-                padding: 8px 16px;
-                font-size: 13px;
-                font-weight: bold;
-                border-radius: 6px;
-                max-width: 200px;
-                background-color: #2b5c99;
-                color: white;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #366bb3;
-            }
-            QPushButton:pressed {
-                background-color: #1f4573;
-                padding: 9px 16px 7px 16px;
-            }
-        """)
-        save_button.clicked.connect(self.save_settings)
 
         # Add sections to main layout
         layout.addWidget(instructions_section)
         layout.addWidget(llm_section)
         layout.addWidget(hotkey_section)
         layout.addWidget(startup_section)
-        layout.addWidget(save_button)
         layout.addStretch()
 
         # Set scroll area widget
         scroll.setWidget(content)
         main_layout.addWidget(scroll)
 
-    def save_settings(self):
-        """Save all settings."""
+    def _save_custom_instructions(self):
+        """Auto-save custom instructions when changed."""
+        self.settings.set(self.custom_instructions.toPlainText(),
+                          'general', 'custom_instructions')
+
+    def _save_temperature(self):
+        """Auto-save temperature when changed."""
+        self.settings.set(self.temperature.value(),
+                          'general', 'temperature')
+
+    def _save_hotkey_settings(self):
+        """Save hotkey settings and prompt for restart."""
         try:
-            # Save custom instructions
-            self.settings.set(self.custom_instructions.toPlainText(),
-                              'general', 'custom_instructions')
-
-            # Save temperature
-            self.settings.set(self.temperature.value(),
-                              'general', 'temperature')
-
             # Save hotkey settings
             hotkey_settings = {
                 'ctrl': self.ctrl_checkbox.isChecked(),
@@ -477,15 +487,10 @@ class GeneralTab(QWidget):
             }
             self.settings.set(hotkey_settings, 'general', 'hotkey')
 
-            # Save startup setting and update startup file
-            start_on_boot = self.startup_checkbox.isChecked()
-            self.settings.set(start_on_boot, 'general', 'start_on_boot')
-            self._update_startup_file(start_on_boot)
-
             # Create custom message box with restart button
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle("Success")
-            msg_box.setText("Settings saved successfully.")
+            msg_box.setText("Hotkey settings saved successfully.")
             msg_box.setInformativeText(
                 "Would you like to restart Dasi now for the changes to take effect?")
             msg_box.setStandardButtons(
@@ -527,7 +532,21 @@ class GeneralTab(QWidget):
             QMessageBox.critical(
                 self,
                 "Error",
-                f"Failed to save settings: {str(e)}",
+                f"Failed to save hotkey settings: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
+
+    def _save_startup_settings(self):
+        """Auto-save startup settings when changed."""
+        try:
+            start_on_boot = self.startup_checkbox.isChecked()
+            self.settings.set(start_on_boot, 'general', 'start_on_boot')
+            self._update_startup_file(start_on_boot)
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to save startup settings: {str(e)}",
                 QMessageBox.StandardButton.Ok
             )
 
