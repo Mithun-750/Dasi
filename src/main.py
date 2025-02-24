@@ -261,7 +261,8 @@ class Dasi:
                 elif query.startswith('!paste:'):
                     # Handle paste command
                     text = query[6:]  # Remove !paste: prefix
-                    pyautogui.write(text)
+                    pyperclip.copy(text)  # Copy to clipboard
+                    pyautogui.hotkey('ctrl', 'v')  # Simulate paste
                     return ""
                 elif query.startswith('!type:'):
                     # Handle type command
