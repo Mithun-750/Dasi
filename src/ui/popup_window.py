@@ -2,7 +2,8 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTextEdit,
                              QFrame, QLabel, QPushButton, QHBoxLayout, QProgressBar,
                              QGridLayout, QComboBox, QSizePolicy, QRadioButton, QButtonGroup,
                              QCompleter, QListView)
-from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, QObject, QSize, QStringListModel
+from PyQt6.QtCore import (Qt, QPoint, QThread, pyqtSignal, QObject, QSize, 
+                          QStringListModel, QModelIndex, QAbstractListModel, QEvent)
 from PyQt6.QtGui import QFont, QClipboard, QIcon, QPixmap, QTextCursor, QSyntaxHighlighter, QTextCharFormat, QColor
 from typing import Callable, Optional, Tuple, List
 import sys
@@ -102,6 +103,99 @@ class MentionHighlighter(QSyntaxHighlighter):
                 self.setFormat(start, length, self.invalid_mention_format)
 
 
+class ChunkDropdown(QListView):
+    """Custom dropdown for chunk selection."""
+    itemSelected = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        
+        # Setup model
+        self.model = QStringListModel()
+        self.setModel(self.model)
+        
+        # Style the dropdown
+        self.setStyleSheet("""
+            QListView {
+                background-color: #2b2b2b;
+                border: 1px solid #3f3f3f;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QListView::item {
+                padding: 4px 8px;
+                border-radius: 2px;
+                color: white;
+            }
+            QListView::item:selected {
+                background-color: #2b5c99;
+                color: white;
+            }
+            QListView::item:hover {
+                background-color: #404040;
+            }
+        """)
+        
+        # Connect signals
+        self.clicked.connect(self._handle_click)
+        self.activated.connect(self._handle_click)
+
+    def keyPressEvent(self, event):
+        """Handle key events."""
+        if event.key() == Qt.Key.Key_Return:
+            current = self.currentIndex()
+            if current.isValid():
+                text = self.model.data(current, Qt.ItemDataRole.DisplayRole)
+                self.itemSelected.emit(text)
+                self.hide()
+                event.accept()
+                return
+        elif event.key() == Qt.Key.Key_Escape:
+            self.hide()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def update_items(self, items, filter_text=""):
+        """Update the list items with optional filtering."""
+        if filter_text:
+            filter_text = filter_text.lower()
+            filtered_items = [item for item in items if filter_text in item.lower()]
+        else:
+            filtered_items = items
+            
+        self.model.setStringList(filtered_items)
+        
+        if self.model.rowCount() > 0:
+            self.setCurrentIndex(self.model.index(0, 0))
+            self.show()
+        else:
+            self.hide()
+
+    def _handle_click(self, index):
+        """Handle item click or activation."""
+        if index.isValid():
+            text = self.model.data(index, Qt.ItemDataRole.DisplayRole)
+            self.itemSelected.emit(text)
+            self.hide()
+
+    def showEvent(self, event):
+        """Position the dropdown when shown."""
+        super().showEvent(event)
+        if isinstance(self.parent(), QTextEdit):
+            cursor_rect = self.parent().cursorRect()
+            global_pos = self.parent().mapToGlobal(cursor_rect.bottomLeft())
+            self.move(global_pos + QPoint(0, 5))
+
+    def sizeHint(self):
+        """Calculate proper size for the dropdown."""
+        width = max(200, self.parent().width() // 2 if self.parent() else 200)
+        height = min(200, (self.model.rowCount() * 30) + 10)
+        return QSize(width, height)
+
+
 class DasiWindow(QWidget):
     def reset_context(self):
         """Reset all context including selected text and last response."""
@@ -140,8 +234,7 @@ class DasiWindow(QWidget):
         self.conversation_context = {}  # Store conversation context
         self.settings = Settings()  # Initialize settings
         self.chunks_dir = Path(self.settings.config_dir) / 'prompt_chunks'
-        self.completer = None
-        self.chunk_titles = []
+        self.chunk_dropdown = None  # Will be initialized in setup_ui
         self.highlighter = None  # Initialize highlighter reference
 
         # Connect to settings signals
@@ -158,8 +251,8 @@ class DasiWindow(QWidget):
         # Add syntax highlighter with chunks directory
         self.highlighter = MentionHighlighter(self.input_field.document(), self.chunks_dir)
         
-        # Setup completer after highlighter is created
-        self.setup_completer()
+        # Setup chunk dropdown
+        self.setup_chunk_dropdown()
 
     def setup_ui(self):
         """Set up the UI components."""
@@ -723,54 +816,40 @@ class DasiWindow(QWidget):
         # Set up key bindings
         self.input_field.installEventFilter(self)
 
-    def setup_completer(self):
-        """Set up auto-completion for @ mentions."""
+    def setup_chunk_dropdown(self):
+        """Set up the chunk selection dropdown."""
+        self.chunk_dropdown = ChunkDropdown(self.input_field)
+        self.chunk_dropdown.itemSelected.connect(self.insert_chunk)
         self.update_chunk_titles()
-        self.completer = QCompleter(self.chunk_titles)
-        self.completer.setWidget(self.input_field)
-        self.completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self.completer.activated.connect(self.insert_completion)
-
-        # Style the completer popup
-        popup = self.completer.popup()
-        if isinstance(popup, QListView):
-            popup.setStyleSheet("""
-                QListView {
-                    background-color: #2b2b2b;
-                    border: 1px solid #3f3f3f;
-                    border-radius: 4px;
-                    padding: 4px;
-                }
-                QListView::item {
-                    padding: 4px 8px;
-                    border-radius: 2px;
-                }
-                QListView::item:selected {
-                    background-color: #2b5c99;
-                    color: white;
-                }
-                QListView::item:hover {
-                    background-color: #404040;
-                }
-            """)
 
     def update_chunk_titles(self):
         """Update the list of available chunk titles."""
         self.chunk_titles = []
         if self.chunks_dir.exists():
             for file_path in self.chunks_dir.glob("*.md"):
-                # Use filename as is
                 title = file_path.stem
                 self.chunk_titles.append(title)
-        
-        # Update completer model if it exists
-        if self.completer:
-            self.completer.setModel(QStringListModel(self.chunk_titles))
         
         # Update highlighter's available chunks
         if self.highlighter:
             self.highlighter.update_available_chunks()
+
+    def insert_chunk(self, chunk_title: str):
+        """Insert the selected chunk title at cursor position."""
+        cursor = self.input_field.textCursor()
+        current_word, start = self.get_word_under_cursor()
+        
+        # Calculate how many characters to remove
+        extra = len(current_word)
+        
+        # Move cursor to start of the word and select it
+        cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, extra)
+        cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, extra)
+        
+        # Insert chunk title with @ prefix and a space
+        cursor.insertText('@' + chunk_title.lower() + ' ')
+        self.input_field.setTextCursor(cursor)
+        self.chunk_dropdown.hide()
 
     def get_word_under_cursor(self) -> Tuple[str, int]:
         """Get the word being typed and its start position."""
@@ -782,67 +861,45 @@ class DasiWindow(QWidget):
         start = pos
         while start > 0 and text[start-1] not in [' ', '\n', '\t']:
             start -= 1
-            
+        
+        # Only get the word up to the first space after @
         current_word = text[start:pos]
+        if ' ' in current_word and current_word.startswith('@'):
+            return '@', start  # Return just the @ if we hit a space
+            
         return current_word, start
-
-    def insert_completion(self, completion: str):
-        """Insert the completed chunk title."""
-        cursor = self.input_field.textCursor()
-        current_word, start = self.get_word_under_cursor()
-        
-        # Calculate how many characters to remove
-        extra = len(current_word)
-        
-        cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, extra)
-        cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, extra)
-        
-        # Convert the completion to lowercase and replace spaces with underscores
-        formatted_completion = completion.lower().replace(' ', '_')
-        # Insert with @ prefix
-        cursor.insertText('@' + formatted_completion)
-        self.input_field.setTextCursor(cursor)
 
     def eventFilter(self, obj, event) -> bool:
         """Handle key events."""
-        from PyQt6.QtCore import QEvent
         if obj is self.input_field and event.type() == QEvent.Type.KeyPress:
-            # The event is already a QKeyEvent when it comes from Qt
             key_event = event
 
-            # Handle @ key for completion
+            # Get current word for filtering
+            current_word, _ = self.get_word_under_cursor()
+            
+            # Show dropdown on @ key
             if key_event.text() == '@':
-                # Show completer after typing @
-                self.completer.setCompletionPrefix("")
-                self.completer.complete()
-                return False  # Let the @ be inserted
+                self.chunk_dropdown.update_items(self.chunk_titles)
+                return False  # Let the @ be typed
 
-            # Handle completion navigation
-            if self.completer and self.completer.popup().isVisible():
-                if key_event.key() in [Qt.Key.Key_Enter, Qt.Key.Key_Return, Qt.Key.Key_Tab]:
-                    self.completer.popup().hide()
-                    return True
+            # Update dropdown during typing after @
+            if current_word.startswith('@'):
+                if key_event.key() == Qt.Key.Key_Space:
+                    self.chunk_dropdown.hide()
+                    return False  # Let the space be typed
+                elif key_event.text():
+                    prefix = current_word[1:]  # Remove @ for matching
+                    self.chunk_dropdown.update_items(self.chunk_titles, prefix)
+                    return False  # Let the typing happen
 
-            # Handle Return key (submit)
-            if key_event.key() == Qt.Key.Key_Return and not key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            # Handle submit when dropdown is not visible
+            if (key_event.key() == Qt.Key.Key_Return and 
+                not key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier and 
+                not self.chunk_dropdown.isVisible()):
                 self._handle_submit()
                 return True
 
-            # Handle Escape key (close)
-            if key_event.key() == Qt.Key.Key_Escape:
-                self._handle_escape()
-                return True
-
-            # Handle Shift+Return (newline)
-            if key_event.key() == Qt.Key.Key_Return and key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                return False
-
-            # Update completer for normal typing
-            current_word, _ = self.get_word_under_cursor()
-            if current_word.startswith('@'):
-                self.completer.setCompletionPrefix(current_word[1:])
-                if len(current_word) > 1:
-                    self.completer.complete()
+            return False  # Let other keys through
 
         return super().eventFilter(obj, event)
 
