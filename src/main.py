@@ -5,13 +5,15 @@ import pyautogui
 import pyperclip
 from pathlib import Path
 from hotkey_listener import HotkeyListener
-from ui.popup_window import CopilotUI
+from ui import CopilotUI
 from llm_handler import LLMHandler
 from ui.settings import Settings, SettingsWindow
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QPixmap, QPainter
 from PyQt6.QtCore import Qt
 from typing import Optional, Callable
+# Import constants
+from constants import DEFAULT_CHAT_PROMPT, DEFAULT_COMPOSE_PROMPT
 
 
 def setup_logging():
@@ -81,6 +83,9 @@ class Dasi:
             # Keep running when windows are closed
             self.app.setQuitOnLastWindowClosed(False)
 
+            # Initialize settings
+            self.settings = Settings()
+
             # Initialize system tray
             logging.info("Setting up system tray")
             self.tray = None  # Initialize to None first
@@ -89,6 +94,14 @@ class Dasi:
             # Initialize LLM handler
             logging.info("Initializing LLM handler")
             self.llm_handler = LLMHandler()
+            
+            # Make default prompts available to LLMHandler
+            # This is a workaround to avoid modifying llm_handler.py
+            import llm_handler
+            if not hasattr(llm_handler, 'DEFAULT_CHAT_PROMPT'):
+                llm_handler.DEFAULT_CHAT_PROMPT = DEFAULT_CHAT_PROMPT
+            if not hasattr(llm_handler, 'DEFAULT_COMPOSE_PROMPT'):
+                llm_handler.DEFAULT_COMPOSE_PROMPT = DEFAULT_COMPOSE_PROMPT
 
             # Initialize UI
             logging.info("Initializing UI")
@@ -273,7 +286,69 @@ class Dasi:
                     return "Unknown command"
 
             # Process normal query
-            return self.llm_handler.get_response(query, callback, model)
+            response = self.llm_handler.get_response(query, callback, model)
+            
+            # Check for quota errors and enhance the error message
+            if "⚠️ Error:" in response and ("quota" in response.lower() or "rate limit" in response.lower() or "resourceexhausted" in response.lower()):
+                # Get the current provider
+                provider = "unknown"
+                if self.llm_handler.current_provider:
+                    provider = self.llm_handler.current_provider
+                
+                # Add troubleshooting information based on provider
+                if provider == "google":
+                    troubleshooting = """
+                    
+To resolve this issue:
+1. Check your Google AI Studio quota at https://aistudio.google.com/app/apikey
+2. Consider upgrading to a paid plan if you're on the free tier
+3. If on a paid plan, check your billing information
+4. Try again later when your quota resets"""
+                elif provider in ["openai", "custom_openai"]:
+                    troubleshooting = """
+                    
+To resolve this issue:
+1. Check your usage at https://platform.openai.com/usage
+2. Add funds to your account if needed
+3. Consider upgrading your rate limits
+4. Try again later"""
+                else:
+                    troubleshooting = """
+                    
+To resolve this issue:
+1. Check your usage and billing information
+2. Consider upgrading your plan
+3. Try again later when your quota resets"""
+                
+                # Get alternative models
+                alternative_models = []
+                try:
+                    selected_models = self.settings.get_selected_models()
+                    current_model = model
+                    if not current_model and self.llm_handler.llm:
+                        if hasattr(self.llm_handler.llm, 'model'):
+                            current_model = self.llm_handler.llm.model
+                        elif hasattr(self.llm_handler.llm, 'model_name'):
+                            current_model = self.llm_handler.llm.model_name
+                    
+                    # Filter out models from the current provider
+                    if current_model and provider:
+                        alternative_models = [
+                            m['name'] for m in selected_models 
+                            if m['provider'] != provider
+                        ][:3]  # Limit to 3 alternatives
+                except Exception as e:
+                    logging.error(f"Error getting alternative models: {str(e)}", exc_info=True)
+                
+                # Add alternative models to the message if available
+                alternatives_text = ""
+                if alternative_models:
+                    alternatives_text = "\n\nTry these alternative models:\n- " + "\n- ".join(alternative_models)
+                
+                # Enhance the error message
+                return f"{response}{troubleshooting}{alternatives_text}"
+            
+            return response
 
         except Exception as e:
             logging.error(f"Error processing query: {str(e)}", exc_info=True)
