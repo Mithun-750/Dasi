@@ -274,12 +274,18 @@ class Dasi:
                 elif query.startswith('!paste:'):
                     # Handle paste command
                     text = query[6:]  # Remove !paste: prefix
+                    # Ensure no leading colon in the text
+                    if text.startswith(':'):
+                        text = text[1:].lstrip()
                     pyperclip.copy(text)  # Copy to clipboard
                     pyautogui.hotkey('ctrl', 'v')  # Simulate paste
                     return ""
                 elif query.startswith('!type:'):
                     # Handle type command
                     text = query[6:]  # Remove !type: prefix
+                    # Ensure no leading colon in the text
+                    if text.startswith(':'):
+                        text = text[1:].lstrip()
                     pyautogui.write(text, interval=0.01)
                     return ""
                 else:
