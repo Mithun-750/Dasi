@@ -788,8 +788,8 @@ class DasiWindow(QWidget):
             if context:
                 full_query = "Context:\n"
                 if 'selected_text' in context:
-                    full_query += f"Selected Text:\n{context['selected_text']}\n\n"
-                full_query += f"Mode: {context['mode']}\n\n"
+                    full_query += f"=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n=======================\n\n"
+                full_query += f"=====MODE=====<user selected mode>\n{context['mode']}\n=======================\n\n"
                 full_query += f"Query:\n{query}"
             else:
                 full_query = query

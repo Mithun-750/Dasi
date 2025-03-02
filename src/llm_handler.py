@@ -40,7 +40,7 @@ class LLMHandler:
             - Never say things like 'here's the response' or 'here's what I generated'
             - Just provide the direct answer or content requested
             - Keep responses concise and to the point
-            - **Ambiguous References:** If the user uses terms like "this", "that", or similar ambiguous references without specifying a subject, assume that the reference applies to the "Selected Text" provided in the context.
+            - **Ambiguous References:** If the user uses terms like "this", "that", or similar ambiguous references without specifying a subject, assume that the reference applies to the text provided in the =====SELECTED_TEXT===== section.
             - Focus on being practically helpful for the current task"""
 
         # Get custom instructions
@@ -49,7 +49,7 @@ class LLMHandler:
 
         # Combine system prompt with custom instructions if they exist
         if custom_instructions:
-            self.system_prompt = f"{self.system_prompt}\n\nCustom Instructions:\n{custom_instructions}"
+            self.system_prompt = f"{self.system_prompt}\n\n=====CUSTOM_INSTRUCTIONS=====<user-defined instructions>\n{custom_instructions}\n======================="
 
         # Create base prompt template with memory
         self.prompt = ChatPromptTemplate.from_messages([
@@ -71,7 +71,7 @@ class LLMHandler:
         custom_instructions = self.settings.get(
             'general', 'custom_instructions', default="").strip()
         if custom_instructions:
-            self.system_prompt = f"{self.system_prompt}\n\nCustom Instructions:\n{custom_instructions}"
+            self.system_prompt = f"{self.system_prompt}\n\n=====CUSTOM_INSTRUCTIONS=====<user-defined instructions>\n{custom_instructions}\n======================="
             self.prompt = ChatPromptTemplate.from_messages([
                 ("system", self.system_prompt),
                 MessagesPlaceholder(variable_name="chat_history"),
@@ -266,9 +266,27 @@ class LLMHandler:
                     selected_text = context_section.split("Selected Text:\n", 1)[1]
                     selected_text = selected_text.split("\n\n", 1)[0].strip()
                     context['selected_text'] = selected_text
+                
+                # Also support the new format with delimiters
+                if "=====SELECTED_TEXT=====" in context_section:
+                    selected_text = context_section.split("=====SELECTED_TEXT=====", 1)[1]
+                    selected_text = selected_text.split("=======================", 1)[0].strip()
+                    # Remove the metadata part if present
+                    if "<" in selected_text and ">" in selected_text:
+                        selected_text = selected_text.split(">", 1)[1].strip()
+                    context['selected_text'] = selected_text
 
                 if "Mode:" in context_section:
                     mode = context_section.split("Mode:", 1)[1].split("\n", 1)[0].strip()
+                
+                # Also support the new format for mode
+                if "=====MODE=====" in context_section:
+                    mode_text = context_section.split("=====MODE=====", 1)[1]
+                    mode_text = mode_text.split("=======================", 1)[0].strip()
+                    # Remove the metadata part if present
+                    if "<" in mode_text and ">" in mode_text:
+                        mode_text = mode_text.split(">", 1)[1].strip()
+                    mode = mode_text
 
             # Build the messages list
             messages = []
@@ -276,19 +294,21 @@ class LLMHandler:
             # Add mode-specific instruction to system prompt
             mode_instruction = ""
             if mode == 'compose':
-                mode_instruction = """You are in COMPOSE MODE:
+                mode_instruction = """=====COMPOSE_MODE=====<instructions for compose mode>
                 - Generate content that can be directly pasted somewhere
                 - Treat every input as a request to compose/generate content
                 - Example: If user says "Hi", generate a proper greeting email/message
                 - Focus on producing polished, ready-to-use content
                 - Do not wrap your output in markdown formatting, code blocks, or triple backticks
-                - No explanations or meta-commentary, just the content"""
+                - No explanations or meta-commentary, just the content
+                ======================="""
             else:
-                mode_instruction = """You are in CHAT MODE:
+                mode_instruction = """=====CHAT_MODE=====<instructions for chat mode>
                 - Provide friendly, conversational responses with a helpful tone
                 - Focus on explaining things clearly, like a knowledgeable friend
                 - Example: If user asks "explain this code", break it down in an approachable way
-                - Keep responses helpful and concise while maintaining a warm demeanor"""
+                - Keep responses helpful and concise while maintaining a warm demeanor
+                ======================="""
 
             # Combine all system instructions
             full_system_prompt = f"{self.system_prompt}\n\n{mode_instruction}"
@@ -302,7 +322,7 @@ class LLMHandler:
 
             # Format user query with selected text if available
             if 'selected_text' in context:
-                actual_query = f"{actual_query}\n\nSelected Text:\n{context['selected_text']}"
+                actual_query = f"{actual_query}\n\n=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n======================="
 
             # Add current query
             query_message = HumanMessage(content=actual_query)
