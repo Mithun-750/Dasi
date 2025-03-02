@@ -924,6 +924,10 @@ class DasiWindow(QWidget):
             method = self.insert_method.currentData()
 
             # Format query with method and response
+            # Remove any leading colon that might be in the response
+            if response.startswith(':'):
+                response = response[1:].lstrip()
+                
             query = f"!{method}:{response}"
 
             # Process the response with selected method
