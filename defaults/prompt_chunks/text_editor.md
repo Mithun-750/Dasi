@@ -22,3 +22,7 @@ Take a step back and think step-by-step about how to achieve the best possible r
 * Address both technical and stylistic aspects
 * Preserve important terminology and specialized language
 * Format output for easy integration into existing text 
+
+# INPUT
+
+INPUT:

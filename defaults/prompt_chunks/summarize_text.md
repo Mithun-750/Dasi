@@ -22,3 +22,7 @@ Take a step back and think step-by-step about how to achieve the best possible r
 * Use clear transition phrases
 * Maintain proper context
 * Format output for easy reading and reference 
+
+# INPUT
+
+INPUT:
