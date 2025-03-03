@@ -1,7 +1,6 @@
 # <img src="src/assets/Dasi.png" alt="Dasi Logo" width="32" style="vertical-align: middle"> Dasi
 
 <div align="center">
-
 A powerful desktop copilot that provides inline LLM support using LangChain and multiple AI model providers.
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -11,6 +10,7 @@ A powerful desktop copilot that provides inline LLM support using LangChain and 
 
 [🌟 Features](#-features) • [🚀 Installation](#-installation) • [💡 Usage](#-usage) • [⚙️ Configuration](#%EF%B8%8F-configuration) • [🤝 Contributing](#-contributing)
 
+<img src="images/image.png" alt="Dasi">
 </div>
 
 ## 🌟 Features
