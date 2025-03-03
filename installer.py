@@ -26,10 +26,43 @@ import subprocess
 import shutil
 import logging
 
+def detect_shell():
+    """Detect the current shell being used."""
+    shell = os.environ.get('SHELL', '')
+    if not shell and platform.system() == 'Windows':
+        return 'cmd'
+    return os.path.basename(shell)
+
+def get_activate_command():
+    """Get the appropriate activate command based on the shell."""
+    shell = detect_shell()
+    venv_path = os.path.abspath('.venv')
+    
+    if platform.system() == 'Windows':
+        return f"{os.path.join(venv_path, 'Scripts', 'activate')}"
+    
+    activate_commands = {
+        'fish': f"source {os.path.join(venv_path, 'bin', 'activate.fish')}",
+        'zsh': f"source {os.path.join(venv_path, 'bin', 'activate')}",
+        'bash': f"source {os.path.join(venv_path, 'bin', 'activate')}",
+        'sh': f". {os.path.join(venv_path, 'bin', 'activate')}"
+    }
+    
+    return activate_commands.get(shell, f"source {os.path.join(venv_path, 'bin', 'activate')}")
+
 def create_virtualenv():
     if not os.path.exists(".venv"):
         print("Creating virtual environment...")
         subprocess.check_call([sys.executable, "-m", "venv", ".venv"])
+        
+        # Print activation instructions
+        activate_cmd = get_activate_command()
+        print("\nVirtual environment created!")
+        print(f"\nTo activate the virtual environment, run:")
+        print(f"    {activate_cmd}")
+        print("\nAfter activation, run the installer again:")
+        print("    python installer.py install\n")
+        sys.exit(0)
     else:
         print("Virtual environment already exists.")
 
@@ -39,23 +72,44 @@ def get_venv_python():
     else:
         return os.path.join(".venv", "bin", "python")
 
+def run_in_venv(args):
+    """Run a command in the virtual environment."""
+    venv_python = os.path.abspath(get_venv_python())
+    if not os.path.exists(venv_python):
+        print(f"Error: Virtual environment Python not found at {venv_python}")
+        sys.exit(1)
+    
+    # Create a new environment with the virtual environment's Python in PATH
+    env = os.environ.copy()
+    venv_path = os.path.dirname(venv_python)
+    if platform.system() == "Windows":
+        env["PATH"] = venv_path + os.pathsep + env.get("PATH", "")
+    else:
+        env["PATH"] = venv_path + os.pathsep + env.get("PATH", "")
+        env["VIRTUAL_ENV"] = os.path.dirname(venv_path)
+    
+    try:
+        subprocess.check_call([venv_python] + args, env=env)
+    except subprocess.CalledProcessError as e:
+        print(f"Error running command in virtual environment: {e}")
+        sys.exit(1)
+
 def install_dependencies():
-    venv_python = get_venv_python()
     print("Installing dependencies...")
-    subprocess.check_call([venv_python, "-m", "pip", "install", "-r", "requirements.txt"])
-    subprocess.check_call([venv_python, "-m", "pip", "install", "pyinstaller"])
+    run_in_venv(["-m", "pip", "install", "-r", "requirements.txt"])
+    run_in_venv(["-m", "pip", "install", "pyinstaller"])
+    
     # Optionally, install pywin32 on Windows if creating shortcuts:
     if platform.system() == "Windows":
         try:
             import win32com  # Check if already installed
         except ImportError:
             print("win32com not found. Installing pywin32 for Windows shortcut support...")
-            subprocess.check_call([venv_python, "-m", "pip", "install", "pywin32"])
+            run_in_venv(["-m", "pip", "install", "pywin32"])
 
 def build_dasi():
     print("Building Dasi with PyInstaller...")
-    # It is assumed that your spec file is called dasi.spec
-    subprocess.check_call(["pyinstaller", "dasi.spec", "--clean"])
+    run_in_venv(["-m", "PyInstaller", "dasi.spec", "--clean"])
 
 def create_launcher():
     current_dir = os.getcwd()
