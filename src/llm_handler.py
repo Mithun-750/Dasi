@@ -366,3 +366,67 @@ class LLMHandler:
                 return "⚠️ Error: Service is currently unavailable. Please try again later."
 
             return f"⚠️ Error: {error_msg}"
+
+    def suggest_filename(self, content: str, session_id: str = "default") -> str:
+        """Suggest a filename based on content and recent query history."""
+        try:
+            # Get message history for this session
+            message_history = self._get_message_history(session_id)
+            
+            # Get the most recent user query from history
+            messages = message_history.messages
+            recent_query = ""
+            
+            # Find the most recent user query
+            if messages:
+                for msg in reversed(messages):
+                    if isinstance(msg, HumanMessage):
+                        recent_query = msg.content
+                        break
+            
+            # Create the prompt for filename suggestion
+            filename_query = f"""Generate a concise, professional filename for this content. Follow these rules strictly:
+1. Use letters, numbers, and underscores only (no spaces)
+2. Maximum 30 characters (excluding .md extension)
+3. Use PascalCase or snake_case for better readability
+4. Focus on the key topic/purpose
+5. No dates unless critically relevant
+6. Return ONLY the filename with .md extension, nothing else
+
+Examples of good filenames:
+- Api_Authentication.md
+- User_Workflow.md
+- Deployment_Strategy.md
+- System_Architecture.md
+
+User Query:
+{recent_query}
+
+Content:
+{content[:500]}..."""  # Send first 500 chars to keep query concise
+            
+            # Get response without adding to history
+            # Create a direct message list instead of using the chain
+            messages = [
+                SystemMessage(content=self.system_prompt),
+                HumanMessage(content=filename_query)
+            ]
+            
+            # Invoke the LLM directly with these messages
+            response = self.llm.invoke(messages)
+            
+            # Extract the content from the response
+            suggested_filename = response.content.strip().strip('"').strip("'").strip()
+            
+            # Ensure it has .md extension
+            if not suggested_filename.endswith('.md'):
+                suggested_filename += '.md'
+                
+            return suggested_filename
+            
+        except Exception as e:
+            logging.error(f"Error suggesting filename: {str(e)}", exc_info=True)
+            # Return a default filename with timestamp
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            return f"dasi_response_{timestamp}.md"
