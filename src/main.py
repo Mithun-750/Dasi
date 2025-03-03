@@ -94,7 +94,7 @@ class Dasi:
             # Initialize LLM handler
             logging.info("Initializing LLM handler")
             self.llm_handler = LLMHandler()
-            
+
             # Make default prompts available to LLMHandler
             # This is a workaround to avoid modifying llm_handler.py
             import llm_handler
@@ -293,14 +293,14 @@ class Dasi:
 
             # Process normal query
             response = self.llm_handler.get_response(query, callback, model)
-            
+
             # Check for quota errors and enhance the error message
             if "⚠️ Error:" in response and ("quota" in response.lower() or "rate limit" in response.lower() or "resourceexhausted" in response.lower()):
                 # Get the current provider
                 provider = "unknown"
                 if self.llm_handler.current_provider:
                     provider = self.llm_handler.current_provider
-                
+
                 # Add troubleshooting information based on provider
                 if provider == "google":
                     troubleshooting = """
@@ -325,7 +325,7 @@ To resolve this issue:
 1. Check your usage and billing information
 2. Consider upgrading your plan
 3. Try again later when your quota resets"""
-                
+
                 # Get alternative models
                 alternative_models = []
                 try:
@@ -336,24 +336,26 @@ To resolve this issue:
                             current_model = self.llm_handler.llm.model
                         elif hasattr(self.llm_handler.llm, 'model_name'):
                             current_model = self.llm_handler.llm.model_name
-                    
+
                     # Filter out models from the current provider
                     if current_model and provider:
                         alternative_models = [
-                            m['name'] for m in selected_models 
+                            m['name'] for m in selected_models
                             if m['provider'] != provider
                         ][:3]  # Limit to 3 alternatives
                 except Exception as e:
-                    logging.error(f"Error getting alternative models: {str(e)}", exc_info=True)
-                
+                    logging.error(
+                        f"Error getting alternative models: {str(e)}", exc_info=True)
+
                 # Add alternative models to the message if available
                 alternatives_text = ""
                 if alternative_models:
-                    alternatives_text = "\n\nTry these alternative models:\n- " + "\n- ".join(alternative_models)
-                
+                    alternatives_text = "\n\nTry these alternative models:\n- " + \
+                        "\n- ".join(alternative_models)
+
                 # Enhance the error message
                 return f"{response}{troubleshooting}{alternatives_text}"
-            
+
             return response
 
         except Exception as e:
@@ -385,14 +387,30 @@ def check_api_key():
 def is_already_running():
     """Check if another instance is already running."""
     import socket
-    try:
-        # Try to create a socket with a unique name
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        # Use abstract namespace by prepending \0
-        sock.bind('\0dasi_lock')
-        return False
-    except socket.error:
-        return True
+    import os
+    import sys
+    import tempfile
+
+    if sys.platform == 'win32':
+        # Windows implementation using TCP socket on localhost with a specific port
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # Use a specific port for the application lock
+            sock.bind(('127.0.0.1', 47200))
+            # Keep the socket open to maintain the lock
+            return False
+        except socket.error:
+            return True
+    else:
+        # Unix implementation using Unix domain socket
+        try:
+            # Try to create a socket with a unique name
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            # Use abstract namespace by prepending \0
+            sock.bind('\0dasi_lock')
+            return False
+        except socket.error:
+            return True
 
 
 if __name__ == "__main__":
@@ -416,4 +434,3 @@ if __name__ == "__main__":
     except Exception as e:
         logging.error(f"Fatal error: {str(e)}", exc_info=True)
         sys.exit(1)
-
