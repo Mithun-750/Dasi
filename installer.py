@@ -54,15 +54,7 @@ def create_virtualenv():
     if not os.path.exists(".venv"):
         print("Creating virtual environment...")
         subprocess.check_call([sys.executable, "-m", "venv", ".venv"])
-        
-        # Print activation instructions
-        activate_cmd = get_activate_command()
         print("\nVirtual environment created!")
-        print(f"\nTo activate the virtual environment, run:")
-        print(f"    {activate_cmd}")
-        print("\nAfter activation, run the installer again:")
-        print("    python installer.py install\n")
-        sys.exit(0)
     else:
         print("Virtual environment already exists.")
 
