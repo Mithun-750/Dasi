@@ -19,6 +19,9 @@ import re
 import uuid
 from datetime import datetime
 
+# Import LLMHandler for filename suggestions
+from llm_handler import LLMHandler
+
 
 class DasiWindow(QWidget):
     def reset_context(self):
@@ -949,25 +952,65 @@ class DasiWindow(QWidget):
         """Export the generated response to a markdown file."""
         response = self.response_preview.toPlainText()
         if response:
-            # Generate default filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            default_filename = f"dasi_response_{timestamp}.md"
+            # Show loading state in the export button
+            original_text = self.export_button.text()
+            self.export_button.setText("Exporting...")
+            self.export_button.setEnabled(False)
             
-            # Open file dialog
-            filename, _ = QFileDialog.getSaveFileName(
-                self,
-                "Save Response",
-                default_filename,
-                "Markdown Files (*.md);;All Files (*)"
-            )
+            # Process events to update UI immediately
+            QApplication.processEvents()
             
-            if filename:  # Only save if user didn't cancel
-                # Write response to file
-                with open(filename, "w") as f:
-                    f.write(response)
+            try:
+                # Get LLM handler instance
+                llm_handler = LLMHandler()
                 
-                # Keep the preview open - don't hide anything
-                # The user might want to export again or use accept
+                # Get suggested filename using the session_id
+                suggested_filename = llm_handler.suggest_filename(
+                    content=response,
+                    session_id=self.session_id
+                )
+                
+                # Restore button state
+                self.export_button.setText(original_text)
+                self.export_button.setEnabled(True)
+                
+                # Open file dialog with suggested name
+                filename, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Save Response",
+                    suggested_filename,
+                    "Markdown Files (*.md);;All Files (*)"
+                )
+                
+                if filename:  # Only save if user didn't cancel
+                    # Write response to file
+                    with open(filename, "w") as f:
+                        f.write(response)
+            
+            except Exception as e:
+                # Restore button state in case of error
+                self.export_button.setText(original_text)
+                self.export_button.setEnabled(True)
+                
+                # Log the error
+                logging.error(f"Error during export: {str(e)}", exc_info=True)
+                
+                # Fallback to timestamp filename
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                suggested_filename = f"dasi_response_{timestamp}.md"
+                
+                # Open file dialog with fallback name
+                filename, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Save Response",
+                    suggested_filename,
+                    "Markdown Files (*.md);;All Files (*)"
+                )
+                
+                if filename:  # Only save if user didn't cancel
+                    # Write response to file
+                    with open(filename, "w") as f:
+                        f.write(response)
 
     def update_model_selector(self):
         """Update the model selector with currently selected models."""
