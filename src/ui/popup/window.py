@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTextEdit,
                              QFrame, QLabel, QPushButton, QHBoxLayout, QProgressBar,
                              QGridLayout, QComboBox, QSizePolicy, QRadioButton, QButtonGroup,
-                             QCompleter, QListView, QLineEdit)
+                             QCompleter, QListView, QLineEdit, QFileDialog)
 from PyQt6.QtCore import (Qt, QPoint, QThread, QObject, QSize, 
                           QStringListModel, QModelIndex, QAbstractListModel, QEvent)
 from PyQt6.QtGui import QFont, QClipboard, QIcon, QPixmap, QTextCursor
@@ -17,6 +17,10 @@ from ..components.ui_signals import UISignals
 import logging
 import re
 import uuid
+from datetime import datetime
+
+# Import LLMHandler for filename suggestions
+from llm_handler import LLMHandler
 
 
 class DasiWindow(QWidget):
@@ -413,22 +417,22 @@ class DasiWindow(QWidget):
 
         # Create accept/reject buttons
         self.accept_button = QPushButton("Accept")
-        self.reject_button = QPushButton("Reject")
+        self.export_button = QPushButton("Export")
 
         # Add stop button to layout but don't show it yet
         self.action_layout.addWidget(self.stop_button)
 
-        # Configure accept/reject buttons
+        # Configure accept/export buttons
         self.accept_button = QPushButton("Accept")
         self.accept_button.clicked.connect(self._handle_accept)
-        self.reject_button = QPushButton("Reject")
-        self.reject_button.clicked.connect(self._handle_reject)
+        self.export_button = QPushButton("Export")
+        self.export_button.clicked.connect(self._handle_export)
 
         # Create button layout
         button_layout = QHBoxLayout()
         button_layout.setSpacing(5)
         button_layout.addWidget(self.accept_button)
-        button_layout.addWidget(self.reject_button)
+        button_layout.addWidget(self.export_button)
 
         # Add widgets to action layout vertically
         self.action_layout.addWidget(self.insert_method)
@@ -756,7 +760,11 @@ class DasiWindow(QWidget):
             if self.compose_mode.isChecked():
                 self.insert_method.show()
                 self.accept_button.show()
-                self.reject_button.show()
+                self.export_button.show()
+            else:
+                self.insert_method.hide()
+                self.accept_button.hide()
+                self.export_button.hide()
 
     def _handle_submit(self):
         """Handle submit action."""
@@ -772,7 +780,7 @@ class DasiWindow(QWidget):
             self.stop_button.show()
             self.insert_method.hide()
             self.accept_button.hide()
-            self.reject_button.hide()
+            self.export_button.hide()
 
             # Build context dictionary
             context = {}
@@ -842,10 +850,10 @@ class DasiWindow(QWidget):
         self.response_preview.setText(f"Error: {error_msg}")
         self.response_preview.show()
 
-        # Show reject button only
+        # Show export button only
         self.action_frame.show()
         self.accept_button.hide()
-        self.reject_button.show()
+        self.export_button.show()
 
         # Adjust window size
         self.setFixedHeight(250)
@@ -875,7 +883,7 @@ class DasiWindow(QWidget):
                 
                 self.insert_method.show()
                 self.accept_button.show()
-                self.reject_button.show()
+                self.export_button.show()
             return
 
         # Store the response
@@ -893,18 +901,14 @@ class DasiWindow(QWidget):
         scrollbar.setValue(scrollbar.maximum())
         
         self.response_preview.show()
-
-        # Show action buttons and right panel
-        self.action_frame.show()
-        if self.compose_mode.isChecked():
-            self.insert_method.show()
-            self.accept_button.show()
-            self.reject_button.show()
-        else:
-            self.insert_method.hide()
-            self.accept_button.hide()
-            self.reject_button.hide()
         self.right_panel.show()
+
+        # During streaming, only show stop button
+        self.action_frame.show()
+        self.insert_method.hide()
+        self.accept_button.hide()
+        self.export_button.hide()
+        self.stop_button.show()
 
         # Adjust window size
         self.setFixedWidth(650)
@@ -944,26 +948,69 @@ class DasiWindow(QWidget):
         # Reset window size
         self.setFixedWidth(320)
 
-    def _handle_reject(self):
-        """Reject the generated response."""
-        # Hide response preview, buttons and right panel
-        self.right_panel.hide()
-
-        # Reset window size
-        self.setFixedWidth(320)
-
-        if not self.compose_mode.isChecked():
-            self.reset_context()
-        else:
-            # In compose mode, only clear the last response
-            self.last_response = None
-            # Hide context label if there's no selected text
-            if not self.selected_text:
-                self.context_label.hide()
-                self.ignore_button.hide()
-
-        # Focus input field
-        self.input_field.setFocus()
+    def _handle_export(self):
+        """Export the generated response to a markdown file."""
+        response = self.response_preview.toPlainText()
+        if response:
+            # Show loading state in the export button
+            original_text = self.export_button.text()
+            self.export_button.setText("Exporting...")
+            self.export_button.setEnabled(False)
+            
+            # Process events to update UI immediately
+            QApplication.processEvents()
+            
+            try:
+                # Get LLM handler instance
+                llm_handler = LLMHandler()
+                
+                # Get suggested filename using the session_id
+                suggested_filename = llm_handler.suggest_filename(
+                    content=response,
+                    session_id=self.session_id
+                )
+                
+                # Restore button state
+                self.export_button.setText(original_text)
+                self.export_button.setEnabled(True)
+                
+                # Open file dialog with suggested name
+                filename, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Save Response",
+                    suggested_filename,
+                    "Markdown Files (*.md);;All Files (*)"
+                )
+                
+                if filename:  # Only save if user didn't cancel
+                    # Write response to file
+                    with open(filename, "w") as f:
+                        f.write(response)
+            
+            except Exception as e:
+                # Restore button state in case of error
+                self.export_button.setText(original_text)
+                self.export_button.setEnabled(True)
+                
+                # Log the error
+                logging.error(f"Error during export: {str(e)}", exc_info=True)
+                
+                # Fallback to timestamp filename
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                suggested_filename = f"dasi_response_{timestamp}.md"
+                
+                # Open file dialog with fallback name
+                filename, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Save Response",
+                    suggested_filename,
+                    "Markdown Files (*.md);;All Files (*)"
+                )
+                
+                if filename:  # Only save if user didn't cancel
+                    # Write response to file
+                    with open(filename, "w") as f:
+                        f.write(response)
 
     def update_model_selector(self):
         """Update the model selector with currently selected models."""
@@ -1047,11 +1094,11 @@ class DasiWindow(QWidget):
         if is_compose:
             self.insert_method.show()
             self.accept_button.show()
-            self.reject_button.show()
+            self.export_button.show()
         else:
             self.insert_method.hide()
             self.accept_button.hide()
-            self.reject_button.hide()
+            self.export_button.hide()
 
     def keyPressEvent(self, event):
         """Handle global key events for the window."""
