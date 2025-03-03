@@ -23,3 +23,7 @@ Take a step back and think step-by-step about how to achieve the best possible r
 * Maintain simplicity and clarity
 * Focus on sensory details
 * Format with appropriate spacing and line breaks 
+
+# INPUT
+
+INPUT:

@@ -22,3 +22,7 @@ Take a step back and think step-by-step about how to achieve the best possible r
 * Provide alternatives when applicable
 * Format commands for easy copying
 * Include examples of expected output when relevant 
+
+# INPUT
+
+INPUT:

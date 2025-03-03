@@ -22,3 +22,7 @@ Take a step back and think step-by-step about how to achieve the best possible r
 * Test cases or example usage where relevant
 * Ensure proper indentation and code formatting
 * Break down complex solutions into smaller, manageable functions 
+
+# INPUT
+
+INPUT:
