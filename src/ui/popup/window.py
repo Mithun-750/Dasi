@@ -1,9 +1,9 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTextEdit,
                              QFrame, QLabel, QPushButton, QHBoxLayout, QProgressBar,
                              QGridLayout, QComboBox, QSizePolicy, QRadioButton, QButtonGroup,
-                             QCompleter, QListView, QLineEdit, QFileDialog)
+                             QCompleter, QListView, QLineEdit, QFileDialog, QMessageBox)
 from PyQt6.QtCore import (Qt, QPoint, QThread, QObject, QSize, 
-                          QStringListModel, QModelIndex, QAbstractListModel, QEvent)
+                          QStringListModel, QModelIndex, QAbstractListModel, QEvent, pyqtSignal)
 from PyQt6.QtGui import QFont, QClipboard, QIcon, QPixmap, QTextCursor
 from typing import Callable, Optional, Tuple, List
 import sys
@@ -954,63 +954,131 @@ class DasiWindow(QWidget):
         if response:
             # Show loading state in the export button
             original_text = self.export_button.text()
-            self.export_button.setText("Exporting...")
-            self.export_button.setEnabled(False)
+            self.export_button.setText("Cancel")
             
-            # Process events to update UI immediately
-            QApplication.processEvents()
+            # Create a worker thread for filename suggestion
+            class FilenameWorker(QThread):
+                finished = pyqtSignal(str)
+                error = pyqtSignal(str)
+                
+                def __init__(self, content, session_id):
+                    super().__init__()
+                    self.content = content
+                    self.session_id = session_id
+                    self.is_stopped = False
+                
+                def run(self):
+                    try:
+                        if not self.is_stopped:
+                            llm_handler = LLMHandler()
+                            filename = llm_handler.suggest_filename(
+                                content=self.content,
+                                session_id=self.session_id
+                            )
+                            self.finished.emit(filename)
+                    except Exception as e:
+                        self.error.emit(str(e))
+                
+                def stop(self):
+                    self.is_stopped = True
             
-            try:
-                # Get LLM handler instance
-                llm_handler = LLMHandler()
-                
-                # Get suggested filename using the session_id
-                suggested_filename = llm_handler.suggest_filename(
-                    content=response,
-                    session_id=self.session_id
-                )
-                
+            # Create and configure the worker
+            self.filename_worker = FilenameWorker(response, self.session_id)
+            
+            def handle_filename_ready(suggested_filename):
                 # Restore button state
                 self.export_button.setText(original_text)
                 self.export_button.setEnabled(True)
+                # Restore the original click handler
+                self.export_button.clicked.disconnect()
+                self.export_button.clicked.connect(self._handle_export)
                 
-                # Open file dialog with suggested name
-                filename, _ = QFileDialog.getSaveFileName(
-                    self,
-                    "Save Response",
-                    suggested_filename,
-                    "Markdown Files (*.md);;All Files (*)"
-                )
+                try:
+                    # Get the default export path from settings
+                    default_path = self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents"))
+                    
+                    # Combine default path with suggested filename
+                    default_filepath = os.path.join(default_path, suggested_filename)
+                    
+                    # Open file dialog with suggested name and default path
+                    filename, _ = QFileDialog.getSaveFileName(
+                        self,
+                        "Save Response",
+                        default_filepath,
+                        "Markdown Files (*.md);;All Files (*)"
+                    )
+                    
+                    if filename:  # Only save if user didn't cancel
+                        # Write response to file
+                        with open(filename, "w") as f:
+                            f.write(response)
                 
-                if filename:  # Only save if user didn't cancel
-                    # Write response to file
-                    with open(filename, "w") as f:
-                        f.write(response)
+                except Exception as e:
+                    logging.error(f"Error during export: {str(e)}", exc_info=True)
+                    self._handle_export_error(response)
             
-            except Exception as e:
-                # Restore button state in case of error
-                self.export_button.setText(original_text)
-                self.export_button.setEnabled(True)
-                
-                # Log the error
-                logging.error(f"Error during export: {str(e)}", exc_info=True)
-                
-                # Fallback to timestamp filename
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                suggested_filename = f"dasi_response_{timestamp}.md"
-                
-                # Open file dialog with fallback name
-                filename, _ = QFileDialog.getSaveFileName(
-                    self,
-                    "Save Response",
-                    suggested_filename,
-                    "Markdown Files (*.md);;All Files (*)"
-                )
-                
-                if filename:  # Only save if user didn't cancel
-                    # Write response to file
-                    with open(filename, "w") as f:
-                        f.write(response)
+            def handle_filename_error(error):
+                logging.error(f"Error getting filename suggestion: {error}")
+                self._handle_export_error(response)
+            
+            # Connect signals
+            self.filename_worker.finished.connect(handle_filename_ready)
+            self.filename_worker.error.connect(handle_filename_error)
+            
+            # Update export button to allow cancellation
+            self.export_button.clicked.disconnect()
+            self.export_button.clicked.connect(self._cancel_export)
+            
+            # Start the worker
+            self.filename_worker.start()
+    
+    def _cancel_export(self):
+        """Cancel the export operation."""
+        if hasattr(self, 'filename_worker') and self.filename_worker.isRunning():
+            self.filename_worker.stop()
+            self.filename_worker.wait()
+            
+            # Restore export button
+            self.export_button.setText("Export")
+            self.export_button.clicked.disconnect()
+            self.export_button.clicked.connect(self._handle_export)
+    
+    def _handle_export_error(self, response: str):
+        """Handle export errors by falling back to timestamp-based filename."""
+        try:
+            # Restore button state
+            self.export_button.setText("Export")
+            self.export_button.clicked.disconnect()
+            self.export_button.clicked.connect(self._handle_export)
+            self.export_button.setEnabled(True)
+            
+            # Use timestamp for filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            suggested_filename = f"dasi_response_{timestamp}.md"
+            default_path = self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents"))
+            default_filepath = os.path.join(default_path, suggested_filename)
+            
+            # Open file dialog with fallback name
+            filename, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Response",
+                default_filepath,
+                "Markdown Files (*.md);;All Files (*)"
+            )
+            
+            if filename:  # Only save if user didn't cancel
+                # Write response to file
+                with open(filename, "w") as f:
+                    f.write(response)
+        
+        except Exception as e:
+            logging.error(f"Error during export fallback: {str(e)}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Export Error",
+                f"Failed to export response: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
 
     def update_model_selector(self):
         """Update the model selector with currently selected models."""
