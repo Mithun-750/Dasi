@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QStyledItemDelegate,
+    QFileDialog,
 )
 from PyQt6.QtCore import Qt
 from .settings_manager import Settings
@@ -452,11 +453,78 @@ class GeneralTab(QWidget):
         startup_layout.addWidget(startup_description)
         startup_layout.addWidget(self.startup_checkbox)
 
+        # Export Location Settings Section
+        export_section = QFrame()
+        export_layout = QVBoxLayout(export_section)
+        export_layout.setSpacing(10)
+
+        export_label = QLabel("Export Location")
+        export_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+
+        export_description = QLabel(
+            "Set the default location where exported files will be saved."
+        )
+        export_description.setWordWrap(True)
+        export_description.setStyleSheet("color: #888888; font-size: 12px;")
+
+        # Create container for path input and browse button
+        path_container = QWidget()
+        path_layout = QHBoxLayout(path_container)
+        path_layout.setContentsMargins(0, 0, 0, 0)
+        path_layout.setSpacing(8)
+
+        self.export_path = QLineEdit()
+        self.export_path.setPlaceholderText("Default: ~/Documents")
+        self.export_path.setStyleSheet("""
+            QLineEdit {
+                background-color: #363636;
+                border: none;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+                color: #ffffff;
+            }
+        """)
+        
+        # Load current export path setting
+        current_path = self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents"))
+        self.export_path.setText(current_path)
+        
+        # Connect textChanged signal for auto-save
+        self.export_path.textChanged.connect(self._save_export_path)
+        
+        browse_button = QPushButton("Browse")
+        browse_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2b5c99;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                color: white;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #366bb3;
+            }
+            QPushButton:pressed {
+                background-color: #1f4573;
+            }
+        """)
+        browse_button.clicked.connect(self._browse_export_path)
+
+        path_layout.addWidget(self.export_path)
+        path_layout.addWidget(browse_button)
+
+        export_layout.addWidget(export_label)
+        export_layout.addWidget(export_description)
+        export_layout.addWidget(path_container)
+
         # Add sections to main layout
         layout.addWidget(instructions_section)
         layout.addWidget(llm_section)
         layout.addWidget(hotkey_section)
         layout.addWidget(startup_section)
+        layout.addWidget(export_section)
         layout.addStretch()
 
         # Set scroll area widget
@@ -590,3 +658,34 @@ X-GNOME-Autostart-enabled=true
         except Exception as e:
             logging.error(f"Failed to update startup file: {str(e)}")
             raise
+
+    def _browse_export_path(self):
+        """Open a file dialog to select an export path."""
+        try:
+            # Open a file dialog to select a directory
+            directory = QFileDialog.getExistingDirectory(self, "Select Export Location")
+            if directory:
+                self.export_path.setText(directory)
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to browse export path: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
+
+    def _save_export_path(self):
+        """Auto-save export path when changed."""
+        try:
+            path = self.export_path.text()
+            # Expand user path if it contains ~
+            if '~' in path:
+                path = os.path.expanduser(path)
+            self.settings.set(path, 'general', 'export_path')
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to save export path: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
