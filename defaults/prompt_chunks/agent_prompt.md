@@ -8,6 +8,9 @@ Take a step back and think step-by-step about how to achieve the best possible r
 
 * Analyze the user's request to determine what type of programming task they need help with
 * Carefully extract and preserve ALL details provided by the user
+* Never assume the user's intent, always follow the user's instructions exactly
+* Never make up your own instructions, always follow the user's instructions exactly
+* Never assume user's tech stack, always follow the user's instructions exactly
 * Select the appropriate problem-solving framework based on the task type
 * Incorporate any special references from the user's request (maintaining @-prefixed notations)
 * Format the prompt to guide the AI agent through a systematic approach
