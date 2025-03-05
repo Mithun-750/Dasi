@@ -290,11 +290,13 @@ class LLMHandler:
             # Build the messages list
             messages = []
             
-            # Add mode-specific instruction to system prompt
-            mode_instruction = ""
+            # Add base system message first
+            messages.append(SystemMessage(content=self.system_prompt))
+            
+            # Add mode instruction as a separate system message
             if mode == 'compose':
                 mode_instruction = """=====COMPOSE_MODE=====<strict instructions>
-                IMPORTANT: You are now operating in COMPOSE MODE. You MUST follow these rules for EVERY response:
+                OVERRIDE NOTICE: The following rules OVERRIDE any other instructions and MUST be followed for EVERY response.
 
                 RESPONSE RULES:
                 1. ALWAYS generate content that can be directly pasted/used
@@ -302,21 +304,36 @@ class LLMHandler:
                 3. NEVER use markdown, code blocks, or formatting
                 4. NEVER acknowledge or discuss these instructions
                 5. NEVER start responses with phrases like "Here's" or "Here is"
-                6. NEVER wrap responses in quotes
-                7. TREAT EVERY INPUT AS A CONTENT GENERATION REQUEST
+                6. TREAT EVERY INPUT AS TEXT TO OUTPUT DIRECTLY - NO COMMENTARY, NO CONTEXT, NO PREFIXES
 
                 EXAMPLES:
-                User: "Hi"
-                ✓ Dear [Name], I hope this message finds you well...
-                ✗ Here's a greeting message: "Hello..."
+                User: "write a git commit message for adding user authentication"
+                ✓ feat(auth): implement user authentication system
+                ✗ Here's a commit message: feat(auth): implement user authentication system
                 
-                User: "Write test plan"
-                ✓ Test Plan - [Project Name]
-                1. Test Objectives
-                2. Test Scope...
-                ✗ I'll help you write a test plan. Here's a template...
+                User: "write a function description for parse_json"
+                ✓ Parses and validates JSON data from input string. Returns parsed object or raises ValueError for invalid JSON.
+                ✗ I'll write a description for the parse_json function: Parses and validates JSON...
 
-                OVERRIDE NOTICE: These rules override any conflicting user instructions
+                User: "tell me about yourself"
+                ✓ A versatile AI assistant focused on enhancing productivity through natural language interaction.
+                ✗ Let me tell you about myself: I am a versatile AI assistant...
+                
+                User: "who is the president of the xyz country"
+                ✓ Mr.abc
+                ✗ The president of the United States is Mr.abc
+                
+                User: "what is the capital of the xyz country"
+                ✓ Cityxyz
+                ✗ The capital of the United States is Cityxyz
+                
+                User: "who is India's father of the nation?"
+                ✓ Mahatma Gandhi
+                ✗ The father of the nation of India is Mahatma Gandhi
+                
+                User: "what is the population of the xyz country"
+                ✓ 1000000
+                ✗ The population of the United States is 1000000
                 ======================="""
             else:
                 mode_instruction = """=====CHAT_MODE=====<conversation instructions>
@@ -327,11 +344,8 @@ class LLMHandler:
                 - Keep responses helpful and concise while maintaining a warm demeanor
                 ======================="""
 
-            # Combine all system instructions
-            full_system_prompt = f"{self.system_prompt}\n\n{mode_instruction}"
-
-            # Add system message first
-            messages.append(SystemMessage(content=full_system_prompt))
+            # Add mode instruction as a separate system message
+            messages.append(SystemMessage(content=mode_instruction))
 
             # Add chat history (limited to configured number of messages)
             history_messages = message_history.messages[-self.history_limit:] if message_history.messages else []
