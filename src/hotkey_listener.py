@@ -1,7 +1,7 @@
 from pynput import keyboard
 import pyautogui
 import logging
-from typing import Callable
+from typing import Callable, Optional
 from ui.settings import Settings
 
 
@@ -32,11 +32,21 @@ class HotkeyListener:
         'F12': '<f12>',
     }
 
-    def __init__(self, callback: Callable[[], None]):
-        """Initialize hotkey listener with a callback function."""
+    def __init__(self, callback: Callable[..., None]):
+        """Initialize hotkey listener with a callback function.
+        
+        Args:
+            callback: Function to call when hotkey is pressed. The function will be called 
+                     with cursor position (x, y) coordinates.
+        """
         self.callback = callback
         self.settings = Settings()
+        self._running = False
+        self.listener = None
+        self._register_hotkey()
 
+    def _register_hotkey(self):
+        """Register the hotkey based on current settings."""
         # Get hotkey settings
         hotkey = self.settings.get('general', 'hotkey', default={
             'ctrl': True,
@@ -77,6 +87,7 @@ class HotkeyListener:
             logging.info("Hotkey registration successful")
         except Exception as e:
             logging.error(f"Failed to register hotkey: {str(e)}")
+            self.listener = None
             raise
 
     def _handle_hotkey(self):
@@ -84,25 +95,93 @@ class HotkeyListener:
         try:
             logging.debug("Hotkey triggered")
             x, y = pyautogui.position()
-            self.callback(x, y)
+            
+            # Check what arguments the callback accepts
+            import inspect
+            sig = inspect.signature(self.callback)
+            param_count = len(sig.parameters)
+            
+            if param_count == 0:
+                # No parameters expected
+                self.callback()
+            elif param_count == 1:
+                # One parameter expected - probably position as tuple
+                self.callback((x, y))
+            else:
+                # Two or more parameters expected - pass x, y separately
+                self.callback(x, y)
+                
             logging.debug(f"Callback executed with position ({x}, {y})")
         except Exception as e:
             logging.error(f"Error handling hotkey: {str(e)}")
 
     def start(self):
-        """Start listening for hotkeys."""
+        """Start listening for hotkeys.
+        
+        Returns:
+            bool: True if successfully started, False otherwise.
+        """
+        if self._running:
+            logging.info("Hotkey listener already running")
+            return True
+            
+        if not self.listener:
+            try:
+                self._register_hotkey()
+            except Exception as e:
+                logging.error(f"Failed to register hotkey: {str(e)}")
+                return False
+                
         try:
             self.listener.start()
+            self._running = True
             logging.info("Hotkey listener started")
+            return True
         except Exception as e:
+            self._running = False
             logging.error(f"Failed to start hotkey listener: {str(e)}")
-            raise
+            return False
 
     def stop(self):
-        """Stop listening for hotkeys."""
+        """Stop listening for hotkeys.
+        
+        Returns:
+            bool: True if successfully stopped, False otherwise.
+        """
+        if not self._running:
+            logging.info("Hotkey listener not running")
+            return True
+            
         try:
-            self.listener.stop()
+            if self.listener:
+                self.listener.stop()
+            self._running = False
             logging.info("Hotkey listener stopped")
+            return True
         except Exception as e:
             logging.error(f"Failed to stop hotkey listener: {str(e)}")
-            raise
+            return False
+
+    def is_running(self) -> bool:
+        """Check if the hotkey listener is running."""
+        return self._running
+        
+    def reload_settings(self):
+        """Reload hotkey settings and re-register the hotkey."""
+        was_running = self._running
+        
+        # Stop current listener if running
+        if was_running:
+            self.stop()
+            
+        # Re-register with new settings
+        try:
+            self._register_hotkey()
+            
+            # Restart if it was running before
+            if was_running:
+                self.start()
+            return True
+        except Exception as e:
+            logging.error(f"Failed to reload hotkey settings: {str(e)}")
+            return False

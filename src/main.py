@@ -14,6 +14,8 @@ from PyQt6.QtCore import Qt
 from typing import Optional, Callable
 # Import constants
 from constants import DEFAULT_CHAT_PROMPT, DEFAULT_COMPOSE_PROMPT
+# Import instance manager
+from instance_manager import DasiInstanceManager
 
 
 def setup_logging():
@@ -82,6 +84,9 @@ class Dasi:
 
             # Keep running when windows are closed
             self.app.setQuitOnLastWindowClosed(False)
+
+            # Register this instance with the instance manager
+            DasiInstanceManager.set_instance(self)
 
             # Initialize settings
             self.settings = Settings()
@@ -236,7 +241,8 @@ class Dasi:
         """Show settings window."""
         try:
             if not self.settings_window:
-                self.settings_window = SettingsWindow()
+                from ui.settings import SettingsWindow
+                self.settings_window = SettingsWindow(dasi_instance=self)
             self.settings_window.show()
             self.settings_window.activateWindow()
         except Exception as e:
@@ -250,6 +256,10 @@ class Dasi:
                 self.hotkey_listener.stop()
             if self.tray:
                 self.tray.hide()
+            
+            # Clear the instance from manager
+            DasiInstanceManager.clear_instance()
+            
             if QApplication.instance():
                 QApplication.instance().quit()
         except Exception as e:
@@ -400,32 +410,8 @@ def check_selected_models():
 
 
 def is_already_running():
-    """Check if another instance is already running."""
-    import socket
-    import os
-    import sys
-    import tempfile
-
-    if sys.platform == 'win32':
-        # Windows implementation using TCP socket on localhost with a specific port
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            # Use a specific port for the application lock
-            sock.bind(('127.0.0.1', 47200))
-            # Keep the socket open to maintain the lock
-            return False
-        except socket.error:
-            return True
-    else:
-        # Unix implementation using Unix domain socket
-        try:
-            # Try to create a socket with a unique name
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            # Use abstract namespace by prepending \0
-            sock.bind('\0dasi_lock')
-            return False
-        except socket.error:
-            return True
+    """Check if Dasi is already running by using the instance manager."""
+    return DasiInstanceManager.is_running()
 
 
 if __name__ == "__main__":
