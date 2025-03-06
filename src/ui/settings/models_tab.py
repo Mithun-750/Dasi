@@ -960,3 +960,50 @@ class ModelsTab(QWidget):
             self.load_selected_models()
             # Emit signal that models have changed
             self.models_changed.emit()
+            
+    def remove_models_by_provider(self, provider: str):
+        """Remove all models from a specific provider when its API key is cleared."""
+        if not provider:
+            return
+            
+        # Get current selected models
+        current_models = self.settings.get_selected_models()
+        
+        # Find models from the specified provider
+        models_to_remove = [model['id'] for model in current_models if model['provider'] == provider]
+        
+        if not models_to_remove:
+            # No models to remove
+            return
+            
+        # Remove each model
+        removed_any = False
+        for model_id in models_to_remove:
+            if self.settings.remove_selected_model(model_id):
+                removed_any = True
+                
+        if removed_any:
+            # Reload settings from disk
+            self.settings.load_settings()
+            # Refresh the list
+            self.load_selected_models()
+            # Emit signal that models have changed
+            self.models_changed.emit()
+            
+            # Log the removal
+            logging.info(f"Removed {len(models_to_remove)} models from provider '{provider}' due to API key reset")
+            
+            # Check if the default model was removed
+            default_model = self.settings.get('models', 'default_model')
+            if default_model in models_to_remove:
+                # Reset the default model
+                self.settings.set("", 'models', 'default_model')
+                logging.info(f"Reset default model as it was from provider '{provider}'")
+                
+            # Show notification to the user
+            QMessageBox.information(
+                self,
+                "Models Removed",
+                f"Removed {len(models_to_remove)} models from provider '{provider.title()}' because the API key was cleared.",
+                QMessageBox.StandardButton.Ok
+            )

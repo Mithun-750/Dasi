@@ -166,6 +166,9 @@ class SettingsWindow(QMainWindow):
         self.api_keys_btn.clicked.connect(lambda: self.switch_tab(1))
         self.models_btn.clicked.connect(lambda: self.switch_tab(2))
         self.prompt_chunks_btn.clicked.connect(lambda: self.switch_tab(3))
+        
+        # Connect API key cleared signal to remove models by provider
+        self.api_keys_tab.api_key_cleared.connect(self.models_tab.remove_models_by_provider)
 
         # Add widgets to main layout
         main_layout.addWidget(sidebar)
