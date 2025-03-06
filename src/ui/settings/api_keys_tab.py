@@ -9,11 +9,14 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QFrame,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from .settings_manager import Settings
 
 
 class APIKeysTab(QWidget):
+    # Signal emitted when an API key is cleared
+    api_key_cleared = pyqtSignal(str)
+    
     def __init__(self, settings: Settings):
         super().__init__()
         self.settings = settings
@@ -401,6 +404,9 @@ class APIKeysTab(QWidget):
             # Remove from settings
             if self.settings.set_api_key(provider, ""):
                 self.show_status(status_label, "API key cleared successfully!")
+                
+                # Emit signal that the API key was cleared
+                self.api_key_cleared.emit(provider)
                 
                 # Show confirmation dialog
                 QMessageBox.information(
