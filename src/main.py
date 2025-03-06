@@ -107,7 +107,7 @@ class Dasi:
             logging.info("Initializing UI")
             self.ui = CopilotUI(self.process_query)
 
-            # Initialize hotkey listener
+            # Initialize hotkey listener but don't start it yet
             logging.info("Initializing hotkey listener")
             self.hotkey_listener = HotkeyListener(self.ui.show_popup)
 
@@ -362,25 +362,40 @@ To resolve this issue:
             logging.error(f"Error processing query: {str(e)}", exc_info=True)
             return f"Error: {str(e)}"
 
+    def check_selected_models(self):
+        """Check if any models are selected in the settings."""
+        try:
+            return bool(self.settings.get_selected_models())
+        except Exception as e:
+            logging.error(f"Error checking for selected models: {str(e)}", exc_info=True)
+            return False
+
     def run(self):
         """Start the application."""
         try:
             logging.info("Starting application main loop")
-            print("Dasi is running. Press Ctrl+Alt+Shift+I to activate.")
-            self.hotkey_listener.start()
+            
+            # Only start hotkey listener if models are selected
+            if self.check_selected_models():
+                print("Dasi is running. Press Ctrl+Alt+Shift+I to activate.")
+                self.hotkey_listener.start()
+            else:
+                logging.info("No models selected, showing settings window")
+                self.show_settings()
+                
             sys.exit(self.app.exec())
         except Exception as e:
             logging.error(f"Error in main loop: {str(e)}", exc_info=True)
             raise
 
 
-def check_api_key():
-    """Check if API key exists in settings."""
+def check_selected_models():
+    """Check if any models are selected in the settings."""
     try:
         settings = Settings()
-        return bool(settings.get_api_key('google'))
+        return bool(settings.get_selected_models())
     except Exception as e:
-        logging.error(f"Error checking API key: {str(e)}", exc_info=True)
+        logging.error(f"Error checking for selected models: {str(e)}", exc_info=True)
         return False
 
 
@@ -418,17 +433,18 @@ if __name__ == "__main__":
         if is_already_running():
             print("Another instance of Dasi is already running.")
             sys.exit(1)
-        # Check if API key exists
-        if not check_api_key():
-            # Launch settings window if no API key
-            logging.info("No API key found, launching settings window")
+            
+        # Check if any models are selected
+        if not check_selected_models():
+            # Launch settings window if no models are selected
+            logging.info("No models selected, launching settings window")
             app = QApplication(sys.argv)
             window = SettingsWindow()
             window.show()
             sys.exit(app.exec())
         else:
             # Launch main application
-            logging.info("API key found, launching main application")
+            logging.info("Models selected, launching main application")
             app = Dasi()
             app.run()
     except Exception as e:
