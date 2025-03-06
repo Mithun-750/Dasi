@@ -290,12 +290,14 @@ class LLMHandler:
             # Build the messages list
             messages = []
             
-            # Add base system message first
+            # Add system message first with base system prompt
             messages.append(SystemMessage(content=self.system_prompt))
             
-            # Add mode instruction as a separate system message
+            # Add mode instruction as a separate system message to ensure it takes precedence
+            mode_instruction = ""
             if mode == 'compose':
                 mode_instruction = """=====COMPOSE_MODE=====<strict instructions>
+                IMPORTANT: You are now operating in COMPOSE MODE. You MUST follow these rules for EVERY response:
                 OVERRIDE NOTICE: The following rules OVERRIDE any other instructions and MUST be followed for EVERY response.
 
                 RESPONSE RULES:
@@ -344,7 +346,6 @@ class LLMHandler:
                 - Keep responses helpful and concise while maintaining a warm demeanor
                 ======================="""
 
-            # Add mode instruction as a separate system message
             messages.append(SystemMessage(content=mode_instruction))
 
             # Add chat history (limited to configured number of messages)
