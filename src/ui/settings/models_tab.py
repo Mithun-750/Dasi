@@ -445,6 +445,9 @@ class SearchableComboBox(QComboBox):
 
 
 class ModelsTab(QWidget):
+    # Signal emitted when models are added or removed
+    models_changed = pyqtSignal()
+
     def __init__(self, settings: Settings):
         super().__init__()
         self.settings = settings
@@ -945,6 +948,8 @@ class ModelsTab(QWidget):
                     self.settings.load_settings()
                     # Update UI
                     self.add_model_to_list(model_info)
+                    # Emit signal that models have changed
+                    self.models_changed.emit()
 
     def remove_model(self, model_id: str):
         """Remove a model from the list."""
@@ -953,3 +958,5 @@ class ModelsTab(QWidget):
             self.settings.load_settings()
             # Refresh the list
             self.load_selected_models()
+            # Emit signal that models have changed
+            self.models_changed.emit()
