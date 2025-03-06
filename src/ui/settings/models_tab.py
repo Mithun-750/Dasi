@@ -660,7 +660,41 @@ class ModelsTab(QWidget):
         custom_base_url = self.settings.get(
             'models', 'custom_openai', 'base_url')
         custom_api_key = self.settings.get_api_key('custom_openai')
+        
+        # Always check for local Ollama models regardless of API keys
+        try:
+            # Quick check if Ollama is running
+            ollama_available = False
+            try:
+                response = requests.get('http://localhost:11434/api/tags', timeout=0.5)
+                if response.status_code == 200:
+                    ollama_available = True
+            except:
+                pass
+                
+            if ollama_available:
+                # Show loading state and start worker thread
+                self.model_dropdown.clear()
+                self.model_dropdown.addItem("Loading models...")
+                self.model_dropdown.setEnabled(False)
+                self.progress_bar.setRange(0, 0)  # Indeterminate progress
+                self.progress_bar.show()
+                
+                # Start worker thread
+                self.fetch_worker = ModelFetchWorker(self.settings)
+                self.fetch_worker.finished.connect(self._on_fetch_success)
+                self.fetch_worker.error.connect(self._on_fetch_error)
+                self.fetch_worker.start()
+                
+                # Update UI to show fetching state
+                if hasattr(self, 'refresh_button'):
+                    self.refresh_button.setEnabled(False)
+                    self.refresh_button.setText("⌛")
+                return
+        except Exception as e:
+            logging.error(f"Error checking for Ollama: {str(e)}")
 
+        # If no Ollama and no API keys, show message
         if not google_key and not (custom_model_id and custom_base_url and custom_api_key):
             self.model_dropdown.clear()
             self.model_dropdown.addItem(
