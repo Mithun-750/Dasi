@@ -194,15 +194,33 @@ def initialize_prompt_chunks():
 
     # Create the prompt_chunks folder inside the configuration directory if it doesn't exist
     target_chunks_dir = os.path.join(config_dir, "prompt_chunks")
+    
+    # Check if configuration already exists
+    if os.path.exists(target_chunks_dir) and os.listdir(target_chunks_dir):
+        response = input(f"Existing configuration found at {target_chunks_dir}. Reset to defaults? [y/N]: ").strip().lower()
+        if response == 'y' or response == 'yes':
+            # Remove existing configuration
+            shutil.rmtree(target_chunks_dir)
+            print(f"Removed existing configuration at {target_chunks_dir}")
+        else:
+            print(f"Preserving existing configuration at {target_chunks_dir}")
+            # Only copy missing files
+            os.makedirs(target_chunks_dir, exist_ok=True)
+            for file_name in os.listdir(default_chunks_dir):
+                src_file = os.path.join(default_chunks_dir, file_name)
+                target_file = os.path.join(target_chunks_dir, file_name)
+                if not os.path.exists(target_file):
+                    shutil.copy2(src_file, target_file)
+                    logging.info(f"Added missing prompt chunk: {file_name}")
+            return
+    
+    # Create directory and copy all default files for fresh installation
     os.makedirs(target_chunks_dir, exist_ok=True)
-
-    # Copy each default prompt chunk (if it doesn't already exist)
     for file_name in os.listdir(default_chunks_dir):
         src_file = os.path.join(default_chunks_dir, file_name)
         target_file = os.path.join(target_chunks_dir, file_name)
-        if not os.path.exists(target_file):
-            shutil.copy2(src_file, target_file)
-            logging.info(f"Initialized prompt chunk: {file_name}")
+        shutil.copy2(src_file, target_file)
+        logging.info(f"Initialized prompt chunk: {file_name}")
 
 def install():
     create_virtualenv()
@@ -242,8 +260,13 @@ def uninstall():
     
     config_dir = get_config_directory()
     if config_dir and os.path.exists(config_dir):
-        shutil.rmtree(config_dir)
-        print("Removed configuration directory at", config_dir)
+        # Prompt user about clearing configuration
+        response = input(f"Do you want to remove configuration directory at {config_dir}? [y/N]: ").strip().lower()
+        if response == 'y' or response == 'yes':
+            shutil.rmtree(config_dir)
+            print("Removed configuration directory at", config_dir)
+        else:
+            print("Configuration directory preserved at", config_dir)
         
     # Remove build artifacts
     for folder in ["build", "dist"]:
