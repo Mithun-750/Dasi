@@ -41,6 +41,9 @@ class LLMHandler:
             - Keep responses concise and to the point
             - **Ambiguous References:** If the user uses terms like "this", "that", or similar ambiguous references without specifying a subject, assume that the reference applies to the text provided in the =====SELECTED_TEXT===== section.
             - Focus on being practically helpful for the current task"""
+            
+        # Store the base system prompt for later resets
+        self.base_system_prompt = self.system_prompt
 
         # Get custom instructions
         custom_instructions = self.settings.get(
@@ -59,6 +62,8 @@ class LLMHandler:
 
         # Connect to settings changes
         self.settings.models_changed.connect(self.on_models_changed)
+        self.settings.custom_instructions_changed.connect(self.on_custom_instructions_changed)
+        self.settings.temperature_changed.connect(self.on_temperature_changed)
         self.initialize_llm()
 
     def on_models_changed(self):
@@ -69,6 +74,10 @@ class LLMHandler:
         # Update system prompt with any new custom instructions
         custom_instructions = self.settings.get(
             'general', 'custom_instructions', default="").strip()
+            
+        # Reset system prompt to original before adding custom instructions
+        self.system_prompt = self.base_system_prompt
+        
         if custom_instructions:
             self.system_prompt = f"{self.system_prompt}\n\n=====CUSTOM_INSTRUCTIONS=====<user-defined instructions>\n{custom_instructions}\n======================="
             self.prompt = ChatPromptTemplate.from_messages([
@@ -76,6 +85,50 @@ class LLMHandler:
                 MessagesPlaceholder(variable_name="chat_history"),
                 ("human", "{query}")
             ])
+
+    def on_custom_instructions_changed(self):
+        """Handle changes to custom instructions."""
+        # Reload settings to get the latest custom instructions
+        self.settings.load_settings()
+        
+        # Update system prompt with the new custom instructions
+        custom_instructions = self.settings.get(
+            'general', 'custom_instructions', default="").strip()
+            
+        # Reset system prompt to original before adding custom instructions
+        self.system_prompt = self.base_system_prompt
+        
+        if custom_instructions:
+            self.system_prompt = f"{self.system_prompt}\n\n=====CUSTOM_INSTRUCTIONS=====<user-defined instructions>\n{custom_instructions}\n======================="
+            
+        # Update the prompt template
+        self.prompt = ChatPromptTemplate.from_messages([
+            ("system", self.system_prompt),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{query}")
+        ])
+
+    def on_temperature_changed(self):
+        """Handle changes to temperature setting."""
+        # Reload settings to get the latest temperature
+        self.settings.load_settings()
+        
+        # Update temperature in the LLM if it's initialized
+        if self.llm:
+            try:
+                # Get the new temperature value
+                temperature = self.settings.get('general', 'temperature', default=0.7)
+                
+                # Update the LLM's temperature parameter if possible
+                # This depends on the LLM implementation and may not work for all providers
+                if hasattr(self.llm, 'temperature'):
+                    self.llm.temperature = temperature
+                elif hasattr(self.llm, 'model_kwargs') and isinstance(self.llm.model_kwargs, dict):
+                    self.llm.model_kwargs['temperature'] = temperature
+                
+                logging.info(f"Updated LLM temperature to {temperature}")
+            except Exception as e:
+                logging.error(f"Error updating temperature: {str(e)}")
 
     def initialize_llm(self, model_name: str = None) -> bool:
         """Initialize the LLM with the current API key and specified model. Returns True if successful."""

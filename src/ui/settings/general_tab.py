@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QStyledItemDelegate,
     QFileDialog,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from .settings_manager import Settings
 import sys
 import os
@@ -157,7 +157,62 @@ class GeneralTab(QWidget):
     def __init__(self, settings: Settings):
         super().__init__()
         self.settings = settings
+        self.original_values = {}
+        self.has_unsaved_changes = False
         self.init_ui()
+        self.save_original_values()
+
+    def save_original_values(self):
+        """Save the original values of all settings for comparison."""
+        self.original_values = {
+            'custom_instructions': self.settings.get('general', 'custom_instructions', default=""),
+            'temperature': self.settings.get('general', 'temperature', default=0.7),
+            'hotkey': self.settings.get('general', 'hotkey', default={
+                'ctrl': True,
+                'alt': True,
+                'shift': True,
+                'super': False,
+                'fn': False,
+                'key': 'I'
+            }),
+            'start_on_boot': self.settings.get('general', 'start_on_boot', default=False),
+            'export_path': self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents"))
+        }
+        self.has_unsaved_changes = False
+        self.update_button_visibility()
+
+    def get_current_values(self):
+        """Get the current values of all settings."""
+        return {
+            'custom_instructions': self.custom_instructions.toPlainText(),
+            'temperature': self.temperature.value(),
+            'hotkey': {
+                'ctrl': self.ctrl_checkbox.isChecked(),
+                'alt': self.alt_checkbox.isChecked(),
+                'shift': self.shift_checkbox.isChecked(),
+                'super': self.super_checkbox.isChecked(),
+                'fn': self.fn_checkbox.isChecked(),
+                'key': self.key_selector.currentText()
+            },
+            'start_on_boot': self.startup_checkbox.isChecked(),
+            'export_path': self.export_path.text()
+        }
+
+    def check_for_changes(self):
+        """Check if there are any unsaved changes."""
+        current = self.get_current_values()
+        self.has_unsaved_changes = any([
+            current['custom_instructions'] != self.original_values['custom_instructions'],
+            abs(current['temperature'] - self.original_values['temperature']) > 0.001,
+            current['hotkey'] != self.original_values['hotkey'],
+            current['start_on_boot'] != self.original_values['start_on_boot'],
+            current['export_path'] != self.original_values['export_path']
+        ])
+        self.update_button_visibility()
+
+    def update_button_visibility(self):
+        """Update the visibility of action buttons based on changes."""
+        self.button_container.setVisible(self.has_unsaved_changes)
 
     def init_ui(self):
         # Create main layout
@@ -214,9 +269,9 @@ class GeneralTab(QWidget):
         instructions_label.setStyleSheet("font-size: 14px; font-weight: bold;")
 
         instructions_description = QLabel(
-            "Add your custom instructions to personalize how Dasi responds to your queries. "
-            "These will be added to Dasi's core behavior."
-        )
+            "Add custom instructions that will be included in every prompt. "
+            "These instructions will influence how Dasi responds to your queries. "
+            "Note: Changes require restarting the Dasi service or using the 'Save & Apply' button to take full effect.")
         instructions_description.setWordWrap(True)
         instructions_description.setStyleSheet("color: #888888; font-size: 12px;")
 
@@ -241,8 +296,8 @@ class GeneralTab(QWidget):
         self.custom_instructions.setText(custom_instructions)
         
         # Connect textChanged signal for auto-save
-        self.custom_instructions.textChanged.connect(self._save_custom_instructions)
-
+        self.custom_instructions.textChanged.connect(self._on_any_change)
+        
         instructions_layout.addWidget(instructions_label)
         instructions_layout.addWidget(instructions_description)
         instructions_layout.addWidget(self.custom_instructions)
@@ -254,6 +309,13 @@ class GeneralTab(QWidget):
 
         llm_label = QLabel("LLM Settings")
         llm_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        
+        temp_description = QLabel(
+            "Temperature controls the randomness of responses. Lower values (0.0) make responses more deterministic, "
+            "while higher values (1.0) make them more creative. "
+            "Note: Changes require restarting the Dasi service or using the 'Save & Apply' button to take full effect.")
+        temp_description.setWordWrap(True)
+        temp_description.setStyleSheet("color: #888888; font-size: 12px;")
 
         # Temperature setting
         temp_container = QWidget()
@@ -278,13 +340,14 @@ class GeneralTab(QWidget):
         """)
         
         # Connect valueChanged signal for auto-save
-        self.temperature.valueChanged.connect(self._save_temperature)
+        self.temperature.valueChanged.connect(self._on_any_change)
 
         temp_layout.addWidget(temp_label)
         temp_layout.addWidget(self.temperature)
         temp_layout.addStretch()
 
         llm_layout.addWidget(llm_label)
+        llm_layout.addWidget(temp_description)
         llm_layout.addWidget(temp_container)
 
         # Hotkey Settings Section
@@ -296,7 +359,8 @@ class GeneralTab(QWidget):
         hotkey_label.setStyleSheet("font-size: 14px; font-weight: bold;")
 
         hotkey_description = QLabel(
-            "Customize the global hotkey that activates Dasi. Changes will take effect after restart."
+            "Customize the global hotkey that activates Dasi. "
+            "Changes require restarting the Dasi service to take effect."
         )
         hotkey_description.setWordWrap(True)
         hotkey_description.setStyleSheet("color: #888888; font-size: 12px;")
@@ -389,33 +453,9 @@ class GeneralTab(QWidget):
         hotkey_layout_inner.addWidget(self.key_selector)
         hotkey_layout_inner.addStretch()
 
-        # Add save button for hotkey settings
-        save_hotkey_button = QPushButton("Apply Hotkey")
-        save_hotkey_button.setStyleSheet("""
-            QPushButton {
-                padding: 8px 16px;
-                font-size: 13px;
-                font-weight: bold;
-                border-radius: 6px;
-                max-width: 200px;
-                background-color: #2b5c99;
-                color: white;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #366bb3;
-            }
-            QPushButton:pressed {
-                background-color: #1f4573;
-                padding: 9px 16px 7px 16px;
-            }
-        """)
-        save_hotkey_button.clicked.connect(self._save_hotkey_settings)
-
         hotkey_layout.addWidget(hotkey_label)
         hotkey_layout.addWidget(hotkey_description)
         hotkey_layout.addWidget(hotkey_container)
-        hotkey_layout.addWidget(save_hotkey_button)
 
         # Startup Settings Section
         startup_section = QFrame()
@@ -447,7 +487,7 @@ class GeneralTab(QWidget):
         self.startup_checkbox.setChecked(self.settings.get('general', 'start_on_boot', default=False))
         
         # Connect stateChanged signal for auto-save
-        self.startup_checkbox.stateChanged.connect(self._save_startup_settings)
+        self.startup_checkbox.stateChanged.connect(self._on_any_change)
 
         startup_layout.addWidget(startup_label)
         startup_layout.addWidget(startup_description)
@@ -491,7 +531,7 @@ class GeneralTab(QWidget):
         self.export_path.setText(current_path)
         
         # Connect textChanged signal for auto-save
-        self.export_path.textChanged.connect(self._save_export_path)
+        self.export_path.textChanged.connect(self._on_any_change)
         
         browse_button = QPushButton("Browse")
         browse_button.setStyleSheet("""
@@ -530,20 +570,169 @@ class GeneralTab(QWidget):
         # Set scroll area widget
         scroll.setWidget(content)
         main_layout.addWidget(scroll)
+        
+        # Create button container at the bottom
+        self.button_container = QWidget()
+        button_layout = QHBoxLayout(self.button_container)
+        button_layout.setContentsMargins(0, 10, 0, 0)
+
+        # Add Cancel button
+        cancel_button = QPushButton("Cancel")
+        cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #404040;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }
+            QPushButton:pressed {
+                background-color: #353535;
+            }
+        """)
+        cancel_button.clicked.connect(self._cancel_changes)
+
+        # Add Reset button
+        reset_button = QPushButton("Reset")
+        reset_button.setStyleSheet("""
+            QPushButton {
+                background-color: #404040;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }
+            QPushButton:pressed {
+                background-color: #353535;
+            }
+        """)
+        reset_button.clicked.connect(self._reset_changes)
+
+        # Add Save & Apply button
+        save_all_button = QPushButton("Save & Apply")
+        save_all_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2b5c99;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #366bb3;
+            }
+            QPushButton:pressed {
+                background-color: #1f4573;
+            }
+        """)
+        save_all_button.clicked.connect(self._apply_all_settings)
+
+        button_layout.addWidget(cancel_button)
+        button_layout.addWidget(reset_button)
+        button_layout.addStretch()
+        button_layout.addWidget(save_all_button)
+
+        main_layout.addWidget(self.button_container)
+        self.button_container.hide()  # Initially hide the buttons
+
+        # Connect change signals
+        self.custom_instructions.textChanged.connect(self._on_any_change)
+        self.temperature.valueChanged.connect(self._on_any_change)
+        self.ctrl_checkbox.stateChanged.connect(self._on_any_change)
+        self.alt_checkbox.stateChanged.connect(self._on_any_change)
+        self.shift_checkbox.stateChanged.connect(self._on_any_change)
+        self.super_checkbox.stateChanged.connect(self._on_any_change)
+        self.fn_checkbox.stateChanged.connect(self._on_any_change)
+        self.key_selector.currentTextChanged.connect(self._on_any_change)
+        self.startup_checkbox.stateChanged.connect(self._on_any_change)
+        self.export_path.textChanged.connect(self._on_any_change)
+
+    def _on_any_change(self):
+        """Handler for any change in the settings."""
+        self.check_for_changes()
+
+    def _cancel_changes(self):
+        """Cancel all changes and restore original values."""
+        # Restore original values
+        self.custom_instructions.setText(self.original_values['custom_instructions'])
+        self.temperature.setValue(self.original_values['temperature'])
+        
+        hotkey = self.original_values['hotkey']
+        self.ctrl_checkbox.setChecked(hotkey['ctrl'])
+        self.alt_checkbox.setChecked(hotkey['alt'])
+        self.shift_checkbox.setChecked(hotkey['shift'])
+        self.super_checkbox.setChecked(hotkey['super'])
+        self.fn_checkbox.setChecked(hotkey['fn'])
+        self.key_selector.setCurrentText(hotkey['key'])
+        
+        self.startup_checkbox.setChecked(self.original_values['start_on_boot'])
+        self.export_path.setText(self.original_values['export_path'])
+        
+        self.has_unsaved_changes = False
+        self.update_button_visibility()
+
+    def _reset_changes(self):
+        """Reset all settings to their default values."""
+        self.custom_instructions.setText("")
+        self.temperature.setValue(0.7)
+        
+        self.ctrl_checkbox.setChecked(True)
+        self.alt_checkbox.setChecked(True)
+        self.shift_checkbox.setChecked(True)
+        self.super_checkbox.setChecked(False)
+        self.fn_checkbox.setChecked(False)
+        self.key_selector.setCurrentText('I')
+        
+        self.startup_checkbox.setChecked(False)
+        self.export_path.setText(os.path.expanduser("~/Documents"))
+        
+        self.check_for_changes()
 
     def _save_custom_instructions(self):
         """Auto-save custom instructions when changed."""
-        self.settings.set(self.custom_instructions.toPlainText(),
-                          'general', 'custom_instructions')
+        # Remove auto-save functionality
+        pass
 
     def _save_temperature(self):
         """Auto-save temperature when changed."""
-        self.settings.set(self.temperature.value(),
-                          'general', 'temperature')
+        # Remove auto-save functionality
+        pass
 
-    def _save_hotkey_settings(self):
-        """Save hotkey settings and prompt for restart."""
+    def _save_startup_settings(self):
+        """Auto-save startup settings when changed."""
+        # Remove auto-save functionality
+        pass
+
+    def _save_export_path(self):
+        """Auto-save export path when changed."""
+        # Remove auto-save functionality
+        pass
+
+    def _apply_all_settings(self):
+        """Save and apply all settings at once."""
         try:
+            # Save custom instructions
+            self.settings.set(self.custom_instructions.toPlainText(),
+                            'general', 'custom_instructions')
+            self.settings.custom_instructions_changed.emit()
+            
+            # Save temperature
+            self.settings.set(self.temperature.value(),
+                            'general', 'temperature')
+            self.settings.temperature_changed.emit()
+            
             # Save hotkey settings
             hotkey_settings = {
                 'ctrl': self.ctrl_checkbox.isChecked(),
@@ -554,13 +743,27 @@ class GeneralTab(QWidget):
                 'key': self.key_selector.currentText()
             }
             self.settings.set(hotkey_settings, 'general', 'hotkey')
-
+            
+            # Save startup settings
+            start_on_boot = self.startup_checkbox.isChecked()
+            self.settings.set(start_on_boot, 'general', 'start_on_boot')
+            self._update_startup_file(start_on_boot)
+            
+            # Save export path
+            path = self.export_path.text()
+            if '~' in path:
+                path = os.path.expanduser(path)
+            self.settings.set(path, 'general', 'export_path')
+            
+            # Update original values and hide buttons
+            self.save_original_values()
+            
             # Create custom message box with restart button
             msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("Success")
-            msg_box.setText("Hotkey settings saved successfully.")
+            msg_box.setWindowTitle("Settings Applied")
+            msg_box.setText("All settings have been saved successfully.")
             msg_box.setInformativeText(
-                "Would you like to restart Dasi now for the changes to take effect?")
+                "For the changes to take full effect, would you like to restart the Dasi service now?")
             msg_box.setStandardButtons(
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
@@ -587,36 +790,38 @@ class GeneralTab(QWidget):
             response = msg_box.exec()
 
             if response == QMessageBox.StandardButton.Yes:
-                # Get the main window (SettingsWindow)
-                main_window = self.window()
-                if main_window:
-                    # Restart the application
-                    main_window.hide()
-                    QApplication.quit()
-                    program = sys.executable
-                    os.execl(program, program, *sys.argv)
-
+                self._restart_dasi_service()
+                
         except Exception as e:
             QMessageBox.critical(
                 self,
                 "Error",
-                f"Failed to save hotkey settings: {str(e)}",
+                f"Failed to save settings: {str(e)}",
                 QMessageBox.StandardButton.Ok
             )
 
-    def _save_startup_settings(self):
-        """Auto-save startup settings when changed."""
-        try:
-            start_on_boot = self.startup_checkbox.isChecked()
-            self.settings.set(start_on_boot, 'general', 'start_on_boot')
-            self._update_startup_file(start_on_boot)
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to save startup settings: {str(e)}",
-                QMessageBox.StandardButton.Ok
-            )
+    def _restart_dasi_service(self):
+        """Helper method to restart Dasi service with a single message."""
+        main_window = self.window()
+        if main_window and hasattr(main_window, 'stop_dasi') and hasattr(main_window, 'start_dasi'):
+            # Stop Dasi without showing message
+            main_window.stop_dasi(show_message=False)
+            
+            # Small delay to ensure proper shutdown
+            QTimer.singleShot(500, lambda: self._start_dasi_after_stop(main_window))
+
+    def _start_dasi_after_stop(self, main_window):
+        """Helper method to start Dasi after stopping."""
+        # Start Dasi without showing message
+        main_window.start_dasi(show_message=False)
+        
+        # Show a single success message
+        QMessageBox.information(
+            self,
+            "Success",
+            "Dasi service has been restarted successfully.",
+            QMessageBox.StandardButton.Ok
+        )
 
     def _update_startup_file(self, enable: bool):
         """Update the startup file in the autostart directory."""
@@ -671,21 +876,5 @@ X-GNOME-Autostart-enabled=true
                 self,
                 "Error",
                 f"Failed to browse export path: {str(e)}",
-                QMessageBox.StandardButton.Ok
-            )
-
-    def _save_export_path(self):
-        """Auto-save export path when changed."""
-        try:
-            path = self.export_path.text()
-            # Expand user path if it contains ~
-            if '~' in path:
-                path = os.path.expanduser(path)
-            self.settings.set(path, 'general', 'export_path')
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to save export path: {str(e)}",
                 QMessageBox.StandardButton.Ok
             )
