@@ -280,7 +280,7 @@ class SettingsWindow(QMainWindow):
             self.start_dasi_btn.setEnabled(False)
             self.start_dasi_btn.setText("Error")
 
-    def start_dasi(self):
+    def start_dasi(self, show_message=True):
         """Start the Dasi hotkey listener."""
         try:
             if not self.settings.get_selected_models():
@@ -295,12 +295,13 @@ class SettingsWindow(QMainWindow):
             # Check if Dasi is already running
             if DasiInstanceManager.is_running():
                 # Dasi is already running
-                QMessageBox.information(
-                    self,
-                    "Dasi Already Running",
-                    "Dasi is already running. No need to start it again.",
-                    QMessageBox.StandardButton.Ok
-                )
+                if show_message:
+                    QMessageBox.information(
+                        self,
+                        "Dasi Already Running",
+                        "Dasi is already running. No need to start it again.",
+                        QMessageBox.StandardButton.Ok
+                    )
                 self.update_start_button()
                 return
 
@@ -318,12 +319,13 @@ class SettingsWindow(QMainWindow):
             # Start the hotkey listener if it's not already running
             if not self.hotkey_listener or not self.hotkey_listener.is_running():
                 self.hotkey_listener.start()
-                QMessageBox.information(
-                    self,
-                    "Dasi Started",
-                    "Dasi is now running. Press Ctrl+Alt+Shift+I to activate.",
-                    QMessageBox.StandardButton.Ok
-                )
+                if show_message:
+                    QMessageBox.information(
+                        self,
+                        "Dasi Started",
+                        "Dasi is now running. Press Ctrl+Alt+Shift+I to activate.",
+                        QMessageBox.StandardButton.Ok
+                    )
                 
                 # Update button to show Stop Dasi
                 self.start_dasi_btn.setText("Stop Dasi")
@@ -334,13 +336,14 @@ class SettingsWindow(QMainWindow):
                 self.start_dasi_btn.clicked.connect(self.stop_dasi)
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to start Dasi: {str(e)}"
-            )
+            if show_message:
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to start Dasi: {str(e)}"
+                )
             
-    def stop_dasi(self):
+    def stop_dasi(self, show_message=True):
         """Stop the Dasi hotkey listener and hide the system tray icon."""
         try:
             if self.hotkey_listener and self.hotkey_listener.is_running():
@@ -350,12 +353,13 @@ class SettingsWindow(QMainWindow):
                 if self.dasi_instance and hasattr(self.dasi_instance, 'tray') and self.dasi_instance.tray:
                     self.dasi_instance.tray.hide()
                 
-                QMessageBox.information(
-                    self,
-                    "Dasi Stopped",
-                    "Dasi has been stopped.",
-                    QMessageBox.StandardButton.Ok
-                )
+                if show_message:
+                    QMessageBox.information(
+                        self,
+                        "Dasi Stopped",
+                        "Dasi has been stopped.",
+                        QMessageBox.StandardButton.Ok
+                    )
             
             # Clear the instance from manager
             DasiInstanceManager.clear_instance()
@@ -372,11 +376,12 @@ class SettingsWindow(QMainWindow):
             self.start_dasi_btn.clicked.connect(self.start_dasi)
             
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to stop Dasi: {str(e)}"
-            )
+            if show_message:
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to stop Dasi: {str(e)}"
+                )
 
     def closeEvent(self, event):
         """Handle window close event."""

@@ -8,6 +8,8 @@ from PyQt6.QtCore import QObject, pyqtSignal
 class Settings(QObject):
     """Settings manager with signals for changes."""
     models_changed = pyqtSignal()  # Signal emitted when models list changes
+    custom_instructions_changed = pyqtSignal()  # Signal emitted when custom instructions change
+    temperature_changed = pyqtSignal()  # Signal emitted when temperature changes
 
     def __init__(self):
         super().__init__()
