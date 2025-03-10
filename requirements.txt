@@ -12,7 +12,7 @@ langchain>=0.3.19  # Main LangChain package
 langchain-text-splitters>=0.3.6  # Text splitting utilities
 
 # UI and System dependencies
-pynput>=1.8.0  # Global hotkey support
+pynput>=1.7.6 # Global hotkey support
 pyautogui>=0.9.54  # Cursor position and typing simulation
 PyQt6>=6.8.1  # Modern UI framework
 python-dotenv>=1.0.1  # Environment variable management
