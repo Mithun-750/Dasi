@@ -8,6 +8,7 @@ langchain-ollama>=0.2.3  # Ollama integration
 langchain-groq>=0.2.4  # Groq integration
 langchain-deepseek>=0.1.2  # Deepseek integration
 langchain-together>=0.3.0  # Together AI integration
+langchain-xai>=0.1.0  # xAI (Grok) integration
 langchain>=0.3.19  # Main LangChain package
 langchain-text-splitters>=0.3.6  # Text splitting utilities
 
