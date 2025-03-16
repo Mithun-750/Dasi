@@ -1543,4 +1543,3 @@ class DasiWindow(QWidget):
                 self.dot_timer.stop()
         
         super().hideEvent(event)
-

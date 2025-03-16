@@ -16,6 +16,7 @@ from typing import Optional, Callable
 from constants import DEFAULT_CHAT_PROMPT, DEFAULT_COMPOSE_PROMPT
 # Import instance manager
 from instance_manager import DasiInstanceManager
+import atexit
 
 
 def setup_logging():
@@ -416,6 +417,9 @@ def is_already_running():
 
 if __name__ == "__main__":
     try:
+        # Register cleanup function to be called on exit
+        atexit.register(DasiInstanceManager.cleanup)
+        
         if is_already_running():
             print("Another instance of Dasi is already running.")
             sys.exit(1)
