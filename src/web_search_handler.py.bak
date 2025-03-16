@@ -1,0 +1,316 @@
+import os
+import logging
+from typing import List, Dict, Any, Optional
+from langchain_core.documents import Document
+from langchain_community.utilities.google_serper import GoogleSerperAPIWrapper
+from langchain_community.utilities.brave_search import BraveSearchWrapper
+from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIWrapper
+# Add additional search providers
+# SearchAPI is not directly available as a package
+has_searchapi = False
+try:
+    from langchain_community.utilities import SerpAPIWrapper
+    has_serpapi = True
+except ImportError:
+    has_serpapi = False
+# Exa is now in a separate package
+try:
+    from langchain_exa import ExaSearchRetriever
+    from exa_py import Exa
+    has_exa = True
+except ImportError:
+    has_exa = False
+from langchain_community.utilities.tavily_search import TavilySearchAPIWrapper
+from langchain_community.document_loaders import WebBaseLoader
+from ui.settings import Settings
+
+
+class WebSearchHandler:
+    """Handler for web search functionality."""
+    
+    def __init__(self):
+        """Initialize web search handler."""
+        self.settings = Settings()
+        self.search_providers = {}
+        self.initialize_search_providers()
+        
+        # Connect to settings changes
+        self.settings.web_search_changed.connect(self.initialize_search_providers)
+        
+    def initialize_search_providers(self):
+        """Initialize search providers based on settings."""
+        # Clear existing providers
+        self.search_providers = {}
+        
+        # Get enabled providers from settings
+        enabled_providers = self.settings.get('web_search', 'enabled_providers', default=[
+            'google_serper', 'brave_search', 'ddg_search'
+        ])
+        
+        # Initialize each enabled provider
+        for provider in enabled_providers:
+            try:
+                if provider == 'google_serper':
+                    api_key = self.settings.get_api_key('google_serper')
+                    if api_key:
+                        self.search_providers['google_serper'] = GoogleSerperAPIWrapper(
+                            serper_api_key=api_key
+                        )
+                        
+                elif provider == 'brave_search':
+                    api_key = self.settings.get_api_key('brave_search')
+                    if api_key:
+                        self.search_providers['brave_search'] = BraveSearchWrapper(
+                            api_key=api_key
+                        )
+                        
+                elif provider == 'ddg_search':
+                    # DuckDuckGo doesn't require an API key
+                    self.search_providers['ddg_search'] = DuckDuckGoSearchAPIWrapper()
+                    
+                elif provider == 'exa_search':
+                    api_key = self.settings.get_api_key('exa_search')
+                    if api_key and has_exa:
+                        # Use Exa client directly
+                        exa_client = Exa(api_key=api_key)
+                        self.search_providers['exa_search'] = exa_client
+                
+                elif provider == 'searchapi':
+                    # SearchAPI is not directly available as a package
+                    api_key = self.settings.get_api_key('searchapi')
+                    if api_key and has_searchapi:
+                        # This is a placeholder since the package is not available
+                        logging.warning("SearchAPI package is not available. Skipping initialization.")
+                        # If it becomes available in the future, uncomment the following:
+                        # self.search_providers['searchapi'] = SearchApiAPIWrapper(
+                        #     searchapi_api_key=api_key
+                        # )
+                
+                elif provider == 'serpapi':
+                    api_key = self.settings.get_api_key('serpapi')
+                    if api_key and has_serpapi:
+                        self.search_providers['serpapi'] = SerpAPIWrapper(
+                            serpapi_api_key=api_key
+                        )
+                        
+                elif provider == 'tavily_search':
+                    api_key = self.settings.get_api_key('tavily_search')
+                    if api_key:
+                        self.search_providers['tavily_search'] = TavilySearchAPIWrapper(
+                            api_key=api_key
+                        )
+            except Exception as e:
+                logging.error(f"Error initializing search provider {provider}: {str(e)}")
+    
+    def search(self, query: str, provider: Optional[str] = None, max_results: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Perform a web search using the specified provider.
+        
+        Args:
+            query: The search query
+            provider: The search provider to use (defaults to the default provider in settings)
+            max_results: Maximum number of results to return (defaults to settings value)
+            
+        Returns:
+            List of search results
+        """
+        # Get default provider if none specified
+        if not provider:
+            provider = self.settings.get('web_search', 'default_provider', default='google_serper')
+            
+        # Get max results if none specified
+        if not max_results:
+            max_results = self.settings.get('web_search', 'max_results', default=5)
+            
+        # Check if provider is available
+        if provider not in self.search_providers:
+            available_providers = list(self.search_providers.keys())
+            if not available_providers:
+                raise ValueError("No search providers are available. Please add API keys in settings.")
+            
+            # Use first available provider as fallback
+            logging.warning(f"Provider {provider} not available. Using {available_providers[0]} instead.")
+            provider = available_providers[0]
+            
+        try:
+            # Perform search
+            search_provider = self.search_providers[provider]
+            
+            # Different providers have different methods/return formats
+            if provider == 'google_serper':
+                results = search_provider.results(query)
+                # Extract organic results
+                search_results = results.get('organic', [])[:max_results]
+                return [
+                    {
+                        'title': result.get('title', ''),
+                        'snippet': result.get('snippet', ''),
+                        'link': result.get('link', '')
+                    }
+                    for result in search_results
+                ]
+                
+            elif provider == 'brave_search':
+                # BraveSearchWrapper.run returns a JSON string, so we need to parse it
+                import json
+                results_json = search_provider.run(query)
+                results = json.loads(results_json)
+                
+                # Extract the web results
+                web_results = results.get('web', {}).get('results', [])
+                return [
+                    {
+                        'title': result.get('title', ''),
+                        'snippet': result.get('description', ''),
+                        'link': result.get('url', '')
+                    }
+                    for result in web_results[:max_results]
+                ]
+                
+            elif provider == 'ddg_search':
+                try:
+                    results = search_provider.results(query, max_results=max_results)
+                    return [
+                        {
+                            'title': result.get('title', ''),
+                            'snippet': result.get('body', ''),
+                            'link': result.get('href', '')
+                        }
+                        for result in results
+                    ]
+                except Exception as e:
+                    logging.error(f"Error with DuckDuckGo search: {str(e)}")
+                    return []
+                
+            elif provider == 'exa_search':
+                # Use the Exa client's search_and_contents method
+                try:
+                    results = search_provider.search_and_contents(
+                        query, 
+                        num_results=max_results,
+                        text=True,
+                        highlights=True
+                    )
+                    
+                    # Format the results
+                    return [
+                        {
+                            'title': result.get('title', ''),
+                            'snippet': result.get('text', result.get('highlights', [''])[0] if result.get('highlights') else ''),
+                            'link': result.get('url', '')
+                        }
+                        for result in results
+                    ]
+                except Exception as e:
+                    logging.error(f"Error performing Exa search: {str(e)}")
+                    return []
+                
+            elif provider == 'tavily_search':
+                try:
+                    results = search_provider.results(query, max_results=max_results)
+                    return [
+                        {
+                            'title': result.get('title', ''),
+                            'snippet': result.get('content', ''),
+                            'link': result.get('url', '')
+                        }
+                        for result in results.get('results', [])
+                    ]
+                except Exception as e:
+                    logging.error(f"Error performing Tavily search: {str(e)}")
+                    return []
+                
+            elif provider == 'searchapi':
+                try:
+                    results = search_provider.results(query)
+                    # Extract results
+                    search_results = results.get('organic', [])[:max_results]
+                    return [
+                        {
+                            'title': result.get('title', ''),
+                            'snippet': result.get('snippet', ''),
+                            'link': result.get('link', '')
+                        }
+                        for result in search_results
+                    ]
+                except Exception as e:
+                    logging.error(f"Error performing SearchAPI search: {str(e)}")
+                    return []
+                
+            elif provider == 'serpapi':
+                try:
+                    # SerpAPIWrapper.results returns a dictionary with organic results
+                    results = search_provider.results(query)
+                    # Extract organic results
+                    search_results = results.get('organic_results', [])[:max_results]
+                    return [
+                        {
+                            'title': result.get('title', ''),
+                            'snippet': result.get('snippet', ''),
+                            'link': result.get('link', '')
+                        }
+                        for result in search_results
+                    ]
+                except Exception as e:
+                    logging.error(f"Error performing SerpAPI search: {str(e)}")
+                    return []
+                
+            # Default case if provider is not recognized
+            logging.warning(f"Unrecognized provider: {provider}")
+            return []
+                
+        except Exception as e:
+            logging.error(f"Error performing search with provider {provider}: {str(e)}")
+            return []  # Return empty list instead of raising exception
+            
+    def scrape_content(self, urls: List[str]) -> List[Document]:
+        """
+        Scrape content from the provided URLs.
+        
+        Args:
+            urls: List of URLs to scrape
+            
+        Returns:
+            List of Document objects containing the scraped content
+        """
+        documents = []
+        
+        for url in urls:
+            try:
+                loader = WebBaseLoader(url)
+                docs = loader.load()
+                documents.extend(docs)
+                logging.info(f"Successfully scraped content from {url}")
+            except Exception as e:
+                logging.error(f"Error scraping content from {url}: {str(e)}")
+                
+        return documents
+        
+    def search_and_scrape(self, query: str, provider: Optional[str] = None, max_results: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Perform a web search and scrape content from the results.
+        
+        Args:
+            query: The search query
+            provider: The search provider to use
+            max_results: Maximum number of results to return
+            
+        Returns:
+            Dictionary containing search results and scraped content
+        """
+        # Check if scraping is enabled
+        scrape_content = self.settings.get('web_search', 'scrape_content', default=True)
+        
+        # Perform search
+        search_results = self.search(query, provider, max_results)
+        
+        # Scrape content if enabled
+        scraped_content = []
+        if scrape_content and search_results:
+            urls = [result['link'] for result in search_results]
+            scraped_content = self.scrape_content(urls)
+            
+        return {
+            'search_results': search_results,
+            'scraped_content': scraped_content
+        } 

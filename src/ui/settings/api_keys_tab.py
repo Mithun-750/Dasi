@@ -73,6 +73,11 @@ class APIKeysTab(QWidget):
         layout.setSpacing(20)
         layout.setContentsMargins(0, 0, 20, 0)  # Right margin for scrollbar
 
+        # LLM API Keys Section Title
+        llm_title = QLabel("LLM API Keys")
+        llm_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #cccccc;")
+        layout.addWidget(llm_title)
+
         # Google API Key section
         google_section = self.create_api_key_section(
             "Google API Key",
@@ -121,7 +126,7 @@ class APIKeysTab(QWidget):
         )
         layout.addWidget(deepseek_section)
 
-        # Together API Key section
+        # Together AI API Key section
         together_section = self.create_api_key_section(
             "Together AI API Key",
             "together",
@@ -131,35 +136,95 @@ class APIKeysTab(QWidget):
 
         # xAI API Key section
         xai_section = self.create_api_key_section(
-            "xAI (Grok) API Key",
+            "xAI API Key",
             "xai",
             "Enter your xAI API key here..."
         )
         layout.addWidget(xai_section)
 
-        # Custom OpenAI section container
+        # Web Search API Keys Section Title
+        search_title = QLabel("Web Search API Keys")
+        search_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #cccccc; margin-top: 20px;")
+        layout.addWidget(search_title)
+
+        # Google Serper API Key section
+        serper_section = self.create_api_key_section(
+            "Google Serper API Key",
+            "google_serper",
+            "Enter your Serper API key here..."
+        )
+        layout.addWidget(serper_section)
+
+        # Brave Search API Key section
+        brave_section = self.create_api_key_section(
+            "Brave Search API Key",
+            "brave_search",
+            "Enter your Brave Search API key here..."
+        )
+        layout.addWidget(brave_section)
+
+        # Exa Search API Key section
+        exa_section = self.create_api_key_section(
+            "Exa Search API Key",
+            "exa_search",
+            "Enter your Exa Search API key here..."
+        )
+        layout.addWidget(exa_section)
+
+        # Jina Search API Key section
+        jina_section = self.create_api_key_section(
+            "Jina Search API Key",
+            "jina_search",
+            "Enter your Jina Search API key here..."
+        )
+        layout.addWidget(jina_section)
+
+        # Tavily Search API Key section
+        tavily_section = self.create_api_key_section(
+            "Tavily Search API Key",
+            "tavily_search",
+            "Enter your Tavily Search API key here..."
+        )
+        layout.addWidget(tavily_section)
+
+        # Custom OpenAI-compatible model section
+        custom_openai_title = QLabel("Custom OpenAI-compatible Models")
+        custom_openai_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #cccccc; margin-top: 20px;")
+        layout.addWidget(custom_openai_title)
+
+        # Add custom OpenAI section
         self.custom_openai_container = QWidget()
         self.custom_openai_layout = QVBoxLayout(self.custom_openai_container)
-        self.custom_openai_layout.setSpacing(20)
         self.custom_openai_layout.setContentsMargins(0, 0, 0, 0)
+        self.custom_openai_layout.setSpacing(20)
         
-        # Add title for custom OpenAI section
-        custom_title = QLabel("Custom OpenAI-Compatible Models")
-        custom_title.setStyleSheet("font-size: 16px; font-weight: bold;")
-        self.custom_openai_layout.addWidget(custom_title)
-        
-        # Check for existing custom OpenAI models in settings
+        # Load existing custom OpenAI models
         self.load_existing_custom_openai_models()
         
+        # Add button for adding more custom OpenAI models
+        add_custom_button = QPushButton("+ Add Custom OpenAI-compatible Model")
+        add_custom_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2b5c99;
+                border: none;
+                border-radius: 4px;
+                padding: 10px;
+                color: white;
+                font-size: 13px;
+                text-align: center;
+            }
+            QPushButton:hover {
+                background-color: #366bb3;
+            }
+        """)
+        add_custom_button.clicked.connect(self.add_another_custom_openai)
+        
         layout.addWidget(self.custom_openai_container)
-
-        # Add stretch to push everything to the top
+        layout.addWidget(add_custom_button)
         layout.addStretch()
 
-        # Set the content widget to the scroll area
+        # Set content widget to scroll area
         scroll.setWidget(content)
-
-        # Add scroll area to main layout
         main_layout.addWidget(scroll)
 
     def load_existing_custom_openai_models(self):

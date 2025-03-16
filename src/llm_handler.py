@@ -33,6 +33,9 @@ class LLMHandler:
         # Get chat history limit from settings or use default
         self.history_limit = self.settings.get('general', 'chat_history_limit', default=20)
 
+        # Initialize web search handler lazily
+        self.web_search_handler = None
+
         # Fixed system prompt
         self.system_prompt = """You are Dasi, an intelligent desktop copilot that helps users with their daily computer tasks. You appear when users press Ctrl+Alt+Shift+I, showing a popup near their cursor.
 
@@ -363,6 +366,13 @@ class LLMHandler:
             mode = 'chat'
             context = {}
             actual_query = query
+            web_search = False
+
+            # Check for #web command
+            if actual_query.strip().startswith('#web '):
+                web_search = True
+                actual_query = actual_query.replace('#web ', '', 1).strip()
+                logging.info(f"Web search requested: {actual_query}")
 
             if "Context:" in query:
                 context_section, actual_query = query.split("\n\nQuery:\n", 1)
@@ -394,6 +404,111 @@ class LLMHandler:
                     if "<" in mode_text and ">" in mode_text:
                         mode_text = mode_text.split(">", 1)[1].strip()
                     mode = mode_text
+                    
+                # Check for web search flag in context
+                if "=====WEB_SEARCH=====" in context_section:
+                    web_search_text = context_section.split("=====WEB_SEARCH=====", 1)[1]
+                    web_search_text = web_search_text.split("=======================", 1)[0].strip()
+                    # Remove the metadata part if present
+                    if "<" in web_search_text and ">" in web_search_text:
+                        web_search_text = web_search_text.split(">", 1)[1].strip()
+                    web_search = web_search_text.lower() == 'true'
+                    
+            # Check for #web command in the actual query
+            if actual_query.strip().startswith('#web '):
+                web_search = True
+                actual_query = actual_query.replace('#web ', '', 1).strip()
+                logging.info(f"Web search requested: {actual_query}")
+
+            # Perform web search if requested
+            web_search_results = None
+            if web_search:
+                try:
+                    logging.info(f"Performing web search for: {actual_query}")
+                    # Lazy initialization of web search handler
+                    if self.web_search_handler is None:
+                        from web_search_handler import WebSearchHandler
+                        self.web_search_handler = WebSearchHandler()
+                        logging.info("Web search handler initialized")
+                    
+                    # Reset cancellation flag before starting a new search
+                    self.web_search_handler.reset_cancellation()
+                    
+                    # Create a timeout mechanism using a separate thread
+                    import threading
+                    import time
+                    
+                    # Flag to track if search completed
+                    search_completed = False
+                    search_results = None
+                    search_error = None
+                    
+                    def perform_search():
+                        nonlocal search_completed, search_results, search_error
+                        try:
+                            results = self.web_search_handler.search_and_scrape(actual_query)
+                            search_results = results
+                            search_completed = True
+                        except Exception as e:
+                            search_error = e
+                            search_completed = True
+                    
+                    # Start search in a separate thread
+                    search_thread = threading.Thread(target=perform_search)
+                    search_thread.daemon = True  # Make thread a daemon so it doesn't block program exit
+                    search_thread.start()
+                    
+                    # Wait for the search to complete with a timeout (30 seconds)
+                    timeout = 30  # seconds
+                    start_time = time.time()
+                    while not search_completed and not self.web_search_handler._cancellation_requested:
+                        search_thread.join(0.5)  # Check every 0.5 seconds
+                        if time.time() - start_time > timeout:
+                            logging.warning(f"Web search timed out after {timeout} seconds")
+                            self.web_search_handler.cancel_search()  # Cancel the search
+                            return f"The web search for '{actual_query}' timed out. Please try again with a more specific query or try later."
+                    
+                    # Check if search was cancelled
+                    if self.web_search_handler._cancellation_requested:
+                        logging.info("Web search was cancelled, returning early")
+                        return "Web search cancelled by user."
+                    
+                    # Check if there was an error
+                    if search_error:
+                        raise search_error
+                    
+                    # Use the search results
+                    web_search_results = search_results
+                    
+                    # Format search results for inclusion in the prompt
+                    search_results_text = "=====WEB_SEARCH_RESULTS=====<results from web search>\n"
+                    
+                    # Add search results
+                    search_results_text += "Search Results:\n"
+                    for i, result in enumerate(web_search_results['search_results']):
+                        search_results_text += f"{i+1}. {result['title']}\n"
+                        search_results_text += f"   URL: {result['link']}\n"
+                        search_results_text += f"   Snippet: {result['snippet']}\n\n"
+                    
+                    # Add scraped content if available
+                    if web_search_results['scraped_content']:
+                        search_results_text += "Scraped Content:\n"
+                        for i, doc in enumerate(web_search_results['scraped_content']):
+                            search_results_text += f"Document {i+1} from {doc.metadata.get('source', 'unknown')}:\n"
+                            # Limit content length to avoid token limits
+                            content = doc.page_content
+                            if len(content) > 2000:
+                                content = content[:2000] + "... (content truncated)"
+                            search_results_text += f"{content}\n\n"
+                    
+                    search_results_text += "=======================\n\n"
+                    
+                    # Add search results to the query
+                    actual_query = f"{search_results_text}Based on the web search results above, please answer: {actual_query}"
+                    
+                except Exception as e:
+                    logging.error(f"Error performing web search: {str(e)}")
+                    actual_query = f"I tried to search the web for '{actual_query}' but encountered an error: {str(e)}. Please answer without web search results."
 
             # Build the messages list
             messages = []
@@ -455,6 +570,19 @@ class LLMHandler:
                 ======================="""
 
             messages.append(SystemMessage(content=mode_instruction))
+            
+            # Add web search instruction if web search was performed
+            if web_search and web_search_results:
+                web_search_instruction = """=====WEB_SEARCH_INSTRUCTIONS=====<instructions for handling web search results>
+                You have been provided with web search results to help answer the user's query.
+                When using this information:
+                1. Synthesize information from multiple sources when possible
+                2. Cite sources using [1], [2], etc. corresponding to the search result numbers
+                3. If the search results don't contain relevant information, acknowledge this and provide your best answer
+                4. Focus on the most relevant information from the search results
+                5. If the information seems outdated or contradictory, note this to the user
+                ======================="""
+                messages.append(SystemMessage(content=web_search_instruction))
 
             # Add chat history (limited to configured number of messages)
             history_messages = message_history.messages[-self.history_limit:] if message_history.messages else []

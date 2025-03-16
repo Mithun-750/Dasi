@@ -10,6 +10,7 @@ class Settings(QObject):
     models_changed = pyqtSignal()  # Signal emitted when models list changes
     custom_instructions_changed = pyqtSignal()  # Signal emitted when custom instructions change
     temperature_changed = pyqtSignal()  # Signal emitted when temperature changes
+    web_search_changed = pyqtSignal()  # Signal emitted when web search settings change
 
     def __init__(self):
         super().__init__()
@@ -27,7 +28,17 @@ class Settings(QObject):
                 'google': '',
                 'openrouter': '',
                 'groq': '',
-                'custom_openai': ''  # API key for custom OpenAI-compatible model
+                'custom_openai': '',  # API key for custom OpenAI-compatible model
+                'anthropic': '',
+                'deepseek': '',
+                'together': '',
+                'xai': '',
+                'google_serper': '',
+                'brave_search': '',
+                'exa_search': '',
+                'searchapi': '',
+                'serpapi': '',
+                'tavily_search': ''
             },
             'models': {
                 # List of {id: str, provider: str, name: str}
@@ -38,6 +49,17 @@ class Settings(QObject):
                 }
             },
             'general': {
+            },
+            'web_search': {
+                'default_provider': 'google_serper',
+                'max_results': 5,
+                'scrape_content': True,
+                'include_citations': True,
+                'enabled_providers': [
+                    'google_serper', 
+                    'brave_search', 
+                    'ddg_search'
+                ]
             }
         }
 
@@ -95,7 +117,21 @@ class Settings(QObject):
             current = current[key]
 
         current[keys[-1]] = value
-        return self.save_settings()
+        success = self.save_settings()
+        
+        # Emit appropriate signals based on what was changed
+        if success:
+            # Check if this is a web search setting change
+            if keys and keys[0] == 'web_search':
+                self.web_search_changed.emit()
+            # Check for custom instructions change
+            elif keys and keys[0] == 'general' and keys[-1] == 'custom_instructions':
+                self.custom_instructions_changed.emit()
+            # Check for temperature change
+            elif keys and keys[0] == 'general' and keys[-1] == 'temperature':
+                self.temperature_changed.emit()
+                
+        return success
 
     def get_api_key(self, provider: str) -> str:
         """Get API key for a specific provider."""
@@ -103,7 +139,13 @@ class Settings(QObject):
 
     def set_api_key(self, provider: str, key: str) -> bool:
         """Set API key for a specific provider."""
-        return self.set(key, 'api_keys', provider)
+        success = self.set(key, 'api_keys', provider)
+        
+        # Emit web_search_changed signal if this is a web search provider
+        if success and provider in ['google_serper', 'brave_search', 'exa_search', 'tavily_search']:
+            self.web_search_changed.emit()
+            
+        return success
 
     def get_selected_models(self) -> List[Dict[str, str]]:
         """Get list of selected models with metadata."""

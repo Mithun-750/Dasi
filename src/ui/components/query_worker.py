@@ -1,4 +1,4 @@
-from PyQt6.QtCore import QThread
+from PyQt6.QtCore import QThread, QTimer
 from typing import Callable, Optional
 
 
@@ -15,6 +15,7 @@ class QueryWorker(QThread):
         self.model = model
         self.session_id = session_id
         self.is_stopped = False
+        self.termination_timeout = 5000  # 5 seconds timeout
 
     def run(self):
         """Process the query and emit result."""
@@ -42,4 +43,19 @@ class QueryWorker(QThread):
 
     def stop(self):
         """Stop the worker cleanly."""
-        self.is_stopped = True 
+        self.is_stopped = True
+        
+    def terminate_safely(self):
+        """Terminate the thread safely with a timeout."""
+        # First try to stop gracefully
+        self.stop()
+        
+        # Set up a timer for timeout
+        if not self.wait(500):  # Give it 500ms to stop gracefully
+            # If still running, terminate and wait with timeout
+            self.terminate()
+            if not self.wait(self.termination_timeout):
+                # If still not terminated, log warning but don't force quit
+                # This avoids the SIGKILL that was happening before
+                import logging
+                logging.warning("Worker thread could not be terminated within timeout period.") 
