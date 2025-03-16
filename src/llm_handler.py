@@ -8,6 +8,7 @@ from langchain_groq import ChatGroq
 from langchain_anthropic import ChatAnthropic
 from langchain_deepseek import ChatDeepSeek
 from langchain_together import ChatTogether
+from langchain_xai import ChatXAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from ui.settings import Settings
@@ -230,6 +231,14 @@ class LLMHandler:
                     together_api_key=self.settings.get_api_key('together'),
                     temperature=temperature,
                 )
+            elif provider == 'xai':
+                # Initialize xAI (Grok) model
+                self.llm = ChatXAI(
+                    model=model_id,
+                    xai_api_key=self.settings.get_api_key('xai'),
+                    temperature=temperature,
+                )
+                logging.info(f"Successfully initialized xAI model: {model_id}")
             elif provider == 'custom_openai' or provider.startswith('custom_openai_'):
                 # Get custom OpenAI settings
                 base_url = self.settings.get(

@@ -129,6 +129,14 @@ class APIKeysTab(QWidget):
         )
         layout.addWidget(together_section)
 
+        # xAI API Key section
+        xai_section = self.create_api_key_section(
+            "xAI (Grok) API Key",
+            "xai",
+            "Enter your xAI API key here..."
+        )
+        layout.addWidget(xai_section)
+
         # Custom OpenAI section container
         self.custom_openai_container = QWidget()
         self.custom_openai_layout = QVBoxLayout(self.custom_openai_container)
