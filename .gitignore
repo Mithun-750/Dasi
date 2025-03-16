@@ -33,3 +33,6 @@ Thumbs.db
 /.windsurfrules
 .windsurfrules
 .cursorrules
+
+# Installation configuration
+install_config.json

@@ -25,7 +25,23 @@ class CopilotUI:
 
             # Position window near cursor with screen bounds check
             screen = self.app.primaryScreen().geometry()
-            x = min(max(x + 10, 0), screen.width() - self.window.width())
+            
+            # Calculate the total width when expanded with response panel
+            # The window starts at 340px width and expands to 680px when showing response
+            expanded_width = 680  # Total width when response panel is shown
+            
+            # Calculate the position to ensure there's enough space on the right
+            # If we're too close to the right edge, shift left to make room for response panel
+            right_edge_distance = screen.width() - x
+            if right_edge_distance < expanded_width:
+                # Shift left to ensure the expanded window fits on screen
+                x = max(0, screen.width() - expanded_width)
+            else:
+                # Add a small offset from cursor position
+                x = max(0, x + 10)
+            
+            # Ensure the window is within screen bounds
+            x = min(x, screen.width() - self.window.width())
             y = min(max(y + 10, 0), screen.height() - self.window.height())
 
             # Show and activate window
