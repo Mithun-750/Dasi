@@ -3,18 +3,18 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTextEdit,
                              QGridLayout, QComboBox, QSizePolicy, QRadioButton, QButtonGroup,
                              QCompleter, QListView, QLineEdit, QFileDialog, QMessageBox)
 from PyQt6.QtCore import (Qt, QPoint, QThread, QObject, QSize, 
-                          QStringListModel, QModelIndex, QAbstractListModel, QEvent, pyqtSignal)
-from PyQt6.QtGui import QFont, QClipboard, QIcon, QPixmap, QTextCursor
+                          QStringListModel, QModelIndex, QAbstractListModel, QEvent, pyqtSignal, QTimer)
+from PyQt6.QtGui import QFont, QClipboard, QIcon, QPixmap, QTextCursor, QMovie
 from typing import Callable, Optional, Tuple, List
 import sys
 import os
+import logging
 from pathlib import Path
 from ..settings import Settings
 from ..components.chunk_dropdown import ChunkDropdown
 from ..components.mention_highlighter import MentionHighlighter
 from ..components.query_worker import QueryWorker
 from ..components.ui_signals import UISignals
-import logging
 import re
 import uuid
 from datetime import datetime
@@ -63,6 +63,8 @@ class DasiWindow(QWidget):
         self.chunks_dir = Path(self.settings.config_dir) / 'prompt_chunks'
         self.chunk_dropdown = None  # Will be initialized in setup_ui
         self.highlighter = None  # Initialize highlighter reference
+        self.loading_animation = None  # Will be initialized in setup_ui
+        self.is_web_search = False  # Flag to track if current query is a web search
 
         # Connect to settings signals
         self.settings.models_changed.connect(self.update_model_selector)
@@ -80,6 +82,9 @@ class DasiWindow(QWidget):
         
         # Setup chunk dropdown
         self.setup_chunk_dropdown()
+        
+        # Setup loading animation
+        self.setup_loading_animation()
 
     def setup_ui(self):
         """Set up the UI components."""
@@ -169,6 +174,9 @@ class DasiWindow(QWidget):
         left_layout = QVBoxLayout()
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(5)
+        
+        # Set minimum width for consistent UI
+        left_panel.setMinimumWidth(310)  # Added to ensure input field has adequate width
 
         # Context area with label and ignore button
         context_frame = QFrame()
@@ -223,7 +231,7 @@ class DasiWindow(QWidget):
         self.context_label.hide = hide_context
 
         self.input_field = QTextEdit()
-        self.input_field.setPlaceholderText("Type your query...")
+        self.input_field.setPlaceholderText("Type your query... (Use #web to search the internet)")
         self.input_field.setMinimumHeight(80)
 
         # Create control bar for mode and model selection
@@ -370,11 +378,15 @@ class DasiWindow(QWidget):
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(5)
+        self.right_layout = right_layout  # Store reference to the layout
+        
+        # Set a fixed width for the right panel to ensure consistency
+        right_panel.setFixedWidth(360)  # Increased from 330px to 360px
 
         # Response preview (hidden by default)
         self.response_preview = QTextEdit()
         self.response_preview.setReadOnly(True)  # Start as read-only
-        self.response_preview.setFixedWidth(300)
+        self.response_preview.setFixedWidth(340)  # Increased from 320px to 340px
         self.response_preview.setStyleSheet("""
             QTextEdit {
                 background-color: #363636;
@@ -718,16 +730,112 @@ class DasiWindow(QWidget):
 
         return super().eventFilter(obj, event)
 
+    def _reset_ui_after_stop(self):
+        """Reset UI elements after stopping an operation."""
+        # Re-enable input field
+        self.input_field.setEnabled(True)
+        
+        # Hide loading indicators
+        self.progress_bar.hide()
+        self.stop_button.hide()
+        
+        # Hide loading animation if it's active
+        if hasattr(self, 'loading_animation') and self.loading_animation:
+            if isinstance(self.loading_animation, QMovie):
+                self.loading_animation.stop()
+            else:
+                self.dot_timer.stop()
+            self.loading_container.hide()
+            
+            # Also stop the loading progress bar
+            if hasattr(self, 'loading_progress_bar'):
+                self.loading_progress_bar.setRange(0, 100)
+                self.loading_progress_bar.setValue(100)
+        
+        # Hide panels and collapse UI
+        self.response_preview.hide()
+        self.right_panel.hide()
+        self.loading_container.hide()
+        self.action_frame.hide()  # Hide action buttons
+        self.setFixedWidth(320)   # Reset to input-only width
+        
+        # Reset web search flag
+        self.is_web_search = False
+
+    def _handle_stop(self):
+        """Handle stop button click."""
+        if self.worker and self.worker.isRunning():
+            try:
+                # First, attempt to cancel any ongoing web search
+                if self.is_web_search:
+                    try:
+                        # Get the Dasi instance from the instance manager
+                        from instance_manager import DasiInstanceManager
+                        dasi_instance = DasiInstanceManager.get_instance()
+                        
+                        if dasi_instance and dasi_instance.llm_handler and dasi_instance.llm_handler.web_search_handler:
+                            logging.info("Cancelling ongoing web search operation")
+                            dasi_instance.llm_handler.web_search_handler.cancel_search()
+                        else:
+                            logging.warning("Could not access web search handler for cancellation")
+                    except Exception as e:
+                        logging.error(f"Error cancelling web search: {str(e)}")
+                
+                # Signal worker to stop
+                self.worker.stop()
+                
+                # Use the safer termination method with timeout
+                self.worker.terminate_safely()
+                
+                # Reset UI to clean state
+                self._reset_ui_after_stop()
+                
+            except Exception as e:
+                # Catch any exceptions during the stop process to prevent app crashes
+                logging.error(f"Error during stop operation: {str(e)}")
+                # Try to restore UI to a usable state
+                self._reset_ui_after_stop()
+
     def _handle_escape(self):
         """Handle escape key press."""
-        self.hide()
-        self.input_field.clear()
-        self.reset_context()
-        self.right_panel.hide()
-        self.setFixedWidth(320)
-        # Clear clipboard selection
-        clipboard = QApplication.clipboard()
-        clipboard.clear(QClipboard.Mode.Selection)
+        try:
+            # Cancel any ongoing web search if needed
+            if self.is_web_search and self.worker and self.worker.isRunning():
+                try:
+                    # Get the Dasi instance from the instance manager
+                    from instance_manager import DasiInstanceManager
+                    dasi_instance = DasiInstanceManager.get_instance()
+                    
+                    if dasi_instance and dasi_instance.llm_handler and dasi_instance.llm_handler.web_search_handler:
+                        logging.info("Cancelling ongoing web search operation on ESC")
+                        dasi_instance.llm_handler.web_search_handler.cancel_search()
+                        
+                        # Signal worker to stop
+                        self.worker.stop()
+                        
+                        # Use the safer termination method with timeout
+                        self.worker.terminate_safely()
+                except Exception as e:
+                    logging.error(f"Error cancelling web search on ESC: {str(e)}")
+            
+            # Reset UI elements
+            self._reset_ui_after_stop()
+            
+            # Additionally for escape, hide the window and clear input
+            self.hide()
+            self.input_field.clear()
+            self.reset_context()
+            
+            # Clear clipboard selection
+            clipboard = QApplication.clipboard()
+            clipboard.clear(QClipboard.Mode.Selection)
+            
+        except Exception as e:
+            # Catch any exceptions to prevent app crashes
+            logging.error(f"Error handling escape key: {str(e)}")
+            # Try to restore to a clean state
+            self.hide()
+            self.is_web_search = False
 
     def mousePressEvent(self, event):
         """Handle mouse press for dragging."""
@@ -745,42 +853,57 @@ class DasiWindow(QWidget):
         """Handle mouse release for dragging."""
         self.old_pos = None
 
-    def _handle_stop(self):
-        """Handle stop button click."""
-        if self.worker and self.worker.isRunning():
-            self.worker.stop()
-            self.worker.terminate()
-            self.worker.wait()
-            # Re-enable input field with existing content
-            self.input_field.setEnabled(True)
-            # Hide loading indicators
-            self.progress_bar.hide()
-            self.stop_button.hide()
-            # Show appropriate buttons based on mode
-            if self.compose_mode.isChecked():
-                self.insert_method.show()
-                self.accept_button.show()
-                self.export_button.show()
-            else:
-                self.insert_method.hide()
-                self.accept_button.hide()
-                self.export_button.hide()
-
     def _handle_submit(self):
         """Handle submit action."""
         query = self.input_field.toPlainText().strip()
         if query:
             # Replace @mentions with chunk content
             query = self._replace_chunks(query)
+            
+            # Check if this is a web search query
+            self.is_web_search = "#web" in query.lower()
 
             # Show loading state and stop button
             self.input_field.setEnabled(False)
             self.progress_bar.setRange(0, 0)  # Indeterminate progress
             self.progress_bar.show()
-            self.stop_button.show()
+            
+            # Hide the main stop button if we're showing the loading animation
+            if self.is_web_search:
+                self.stop_button.hide()
+            else:
+                self.stop_button.show()
+                
             self.insert_method.hide()
             self.accept_button.hide()
             self.export_button.hide()
+            
+            # Show loading animation for web searches
+            if self.is_web_search:
+                # Hide the response preview and show the loading animation
+                self.response_preview.hide()
+                self.loading_container.show()
+                self.right_panel.show()
+                self.setFixedWidth(680)  # Increased from 650px to 680px to match the wider preview
+                
+                # Start the animation
+                if isinstance(self.loading_animation, QMovie):
+                    self.loading_animation.start()
+                else:
+                    self.dot_timer.start(500)  # Update every 500ms
+                
+                # Update loading text
+                search_term = query.replace("#web", "").strip()
+                if search_term:
+                    self.loading_text_label.setText(f"Searching the web for: {search_term}")
+                else:
+                    self.loading_text_label.setText("Searching the web...")
+                    
+                # Reset the info label to the first message
+                self.loading_info_label.setText("This may take a moment as we gather relevant information from the web.")
+                
+                # Start the progress bar animation
+                self.loading_progress_bar.setRange(0, 0)  # Indeterminate progress
 
             # Build context dictionary
             context = {}
@@ -843,6 +966,15 @@ class DasiWindow(QWidget):
         # Hide loading state
         self.progress_bar.hide()
         self.stop_button.hide()
+        
+        # Hide loading animation if it's active
+        if hasattr(self, 'loading_animation') and self.loading_animation:
+            if isinstance(self.loading_animation, QMovie):
+                self.loading_animation.stop()
+            else:
+                self.dot_timer.stop()
+            self.loading_container.hide()
+        
         # Re-enable input field with existing content
         self.input_field.setEnabled(True)
 
@@ -864,6 +996,17 @@ class DasiWindow(QWidget):
         if response == "<COMPLETE>":
             self.progress_bar.hide()
             self.stop_button.hide()
+            
+            # Hide loading animation if it's active
+            if hasattr(self, 'loading_animation') and self.loading_animation:
+                if isinstance(self.loading_animation, QMovie):
+                    self.loading_animation.stop()
+                else:
+                    self.dot_timer.stop()
+                self.loading_container.hide()
+            
+            # Reset web search flag
+            self.is_web_search = False
             
             # Clear and re-enable input field only on successful completion
             self.input_field.clear()
@@ -889,6 +1032,24 @@ class DasiWindow(QWidget):
         # Store the response
         self.last_response = response
 
+        # If we were showing the loading animation, hide it and show the response preview
+        if self.is_web_search and self.loading_container.isVisible():
+            # Only hide the loading container when we have a substantial response
+            # This prevents flickering between loading and very short initial responses
+            if len(response) > 50:
+                self.loading_container.hide()
+                
+                # Stop the animation
+                if isinstance(self.loading_animation, QMovie):
+                    self.loading_animation.stop()
+                else:
+                    self.dot_timer.stop()
+                    
+                # Stop the loading progress bar
+                if hasattr(self, 'loading_progress_bar'):
+                    self.loading_progress_bar.setRange(0, 100)
+                    self.loading_progress_bar.setValue(100)
+
         # Show response preview (as read-only during streaming)
         self.response_preview.setReadOnly(True)
         self.response_preview.setProperty("editable", False)
@@ -910,8 +1071,8 @@ class DasiWindow(QWidget):
         self.export_button.hide()
         self.stop_button.show()
 
-        # Adjust window size
-        self.setFixedWidth(650)
+        # Adjust window size - keep consistent with web search width
+        self.setFixedWidth(680)  # Increased from 650px to 680px to accommodate the wider right panel
 
     def _handle_accept(self):
         """Accept the generated response."""
@@ -946,7 +1107,7 @@ class DasiWindow(QWidget):
         self.right_panel.hide()
 
         # Reset window size
-        self.setFixedWidth(320)
+        self.setFixedWidth(320)  # Input-only mode width
 
     def _handle_export(self):
         """Export the generated response to a markdown file."""
@@ -1193,6 +1354,194 @@ class DasiWindow(QWidget):
         self.input_field.clear()
         self.response_preview.clear()
         self.right_panel.hide()
-        self.setFixedWidth(320)
+        self.setFixedWidth(320)  # Input-only mode width
         # Hide reset button since history is now cleared
         self.reset_session_button.hide()
+
+    def setup_loading_animation(self):
+        """Set up the loading animation widget."""
+        # Create a container for the loading animation
+        self.loading_container = QWidget()
+        self.loading_container.setObjectName("loadingContainer")
+        loading_layout = QVBoxLayout(self.loading_container)
+        loading_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        loading_layout.setContentsMargins(30, 30, 30, 30)  # Reduced top/bottom margins
+        loading_layout.setSpacing(15)  # Reduced spacing
+        
+        # Set minimum width for the loading container to prevent text cutoff
+        self.loading_container.setMinimumWidth(340)  # Increased from 320px to 340px
+        
+        # Create the loading animation label
+        self.loading_animation_label = QLabel()
+        self.loading_animation_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading_animation_label.setMinimumSize(140, 140)  # Slightly smaller
+        self.loading_animation_label.setMaximumSize(180, 180)  # Slightly smaller
+        
+        # Get the absolute path to the assets directory
+        if getattr(sys, 'frozen', False):
+            # If we're running as a bundled app
+            base_path = sys._MEIPASS
+        else:
+            # If we're running in development
+            base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        
+        # Try to find a loading.gif file in the assets directory
+        potential_gif_paths = [
+            os.path.join(base_path, 'src', 'assets', 'loading.gif'),
+            os.path.join(base_path, 'assets', 'loading.gif'),
+        ]
+        
+        gif_path = None
+        for path in potential_gif_paths:
+            if os.path.exists(path):
+                gif_path = path
+                break
+        
+        # If no loading.gif is found, we'll create a text-based animation
+        if gif_path:
+            self.loading_animation = QMovie(gif_path)
+            self.loading_animation.setScaledSize(QSize(140, 140))  # Slightly smaller
+            self.loading_animation_label.setMovie(self.loading_animation)
+            logging.info(f"Using GIF animation from {gif_path}")
+        else:
+            # Create a text-based animation as fallback
+            self.loading_animation_label.setText("Searching")
+            self.loading_animation_label.setStyleSheet("font-size: 18px; color: #cccccc; font-weight: bold;")
+            self.dot_timer = QTimer(self)
+            self.dot_timer.timeout.connect(self._update_loading_text)
+            self.dot_count = 0
+            logging.warning("Loading GIF not found, using text-based animation")
+        
+        # Create a label for the search message
+        self.loading_text_label = QLabel("Searching the web for information...")
+        self.loading_text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading_text_label.setStyleSheet("""
+            font-size: 15px; 
+            color: #f0f0f0; 
+            margin-top: 10px;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        """)
+        self.loading_text_label.setWordWrap(True)
+        self.loading_text_label.setMinimumWidth(320)  # Increased from 300px to 320px
+        
+        # Create a label for additional information
+        self.loading_info_label = QLabel("This may take a moment as we gather relevant information from the web.")
+        self.loading_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading_info_label.setStyleSheet("""
+            font-size: 13px; 
+            color: #b0b0b0; 
+            margin-top: 5px;
+            font-style: italic;
+            letter-spacing: 0.2px;
+        """)
+        self.loading_info_label.setWordWrap(True)
+        self.loading_info_label.setMinimumWidth(320)  # Increased from 300px to 320px
+        
+        # Create a progress bar for the loading container
+        self.loading_progress_bar = QProgressBar()
+        self.loading_progress_bar.setObjectName("loadingProgressBar")
+        self.loading_progress_bar.setRange(0, 0)  # Indeterminate progress
+        self.loading_progress_bar.setFixedHeight(4)
+        self.loading_progress_bar.setTextVisible(False)
+        
+        # Create a container for the progress bar to ensure proper margins
+        progress_container = QWidget()
+        progress_layout = QVBoxLayout(progress_container)
+        progress_layout.setContentsMargins(0, 10, 0, 10)  # Add vertical margins
+        progress_layout.addWidget(self.loading_progress_bar)
+        
+        # Add widgets to the layout
+        loading_layout.addWidget(self.loading_animation_label)
+        loading_layout.addWidget(self.loading_text_label)
+        loading_layout.addWidget(self.loading_info_label)
+        loading_layout.addWidget(progress_container)
+        
+        # Add a stop button directly in the loading container
+        self.loading_stop_button = QPushButton("Stop Search")
+        self.loading_stop_button.setObjectName("loadingStopButton")
+        self.loading_stop_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.loading_stop_button.setStyleSheet("""
+            #loadingStopButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 20px;  /* Increased horizontal padding */
+                font-size: 13px;
+                font-weight: 600;
+                min-width: 140px;  /* Increased minimum width */
+                max-width: 180px;  /* Increased maximum width */
+            }
+            #loadingStopButton:hover {
+                background-color: #ff6666;
+            }
+            #loadingStopButton:pressed {
+                background-color: #c0392b;
+            }
+        """)
+        self.loading_stop_button.clicked.connect(self._handle_stop)
+        
+        # Create a container for the button to center it
+        button_container = QWidget()
+        button_layout = QHBoxLayout(button_container)
+        button_layout.setContentsMargins(0, 10, 0, 0)
+        button_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        button_layout.addWidget(self.loading_stop_button)
+        
+        loading_layout.addWidget(button_container)
+        
+        # Style the container
+        self.loading_container.setStyleSheet("""
+            #loadingContainer {
+                background-color: rgba(30, 30, 46, 80);  /* Even more translucent dark background */
+                border-radius: 10px;
+                border: 1px solid rgba(58, 63, 75, 60);  /* More translucent border */
+            }
+            #loadingProgressBar {
+                border: none;
+                background-color: rgba(45, 45, 61, 80);  /* More translucent progress bar background */
+                height: 4px;
+            }
+            #loadingProgressBar::chunk {
+                background-color: rgba(74, 158, 255, 180);  /* Slightly translucent progress bar */
+            }
+        """)
+        
+        # Hide the container initially
+        self.loading_container.hide()
+        
+        # Add the loading container to the right panel
+        self.right_layout.insertWidget(0, self.loading_container, 1)
+    
+    def _update_loading_text(self):
+        """Update the loading text animation."""
+        self.dot_count = (self.dot_count + 1) % 4
+        dots = "." * self.dot_count
+        self.loading_animation_label.setText(f"Searching{dots}")
+        
+        # Rotate through different informational messages
+        info_messages = [
+            "This may take a moment as we gather relevant information from the web.",
+            "We're searching multiple sources to find the most accurate information.",
+            "Web search results will be used to provide up-to-date information.",
+            "You can stop the search at any time by clicking the Stop button below."
+        ]
+        
+        # Update the info message every 4 cycles (2 seconds)
+        if self.dot_count == 0:
+            current_text = self.loading_info_label.text()
+            current_index = info_messages.index(current_text) if current_text in info_messages else -1
+            next_index = (current_index + 1) % len(info_messages)
+            self.loading_info_label.setText(info_messages[next_index])
+
+    def hideEvent(self, event):
+        """Handle hide event to clean up resources."""
+        # Stop any running animations
+        if hasattr(self, 'loading_animation') and self.loading_animation:
+            if isinstance(self.loading_animation, QMovie):
+                self.loading_animation.stop()
+            elif hasattr(self, 'dot_timer') and self.dot_timer.isActive():
+                self.dot_timer.stop()
+        
+        super().hideEvent(event)

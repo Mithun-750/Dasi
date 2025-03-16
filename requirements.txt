@@ -12,6 +12,13 @@ langchain-xai>=0.1.0  # xAI (Grok) integration
 langchain>=0.3.19  # Main LangChain package
 langchain-text-splitters>=0.3.6  # Text splitting utilities
 
+# Web Search dependencies
+beautifulsoup4>=4.12.3  # HTML parsing for web scraping
+requests>=2.31.0  # HTTP requests
+duckduckgo-search>=7.5.0  # DuckDuckGo search API
+tavily-python>=0.3.1  # Tavily search API
+exa-py>=1.0.6  # Exa search API
+
 # UI and System dependencies
 pynput>=1.7.6 # Global hotkey support
 pyautogui>=0.9.54  # Cursor position and typing simulation
