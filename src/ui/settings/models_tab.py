@@ -658,11 +658,34 @@ class ModelsTab(QWidget):
 
         # Check if we have any API keys or custom models configured
         google_key = self.settings.get_api_key('google')
-        custom_model_id = self.settings.get(
-            'models', 'custom_openai', 'model_id')
-        custom_base_url = self.settings.get(
-            'models', 'custom_openai', 'base_url')
+        
+        # Check for any custom OpenAI models
+        has_custom_openai = False
+        
+        # Check the original custom_openai model
+        custom_model_id = self.settings.get('models', 'custom_openai', 'model_id')
+        custom_base_url = self.settings.get('models', 'custom_openai', 'base_url')
         custom_api_key = self.settings.get_api_key('custom_openai')
+        if custom_model_id and custom_base_url and custom_api_key:
+            has_custom_openai = True
+            
+        # Check for additional custom OpenAI models
+        if not has_custom_openai:
+            index = 1
+            while True:
+                settings_key = f"custom_openai_{index}"
+                model_id = self.settings.get('models', settings_key, 'model_id')
+                base_url = self.settings.get('models', settings_key, 'base_url')
+                api_key = self.settings.get_api_key(settings_key)
+                
+                if model_id and base_url and api_key:
+                    has_custom_openai = True
+                    break
+                
+                if index > 10:  # Limit the search to avoid infinite loop
+                    break
+                    
+                index += 1
         
         # Always check for local Ollama models regardless of API keys
         try:
@@ -698,7 +721,7 @@ class ModelsTab(QWidget):
             logging.error(f"Error checking for Ollama: {str(e)}")
 
         # If no Ollama and no API keys, show message
-        if not google_key and not (custom_model_id and custom_base_url and custom_api_key):
+        if not google_key and not has_custom_openai:
             self.model_dropdown.clear()
             self.model_dropdown.addItem(
                 "Please configure at least one model provider")
@@ -728,18 +751,39 @@ class ModelsTab(QWidget):
         self.available_models = models
         self.model_dropdown.clear()
 
-        # Check for custom OpenAI model
+        # Check for custom OpenAI models
+        # First check the original custom_openai model
         custom_model_id = self.settings.get(
             'models', 'custom_openai', 'model_id')
         custom_base_url = self.settings.get(
             'models', 'custom_openai', 'base_url')
         if custom_model_id and custom_base_url:
             custom_model = {
-                'id': custom_model_id,
+                'id': custom_model_id,  # Store the exact model ID as provided
                 'provider': 'custom_openai',
                 'name': f"Custom: {custom_model_id}"
             }
             models.append(custom_model)
+            
+        # Then check for additional custom OpenAI models
+        index = 1
+        while True:
+            settings_key = f"custom_openai_{index}"
+            custom_model_id = self.settings.get(
+                'models', settings_key, 'model_id')
+            custom_base_url = self.settings.get(
+                'models', settings_key, 'base_url')
+            
+            if custom_model_id and custom_base_url:
+                custom_model = {
+                    'id': custom_model_id,  # Store the exact model ID as provided
+                    'provider': settings_key,
+                    'name': f"Custom {index+1}: {custom_model_id}"
+                }
+                models.append(custom_model)
+                index += 1
+            else:
+                break
 
         # Add models to dropdown with provider info
         for model in models:
@@ -970,7 +1014,12 @@ class ModelsTab(QWidget):
         current_models = self.settings.get_selected_models()
         
         # Find models from the specified provider
-        models_to_remove = [model['id'] for model in current_models if model['provider'] == provider]
+        # For custom_openai providers, we need to match the exact provider key
+        if provider == 'custom_openai' or provider.startswith('custom_openai_'):
+            models_to_remove = [model['id'] for model in current_models if model['provider'] == provider]
+        else:
+            # For standard providers, remove all models from that provider
+            models_to_remove = [model['id'] for model in current_models if model['provider'] == provider]
         
         if not models_to_remove:
             # No models to remove
@@ -1001,9 +1050,19 @@ class ModelsTab(QWidget):
                 logging.info(f"Reset default model as it was from provider '{provider}'")
                 
             # Show notification to the user
+            # Format the provider name for display
+            display_provider = provider
+            if provider.startswith('custom_openai_'):
+                index = provider.split('_')[-1]
+                display_provider = f"Custom OpenAI Model #{int(index)+1}"
+            elif provider == 'custom_openai':
+                display_provider = "Custom OpenAI Model"
+            else:
+                display_provider = provider.title()
+                
             QMessageBox.information(
                 self,
                 "Models Removed",
-                f"Removed {len(models_to_remove)} models from provider '{provider.title()}' because the API key was cleared.",
+                f"Removed {len(models_to_remove)} models from {display_provider} because the API key was cleared.",
                 QMessageBox.StandardButton.Ok
             )
