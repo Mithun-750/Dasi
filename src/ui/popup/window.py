@@ -757,7 +757,7 @@ class DasiWindow(QWidget):
         self.right_panel.hide()
         self.loading_container.hide()
         self.action_frame.hide()  # Hide action buttons
-        self.setFixedWidth(320)   # Reset to input-only width
+        self.setFixedWidth(340)   # Reset to input-only width
         
         # Reset web search flag
         self.is_web_search = False
@@ -836,7 +836,6 @@ class DasiWindow(QWidget):
             # Try to restore to a clean state
             self.hide()
             self.is_web_search = False
-
     def mousePressEvent(self, event):
         """Handle mouse press for dragging."""
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1107,7 +1106,7 @@ class DasiWindow(QWidget):
         self.right_panel.hide()
 
         # Reset window size
-        self.setFixedWidth(320)  # Input-only mode width
+        self.setFixedWidth(340)  # Input-only mode width
 
     def _handle_export(self):
         """Export the generated response to a markdown file."""
@@ -1354,7 +1353,7 @@ class DasiWindow(QWidget):
         self.input_field.clear()
         self.response_preview.clear()
         self.right_panel.hide()
-        self.setFixedWidth(320)  # Input-only mode width
+        self.setFixedWidth(340)  # Input-only mode width
         # Hide reset button since history is now cleared
         self.reset_session_button.hide()
 
@@ -1369,7 +1368,8 @@ class DasiWindow(QWidget):
         loading_layout.setSpacing(15)  # Reduced spacing
         
         # Set minimum width for the loading container to prevent text cutoff
-        self.loading_container.setMinimumWidth(340)  # Increased from 320px to 340px
+        self.loading_container.setMinimumWidth(300)  # Increased from 320px to 340px
+        self.loading_container.setMaximumWidth(340)  # Increased from 320px to 340px
         
         # Create the loading animation label
         self.loading_animation_label = QLabel()
@@ -1423,7 +1423,7 @@ class DasiWindow(QWidget):
             letter-spacing: 0.3px;
         """)
         self.loading_text_label.setWordWrap(True)
-        self.loading_text_label.setMinimumWidth(320)  # Increased from 300px to 320px
+        self.loading_text_label.setMinimumWidth(300)  # Increased from 300px to 320px
         
         # Create a label for additional information
         self.loading_info_label = QLabel("This may take a moment as we gather relevant information from the web.")
@@ -1436,7 +1436,7 @@ class DasiWindow(QWidget):
             letter-spacing: 0.2px;
         """)
         self.loading_info_label.setWordWrap(True)
-        self.loading_info_label.setMinimumWidth(320)  # Increased from 300px to 320px
+        self.loading_info_label.setMinimumWidth(300)  # Increased from 300px to 320px
         
         # Create a progress bar for the loading container
         self.loading_progress_bar = QProgressBar()
@@ -1467,11 +1467,9 @@ class DasiWindow(QWidget):
                 color: white;
                 border: none;
                 border-radius: 4px;
-                padding: 8px 20px;  /* Increased horizontal padding */
+                padding: 5px 20px;  /* Increased horizontal padding */
                 font-size: 13px;
                 font-weight: 600;
-                min-width: 140px;  /* Increased minimum width */
-                max-width: 180px;  /* Increased maximum width */
             }
             #loadingStopButton:hover {
                 background-color: #ff6666;
@@ -1494,7 +1492,7 @@ class DasiWindow(QWidget):
         # Style the container
         self.loading_container.setStyleSheet("""
             #loadingContainer {
-                background-color: rgba(30, 30, 46, 80);  /* Even more translucent dark background */
+                background-color: rgba(30, 30, 46, 40);  /* Even more translucent dark background */
                 border-radius: 10px;
                 border: 1px solid rgba(58, 63, 75, 60);  /* More translucent border */
             }
@@ -1545,3 +1543,4 @@ class DasiWindow(QWidget):
                 self.dot_timer.stop()
         
         super().hideEvent(event)
+
