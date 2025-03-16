@@ -53,7 +53,7 @@ class CopilotUI:
 
         # Create window in main thread
         self.window = DasiWindow(self.process_query, self.signals)
-        self.window.setFixedSize(320, 350)
+        self.window.setFixedSize(340, 350)
         self.window.hide()
 
         # Connect signals
