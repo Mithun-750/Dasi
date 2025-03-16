@@ -291,6 +291,33 @@ class ModelFetchWorker(QThread):
             logging.error(f"Error fetching Together AI models: {str(e)}")
             return []
 
+    def fetch_xai_models(self):
+        """Fetch models from xAI (Grok) API."""
+        api_key = self.settings.get_api_key('xai')
+        if not api_key:
+            return []
+
+        try:
+            # xAI currently offers limited models, so we'll hardcode them
+            # This can be updated when xAI expands their model offerings
+            models = [
+                {
+                    'id': 'grok-beta',
+                    'provider': 'xai',
+                    'name': 'Grok Beta'
+                },
+                {
+                    'id': 'grok-1',
+                    'provider': 'xai',
+                    'name': 'Grok-1'
+                }
+            ]
+            
+            return models
+        except Exception as e:
+            logging.error(f"Error setting up xAI models: {str(e)}")
+            return []
+
     def run(self):
         try:
             # Fetch models from all providers
@@ -302,11 +329,13 @@ class ModelFetchWorker(QThread):
             anthropic_models = self.fetch_anthropic_models()
             deepseek_models = self.fetch_deepseek_models()
             together_models = self.fetch_together_models()
+            xai_models = self.fetch_xai_models()
 
             # Combine all models
             all_models = (google_models + openrouter_models +
                           ollama_models + groq_models + openai_models +
-                          anthropic_models + deepseek_models + together_models)
+                          anthropic_models + deepseek_models + together_models +
+                          xai_models)
 
             if not all_models:
                 self.error.emit(
