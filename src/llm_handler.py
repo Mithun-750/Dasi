@@ -149,14 +149,33 @@ class LLMHandler:
 
             # Get model info from settings
             selected_models = self.settings.get_selected_models()
-            model_info = next(
-                (m for m in selected_models if m['id'] == model_name), None)
+            
+            # Log all available models for debugging
+            model_ids = [m['id'] for m in selected_models]
+            logging.debug(f"Available model IDs: {model_ids}")
+            
+            # Find the model by exact ID match
+            model_info = next((m for m in selected_models if m['id'] == model_name), None)
+            
+            # If not found, try to find by partial match (for backward compatibility)
+            if not model_info and '/' in model_name:
+                # Try to match without the path components
+                base_name = model_name.split('/')[-1]
+                logging.debug(f"Trying to match with base name: {base_name}")
+                for m in selected_models:
+                    if m['id'].endswith(f"/{base_name}"):
+                        model_info = m
+                        logging.info(f"Found model by partial match: {m['id']}")
+                        break
 
             if not model_info:
+                logging.error(f"Model {model_name} not found in selected models")
                 return False
 
             provider = model_info['provider']
             model_id = model_info['id']
+            
+            logging.info(f"Initializing LLM with provider: {provider}, model: {model_id}")
 
             # Get temperature from settings
             temperature = self.settings.get(
@@ -205,26 +224,41 @@ class LLMHandler:
                     temperature=temperature,
                     streaming=True,
                 )
-            elif provider == 'custom_openai':
-                # Get custom OpenAI settings
-                base_url = self.settings.get(
-                    'models', 'custom_openai', 'base_url')
-                if not base_url:
-                    return False
-
-                self.llm = ChatOpenAI(
-                    model=model_id,
-                    temperature=temperature,
-                    streaming=True,
-                    openai_api_key=self.settings.get_api_key('custom_openai'),
-                    base_url=base_url.rstrip('/') + '/v1',
-                )
             elif provider == 'together':
                 self.llm = ChatTogether(
                     model=model_id,
                     together_api_key=self.settings.get_api_key('together'),
                     temperature=temperature,
                 )
+            elif provider == 'custom_openai' or provider.startswith('custom_openai_'):
+                # Get custom OpenAI settings
+                base_url = self.settings.get(
+                    'models', provider, 'base_url')
+                if not base_url:
+                    logging.error(f"Base URL not found for custom OpenAI provider: {provider}")
+                    return False
+                
+                # Get API key
+                api_key = self.settings.get_api_key(provider)
+                if not api_key:
+                    logging.error(f"API key not found for custom OpenAI provider: {provider}")
+                    return False
+                
+                logging.info(f"Initializing custom OpenAI model with base URL: {base_url}")
+                
+                # For custom OpenAI models, we might need to handle the model ID differently
+                # Some models might have complex IDs like "accounts/perplexity/models/r1-1776"
+                # which should be passed as-is to the API
+                
+                self.llm = ChatOpenAI(
+                    model=model_id,
+                    temperature=temperature,
+                    streaming=True,
+                    openai_api_key=api_key,
+                    base_url=base_url.rstrip('/') + '/v1',
+                )
+                
+                logging.info(f"Successfully initialized custom OpenAI model: {model_id}")
             else:  # OpenRouter
                 # Use fixed OpenRouter settings
                 headers = {
@@ -276,6 +310,13 @@ class LLMHandler:
         msg = msg.replace('<<<', '{').replace('>>>', '}')    # Restore intended format strings
         return msg
 
+    def _normalize_model_id(self, model_id: str) -> str:
+        """Normalize model ID for comparison by removing common prefixes."""
+        # For Google models, remove the 'models/' prefix
+        if model_id.startswith('models/'):
+            return model_id.replace('models/', '')
+        return model_id
+
     def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default") -> str:
         """Get response from LLM for the given query. If callback is provided, stream the response."""
         # Initialize with specified model if provided
@@ -289,15 +330,20 @@ class LLMHandler:
                     current_model = self.llm.model_name
 
                 if current_model:
-                    current_model = current_model.replace('models/', '')
-                    model = model.replace('models/', '')
-                    needs_init = current_model != model
+                    # Compare the normalized model IDs
+                    needs_init = model != current_model
+                    
+                    # Log the comparison for debugging
+                    logging.debug(f"Model comparison: requested={model}, current={current_model}, needs_init={needs_init}")
 
             if needs_init:
+                logging.info(f"Initializing new model: {model}")
                 if not self.initialize_llm(model):
+                    logging.error(f"Failed to initialize model: {model}")
                     return "⚠️ Please add the appropriate API key in settings to use this model."
 
         if not self.llm and not self.initialize_llm():
+            logging.error("No LLM initialized and failed to initialize default LLM")
             return "⚠️ Please add your API key in settings to use Dasi."
 
         try:
@@ -413,19 +459,33 @@ class LLMHandler:
             query_message = HumanMessage(content=actual_query)
             messages.append(query_message)
 
+            # Log the request
+            provider = self.current_provider if self.current_provider else "unknown"
+            model_name = "unknown"
+            if hasattr(self.llm, 'model'):
+                model_name = self.llm.model
+            elif hasattr(self.llm, 'model_name'):
+                model_name = self.llm.model_name
+                
+            logging.info(f"Sending request to {provider} model: {model_name}")
+
             # Get response
             if callback:
                 # Stream response
+                logging.info("Streaming response...")
                 response_content = []
                 for chunk in self.llm.stream(messages):
                     if chunk.content:
                         response_content.append(chunk.content)
                         callback(''.join(response_content))
                 final_response = ''.join(response_content)
+                logging.info(f"Streaming complete, total response length: {len(final_response)}")
             else:
                 # Get response all at once
+                logging.info("Getting response all at once...")
                 response = self.llm.invoke(messages)
                 final_response = response.content.strip()
+                logging.info(f"Response received, length: {len(final_response)}")
 
             # Add the exchange to history
             message_history.add_message(query_message)
@@ -440,8 +500,8 @@ class LLMHandler:
             # Format error messages...
             if "NotFoundError" in error_msg:
                 if "Model" in error_msg and "does not exist" in error_msg:
-                    return "⚠️ Error: The selected model is not available. Please choose a different model in settings."
-            elif "AuthenticationError" in error_msg:
+                    return "⚠️ Error: The selected model is not available. Please check the model ID in settings."
+            elif "AuthenticationError" in error_msg or "api_key" in error_msg.lower():
                 return "⚠️ Error: Invalid API key. Please check your API key in settings."
             elif "RateLimitError" in error_msg:
                 return "⚠️ Error: Rate limit exceeded. Please try again in a moment."
@@ -449,6 +509,8 @@ class LLMHandler:
                 return "⚠️ Error: Invalid request. Please try again with different input."
             elif "ServiceUnavailableError" in error_msg:
                 return "⚠️ Error: Service is currently unavailable. Please try again later."
+            elif "ConnectionError" in error_msg or "Connection refused" in error_msg:
+                return "⚠️ Error: Could not connect to the API server. Please check your internet connection and the base URL in settings."
 
             return f"⚠️ Error: {error_msg}"
 
