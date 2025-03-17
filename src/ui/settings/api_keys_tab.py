@@ -8,10 +8,17 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QScrollArea,
     QFrame,
+    QComboBox,
+    QCheckBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from .settings_manager import Settings
 import logging
+
+
+class APICategory:
+    LLM_PROVIDERS = "LLM Providers"
+    SEARCH_PROVIDERS = "Search Providers"
 
 
 class APIKeysTab(QWidget):
@@ -22,6 +29,7 @@ class APIKeysTab(QWidget):
         super().__init__()
         self.settings = settings
         self.custom_openai_sections = []  # Track custom OpenAI sections
+        self.api_sections = {}  # Store references to API sections
         self.init_ui()
         
         # Connect the api_key_cleared signal to any slots that need it
@@ -37,6 +45,10 @@ class APIKeysTab(QWidget):
         title = QLabel("API Keys")
         title.setStyleSheet("font-size: 18px; font-weight: bold;")
         main_layout.addWidget(title)
+
+        # Search and Filter Section
+        filter_section = self.create_filter_section()
+        main_layout.addWidget(filter_section)
 
         # Create scroll area
         scroll = QScrollArea()
@@ -68,164 +80,357 @@ class APIKeysTab(QWidget):
         """)
 
         # Create content widget for scroll area
-        content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setSpacing(20)
-        layout.setContentsMargins(0, 0, 20, 0)  # Right margin for scrollbar
+        self.content = QWidget()
+        self.content_layout = QVBoxLayout(self.content)
+        self.content_layout.setSpacing(20)
+        self.content_layout.setContentsMargins(0, 0, 20, 0)
 
-        # LLM API Keys Section Title
-        llm_title = QLabel("LLM API Keys")
-        llm_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #cccccc;")
-        layout.addWidget(llm_title)
+        # Initialize API key sections
+        self.initialize_api_sections()
 
-        # Google API Key section
-        google_section = self.create_api_key_section(
-            "Google API Key",
-            "google",
-            "Enter your Google API key here..."
-        )
-        layout.addWidget(google_section)
+        scroll.setWidget(self.content)
+        main_layout.addWidget(scroll)
 
-        # Anthropic API Key section
-        anthropic_section = self.create_api_key_section(
-            "Anthropic API Key",
-            "anthropic",
-            "Enter your Anthropic API key here..."
-        )
-        layout.addWidget(anthropic_section)
+    def create_filter_section(self):
+        """Create the search and filter section."""
+        filter_widget = QFrame()
+        filter_widget.setStyleSheet("""
+            QFrame {
+                background-color: #2b2b2b;
+                border-radius: 8px;
+                padding: 15px;
+            }
+        """)
+        filter_layout = QVBoxLayout(filter_widget)
 
-        # OpenAI API Key section
-        openai_section = self.create_api_key_section(
-            "OpenAI API Key",
-            "openai",
-            "Enter your OpenAI API key here..."
-        )
-        layout.addWidget(openai_section)
+        # Search bar
+        search_container = QHBoxLayout()
+        search_label = QLabel("Search:")
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search API keys...")
+        self.search_input.textChanged.connect(self.apply_filters)
+        search_container.addWidget(search_label)
+        search_container.addWidget(self.search_input)
 
-        # OpenRouter API Key section
-        openrouter_section = self.create_api_key_section(
-            "OpenRouter API Key",
-            "openrouter",
-            "Enter your OpenRouter API key here..."
-        )
-        layout.addWidget(openrouter_section)
+        # Category filter
+        category_container = QHBoxLayout()
+        category_label = QLabel("Category:")
+        self.category_combo = QComboBox()
+        self.category_combo.addItem("All Categories")
+        self.category_combo.addItem(APICategory.LLM_PROVIDERS)
+        self.category_combo.addItem(APICategory.SEARCH_PROVIDERS)
+        self.category_combo.currentTextChanged.connect(self.apply_filters)
+        category_container.addWidget(category_label)
+        category_container.addWidget(self.category_combo)
 
-        # Groq API Key section
-        groq_section = self.create_api_key_section(
-            "Groq API Key",
-            "groq",
-            "Enter your Groq API key here..."
-        )
-        layout.addWidget(groq_section)
+        # Status filter
+        status_container = QHBoxLayout()
+        self.show_empty = QCheckBox("Show Empty")
+        self.show_empty.setChecked(True)
+        self.show_empty.stateChanged.connect(self.apply_filters)
+        self.show_filled = QCheckBox("Show Filled")
+        self.show_filled.setChecked(True)
+        self.show_filled.stateChanged.connect(self.apply_filters)
+        status_container.addWidget(self.show_empty)
+        status_container.addWidget(self.show_filled)
+        status_container.addStretch()
 
-        # Deepseek API Key section
-        deepseek_section = self.create_api_key_section(
-            "Deepseek API Key",
-            "deepseek",
-            "Enter your Deepseek API key here..."
-        )
-        layout.addWidget(deepseek_section)
+        filter_layout.addLayout(search_container)
+        filter_layout.addLayout(category_container)
+        filter_layout.addLayout(status_container)
 
-        # Together AI API Key section
-        together_section = self.create_api_key_section(
-            "Together AI API Key",
-            "together",
-            "Enter your Together AI API key here..."
-        )
-        layout.addWidget(together_section)
+        return filter_widget
 
-        # xAI API Key section
-        xai_section = self.create_api_key_section(
-            "xAI API Key",
-            "xai",
-            "Enter your xAI API key here..."
-        )
-        layout.addWidget(xai_section)
+    def initialize_api_sections(self):
+        """Initialize all API key sections."""
+        # LLM Providers Section
+        llm_section = self.create_section(APICategory.LLM_PROVIDERS)
+        self.content_layout.addWidget(llm_section)
 
-        # Web Search API Keys Section Title
-        search_title = QLabel("Web Search API Keys")
-        search_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #cccccc; margin-top: 20px;")
-        layout.addWidget(search_title)
+        # Add LLM provider API keys
+        llm_providers = {
+            "openai": "OpenAI API Key",
+            "anthropic": "Anthropic API Key",
+            "google": "Google API Key",
+            "groq": "Groq API Key",
+            "deepseek": "Deepseek API Key",
+            "together": "Together AI API Key",
+            "xai": "xAI API Key",
+            "openrouter": "OpenRouter API Key"
+        }
 
-        # Google Serper API Key section
-        serper_section = self.create_api_key_section(
-            "Google Serper API Key",
-            "google_serper",
-            "Enter your Serper API key here..."
-        )
-        layout.addWidget(serper_section)
-
-        # Brave Search API Key section
-        brave_section = self.create_api_key_section(
-            "Brave Search API Key",
-            "brave_search",
-            "Enter your Brave Search API key here..."
-        )
-        layout.addWidget(brave_section)
-
-        # Exa Search API Key section
-        exa_section = self.create_api_key_section(
-            "Exa Search API Key",
-            "exa_search",
-            "Enter your Exa Search API key here..."
-        )
-        layout.addWidget(exa_section)
-
-        # Jina Search API Key section
-        jina_section = self.create_api_key_section(
-            "Jina Search API Key",
-            "jina_search",
-            "Enter your Jina Search API key here..."
-        )
-        layout.addWidget(jina_section)
-
-        # Tavily Search API Key section
-        tavily_section = self.create_api_key_section(
-            "Tavily Search API Key",
-            "tavily_search",
-            "Enter your Tavily Search API key here..."
-        )
-        layout.addWidget(tavily_section)
+        for provider, title in llm_providers.items():
+            api_section = self.create_api_key_section(
+                title,
+                provider,
+                f"Enter your {title} here...",
+                APICategory.LLM_PROVIDERS
+            )
+            self.api_sections[provider] = {
+                'widget': api_section,
+                'category': APICategory.LLM_PROVIDERS
+            }
+            llm_section.layout().addWidget(api_section)
 
         # Custom OpenAI-compatible model section
-        custom_openai_title = QLabel("Custom OpenAI-compatible Models")
-        custom_openai_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #cccccc; margin-top: 20px;")
-        layout.addWidget(custom_openai_title)
-
-        # Add custom OpenAI section
-        self.custom_openai_container = QWidget()
-        self.custom_openai_layout = QVBoxLayout(self.custom_openai_container)
-        self.custom_openai_layout.setContentsMargins(0, 0, 0, 0)
-        self.custom_openai_layout.setSpacing(20)
+        # Create a container for the title and add button
+        custom_title_container = QWidget()
+        custom_title_layout = QHBoxLayout(custom_title_container)
+        custom_title_layout.setContentsMargins(0, 20, 0, 0)  # Add top margin for spacing
         
-        # Load existing custom OpenAI models
-        self.load_existing_custom_openai_models()
+        # Add title
+        self.custom_openai_title = QLabel("Custom OpenAI-compatible Models")
+        self.custom_openai_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #cccccc;")
+        custom_title_layout.addWidget(self.custom_openai_title)
         
-        # Add button for adding more custom OpenAI models
-        add_custom_button = QPushButton("+ Add Custom OpenAI-compatible Model")
-        add_custom_button.setStyleSheet("""
+        # Add button for adding custom OpenAI models
+        self.add_custom_button = QPushButton("+ Add Model")
+        self.add_custom_button.setStyleSheet("""
             QPushButton {
                 background-color: #2b5c99;
                 border: none;
                 border-radius: 4px;
-                padding: 10px;
+                padding: 6px 12px;
                 color: white;
-                font-size: 13px;
+                font-size: 12px;
                 text-align: center;
             }
             QPushButton:hover {
                 background-color: #366bb3;
             }
         """)
-        add_custom_button.clicked.connect(self.add_another_custom_openai)
+        self.add_custom_button.clicked.connect(self.add_another_custom_openai)
+        custom_title_layout.addWidget(self.add_custom_button)
         
-        layout.addWidget(self.custom_openai_container)
-        layout.addWidget(add_custom_button)
-        layout.addStretch()
+        llm_section.layout().addWidget(custom_title_container)
+        
+        # Add separator line below custom title
+        custom_separator = QFrame()
+        custom_separator.setFrameShape(QFrame.Shape.HLine)
+        custom_separator.setFrameShadow(QFrame.Shadow.Sunken)
+        custom_separator.setStyleSheet("background-color: #444444; margin-top: 5px; margin-bottom: 10px;")
+        llm_section.layout().addWidget(custom_separator)
+        
+        # Create container for custom OpenAI models
+        self.custom_openai_container = QWidget()
+        self.custom_openai_layout = QVBoxLayout(self.custom_openai_container)
+        self.custom_openai_layout.setContentsMargins(0, 0, 0, 0)
+        self.custom_openai_layout.setSpacing(20)
+        llm_section.layout().addWidget(self.custom_openai_container)
+        
+        # Load existing custom OpenAI models
+        self.load_existing_custom_openai_models()
 
-        # Set content widget to scroll area
-        scroll.setWidget(content)
-        main_layout.addWidget(scroll)
+        # Search Providers Section
+        search_section = self.create_section(APICategory.SEARCH_PROVIDERS)
+        self.content_layout.addWidget(search_section)
+
+        # Add search provider API keys
+        search_providers = {
+            "google_serper": "Google Serper API Key",
+            "brave_search": "Brave Search API Key",
+            "exa_search": "Exa Search API Key",
+            "tavily_search": "Tavily Search API Key",
+            "jina_search": "Jina Search API Key"
+        }
+
+        for provider, title in search_providers.items():
+            api_section = self.create_api_key_section(
+                title,
+                provider,
+                f"Enter your {title} here...",
+                APICategory.SEARCH_PROVIDERS
+            )
+            self.api_sections[provider] = {
+                'widget': api_section,
+                'category': APICategory.SEARCH_PROVIDERS
+            }
+            search_section.layout().addWidget(api_section)
+
+    def create_section(self, title):
+        """Create a section with title."""
+        section = QFrame()
+        section.setStyleSheet("""
+            QFrame {
+                background-color: #2b2b2b;
+                border-radius: 8px;
+                padding: 15px;
+            }
+        """)
+        
+        layout = QVBoxLayout(section)
+        layout.setSpacing(15)
+        
+        # Create title container with horizontal layout
+        title_container = QWidget()
+        title_layout = QHBoxLayout(title_container)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Add title
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #cccccc;")
+        title_layout.addWidget(title_label)
+        
+        # Add stretch to push any additional widgets to the right
+        title_layout.addStretch()
+        
+        layout.addWidget(title_container)
+        
+        # Add separator line below title
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet("background-color: #444444; margin-top: 5px; margin-bottom: 10px;")
+        layout.addWidget(separator)
+        
+        return section
+
+    def apply_filters(self):
+        """Apply search and filter criteria to API key sections."""
+        search_text = self.search_input.text().lower()
+        selected_category = self.category_combo.currentText()
+        show_empty = self.show_empty.isChecked()
+        show_filled = self.show_filled.isChecked()
+
+        # Track visible items per category
+        visible_items = {
+            APICategory.LLM_PROVIDERS: 0,
+            APICategory.SEARCH_PROVIDERS: 0
+        }
+
+        # First, filter regular API sections
+        for provider, section_info in self.api_sections.items():
+            widget = section_info['widget']
+            category = section_info['category']
+            
+            # Skip custom OpenAI models as they'll be handled separately
+            if provider.startswith('custom_openai'):
+                continue
+                
+            # Get the API key input field
+            api_input = getattr(self, f"{provider}_input", None)
+            if not api_input:
+                continue
+
+            has_key = bool(api_input.text().strip())
+            title = widget.findChild(QLabel).text().lower()
+
+            # Apply filters
+            should_show = True
+
+            # Category filter
+            if selected_category != "All Categories" and category != selected_category:
+                should_show = False
+
+            # Search filter
+            if search_text and search_text not in title.lower():
+                should_show = False
+
+            # Status filter
+            if has_key and not show_filled:
+                should_show = False
+            if not has_key and not show_empty:
+                should_show = False
+
+            widget.setVisible(should_show)
+            
+            # Count visible items per category
+            if should_show:
+                visible_items[category] += 1
+
+        # Handle custom OpenAI models
+        any_custom_visible = False
+        for section_data in self.custom_openai_sections:
+            widget = section_data['widget']
+            category = APICategory.LLM_PROVIDERS
+            
+            # Get data for filtering
+            base_url = section_data['base_url_input'].text().strip()
+            model_id = section_data['model_id_input'].text().strip()
+            api_key = section_data['api_input'].text().strip()
+            has_key = bool(api_key)
+            
+            # Create a searchable text combining model ID and base URL
+            searchable_text = f"custom openai model {model_id} {base_url}".lower()
+            
+            # Apply filters
+            should_show = True
+            
+            # Category filter
+            if selected_category != "All Categories" and category != selected_category:
+                should_show = False
+                
+            # Search filter
+            if search_text and search_text not in searchable_text:
+                should_show = False
+                
+            # Status filter
+            if has_key and not show_filled:
+                should_show = False
+            if not has_key and not show_empty:
+                should_show = False
+                
+            widget.setVisible(should_show)
+            
+            # Count visible items and track if any custom model is visible
+            if should_show:
+                visible_items[category] += 1
+                any_custom_visible = True
+                
+        # Now find and hide/show category sections based on visible items
+        for i in range(self.content_layout.count()):
+            widget = self.content_layout.itemAt(i).widget()
+            if widget:
+                # Check if this is a category section
+                title_label = widget.findChild(QLabel)
+                if title_label and title_label.text() in [APICategory.LLM_PROVIDERS, APICategory.SEARCH_PROVIDERS]:
+                    category = title_label.text()
+                    # Show section only if it has visible items or if no category filter is applied
+                    widget.setVisible(visible_items[category] > 0 or selected_category == "All Categories")
+                    
+        # Handle visibility of custom OpenAI elements
+        show_custom_section = any_custom_visible and (
+            selected_category == "All Categories" or 
+            selected_category == APICategory.LLM_PROVIDERS
+        )
+        
+        # Always show the add button if we're in LLM category or all categories
+        show_custom_controls = (
+            selected_category == "All Categories" or 
+            selected_category == APICategory.LLM_PROVIDERS
+        )
+        
+        # Find the custom title container and separator
+        custom_title_container = None
+        custom_separator = None
+        
+        # Look for the custom title container and separator in the LLM section
+        for i in range(self.content_layout.count()):
+            widget = self.content_layout.itemAt(i).widget()
+            if widget:
+                # Find the LLM section
+                title_label = widget.findChild(QLabel)
+                if title_label and title_label.text() == APICategory.LLM_PROVIDERS:
+                    # Look through the LLM section's children
+                    layout = widget.layout()
+                    for j in range(layout.count()):
+                        item = layout.itemAt(j)
+                        if item.widget():
+                            # Check if this is the custom title container
+                            if item.widget().findChild(QLabel) and item.widget().findChild(QLabel).text() == "Custom OpenAI-compatible Models":
+                                custom_title_container = item.widget()
+                            # The separator is right after the title container
+                            elif j > 0 and custom_title_container and isinstance(item.widget(), QFrame) and item.widget().frameShape() == QFrame.Shape.HLine:
+                                custom_separator = item.widget()
+                                break
+        
+        # Set visibility of custom OpenAI elements
+        if custom_title_container:
+            custom_title_container.setVisible(show_custom_controls)
+        if custom_separator:
+            custom_separator.setVisible(show_custom_controls)
+            
+        self.custom_openai_container.setVisible(show_custom_section)
 
     def load_existing_custom_openai_models(self):
         """Load existing custom OpenAI models from settings."""
@@ -243,7 +448,7 @@ class APIKeysTab(QWidget):
             else:
                 break
 
-    def create_api_key_section(self, title: str, provider: str, placeholder: str) -> QWidget:
+    def create_api_key_section(self, title: str, provider: str, placeholder: str, category: str) -> QWidget:
         """Create a section for an API key input."""
         section = QWidget()
         section_layout = QVBoxLayout(section)
@@ -435,14 +640,6 @@ class APIKeysTab(QWidget):
         section_layout = QVBoxLayout(section)
         section_layout.setSpacing(10)
         section_layout.setContentsMargins(0, 10, 0, 10)
-
-        # Add a separator if not the first section
-        if index > 0:
-            separator = QFrame()
-            separator.setFrameShape(QFrame.Shape.HLine)
-            separator.setFrameShadow(QFrame.Shadow.Sunken)
-            separator.setStyleSheet("background-color: #444444;")
-            section_layout.addWidget(separator)
 
         # Title with index if not the first one
         title_layout = QHBoxLayout()
@@ -686,16 +883,30 @@ class APIKeysTab(QWidget):
             'toggle_button': toggle_button,
             'add_another_button': add_another_button,
             'index': index,
-            'provider_key': provider_key
+            'provider_key': provider_key,
+            'category': APICategory.LLM_PROVIDERS
         }
         
         self.custom_openai_sections.append(section_data)
         self.custom_openai_layout.addWidget(section)
         
+        # Add to api_sections for filtering
+        display_name = f"Custom OpenAI Model {index+1}" if index > 0 else "Custom OpenAI Model"
+        self.api_sections[provider_key] = {
+            'widget': section,
+            'category': APICategory.LLM_PROVIDERS
+        }
+        
         return section
 
     def add_another_custom_openai(self):
         """Add another custom OpenAI model section."""
+        # Check if there are any existing sections
+        if not self.custom_openai_sections:
+            # Add the first section if none exist
+            self.add_custom_openai_section(0)
+            return
+            
         # Check if the last section has all fields filled
         last_section = self.custom_openai_sections[-1]
         base_url = last_section['base_url_input'].text().strip()
@@ -763,7 +974,12 @@ class APIKeysTab(QWidget):
             
             # Hide the key after saving
             api_input.setEchoMode(QLineEdit.EchoMode.Password)
-            self.custom_openai_sections[index]['toggle_button'].setText("👁")
+            
+            # Find the toggle button for this section
+            for section in self.custom_openai_sections:
+                if section['index'] == index:
+                    section['toggle_button'].setText("👁")
+                    break
             
             # Save model settings
             settings_key = f"custom_openai_{index}" if index > 0 else "custom_openai"
@@ -788,6 +1004,14 @@ class APIKeysTab(QWidget):
                 display_name
             )
             
+            # Update the api_sections entry if it exists
+            if provider_key in self.api_sections:
+                # Update the widget title if needed
+                widget = self.api_sections[provider_key]['widget']
+                label = widget.findChild(QLabel)
+                if label and "Custom OpenAI" in label.text():
+                    label.setText(f"Custom OpenAI Model: {model_id}")
+            
             # Show success message
             self.show_status(status_label, "Model settings saved successfully!")
             
@@ -798,6 +1022,9 @@ class APIKeysTab(QWidget):
                 f"Custom OpenAI model settings have been saved successfully.",
                 QMessageBox.StandardButton.Ok
             )
+            
+            # Apply filters to update visibility
+            self.apply_filters()
             
             return True  # Return success status
             
@@ -895,8 +1122,12 @@ class APIKeysTab(QWidget):
         if model_id:
             self.settings.remove_selected_model(model_id)
         
-        # Remove from our list
+        # Remove from our lists
         self.custom_openai_sections.pop(section_index)
+        
+        # Remove from api_sections
+        if provider_key in self.api_sections:
+            del self.api_sections[provider_key]
         
         # Show confirmation
         QMessageBox.information(

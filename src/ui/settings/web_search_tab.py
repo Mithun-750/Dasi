@@ -70,13 +70,6 @@ class WebSearchTab(QWidget):
             current['include_citations'] != self.original_values['include_citations'],
         ])
         
-        # Also check for API key changes
-        for provider in ['google_serper', 'brave_search', 'exa_search', 'tavily_search']:
-            input_field = getattr(self, f"{provider}_input", None)
-            if input_field and input_field.text() != self.settings.get_api_key(provider):
-                self.has_unsaved_changes = True
-                break
-                
         self.update_button_visibility()
         
     def update_button_visibility(self):
@@ -206,44 +199,8 @@ class WebSearchTab(QWidget):
         general_layout.addWidget(self.scrape_content)
         general_layout.addWidget(self.include_citations)
         
-        # Search Provider API Keys section
-        api_keys_section, api_keys_layout = self.create_section("Search Provider API Keys")
-        
-        # Google Serper API Key
-        self.google_serper_api_section = self.create_api_key_section(
-            "Google Serper API Key",
-            "google_serper",
-            "Enter your Google Serper API key here..."
-        )
-        api_keys_layout.addWidget(self.google_serper_api_section)
-        
-        # Brave Search API Key
-        self.brave_search_api_section = self.create_api_key_section(
-            "Brave Search API Key",
-            "brave_search",
-            "Enter your Brave Search API key here..."
-        )
-        api_keys_layout.addWidget(self.brave_search_api_section)
-        
-        # Exa Search API Key
-        self.exa_search_api_section = self.create_api_key_section(
-            "Exa Search API Key",
-            "exa_search",
-            "Enter your Exa Search API key here..."
-        )
-        api_keys_layout.addWidget(self.exa_search_api_section)
-        
-        # Tavily Search API Key
-        self.tavily_search_api_section = self.create_api_key_section(
-            "Tavily Search API Key",
-            "tavily_search",
-            "Enter your Tavily Search API key here..."
-        )
-        api_keys_layout.addWidget(self.tavily_search_api_section)
-        
         # Add sections to main layout
         layout.addWidget(general_section)
-        layout.addWidget(api_keys_section)
         layout.addStretch()
         
         # Set scroll area widget
@@ -322,145 +279,6 @@ class WebSearchTab(QWidget):
         
         return section, layout
     
-    def create_api_key_section(self, title: str, provider: str, placeholder: str) -> QWidget:
-        """Create a section for an API key input."""
-        section = QWidget()
-        section_layout = QVBoxLayout(section)
-        section_layout.setSpacing(10)
-
-        # Label
-        label = QLabel(title)
-        label.setStyleSheet("font-size: 14px;")
-
-        # API Key input with show/hide toggle
-        key_container = QWidget()
-        key_layout = QHBoxLayout(key_container)
-        key_layout.setContentsMargins(0, 0, 0, 0)
-
-        api_input = QLineEdit()
-        api_input.setPlaceholderText(placeholder)
-        api_input.setEchoMode(QLineEdit.EchoMode.Password)
-        api_input.setStyleSheet("""
-            QLineEdit {
-                padding: 8px;
-                border-radius: 4px;
-                font-size: 13px;
-            }
-        """)
-
-        # Load existing API key if present
-        if api_key := self.settings.get_api_key(provider):
-            api_input.setText(api_key)
-
-        # Toggle visibility button
-        toggle_button = QPushButton("👁")
-        toggle_button.setFixedSize(30, 30)
-        toggle_button.setStyleSheet("""
-            QPushButton {
-                border-radius: 6px;
-                font-size: 14px;
-                background-color: #404040;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #4a4a4a;
-            }
-            QPushButton:pressed {
-                background-color: #333333;
-                padding-top: 1px;
-                padding-left: 1px;
-            }
-        """)
-        toggle_button.clicked.connect(
-            lambda: self.toggle_key_visibility(api_input, toggle_button))
-
-        # Clear button
-        clear_button = QPushButton("×")
-        clear_button.setFixedSize(30, 30)
-        clear_button.setStyleSheet("""
-            QPushButton {
-                border-radius: 6px;
-                font-size: 18px;
-                font-weight: bold;
-                background-color: #404040;
-                border: none;
-                color: #888888;
-            }
-            QPushButton:hover {
-                background-color: #ff4444;
-                color: white;
-            }
-            QPushButton:pressed {
-                background-color: #cc3333;
-                padding-top: 1px;
-                padding-left: 1px;
-            }
-        """)
-        clear_button.clicked.connect(lambda: self.clear_api_key(provider, api_input, status_label))
-
-        key_layout.addWidget(api_input)
-        key_layout.addWidget(toggle_button)
-        key_layout.addWidget(clear_button)
-
-        section_layout.addWidget(label)
-        section_layout.addWidget(key_container)
-
-        # Status label
-        status_label = QLabel()
-        status_label.setStyleSheet("""
-            QLabel {
-                padding: 5px;
-                border-radius: 4px;
-                font-size: 12px;
-            }
-            QLabel[status="success"] {
-                background-color: #1e4620;
-                color: #4caf50;
-            }
-            QLabel[status="error"] {
-                background-color: #461e1e;
-                color: #f44336;
-            }
-        """)
-        status_label.hide()
-        section_layout.addWidget(status_label)
-
-        # Store references
-        setattr(self, f"{provider}_input", api_input)
-        setattr(self, f"{provider}_status", status_label)
-        setattr(self, f"{provider}_toggle", toggle_button)
-        
-        # Connect to changes
-        api_input.textChanged.connect(self._on_any_change)
-
-        return section
-    
-    def toggle_key_visibility(self, input_field: QLineEdit, toggle_button: QPushButton):
-        """Toggle API key visibility."""
-        if input_field.echoMode() == QLineEdit.EchoMode.Password:
-            input_field.setEchoMode(QLineEdit.EchoMode.Normal)
-            toggle_button.setText("🔒")
-        else:
-            input_field.setEchoMode(QLineEdit.EchoMode.Password)
-            toggle_button.setText("👁")
-    
-    def show_status(self, label: QLabel, message: str, is_error: bool = False):
-        """Show a status message with appropriate styling."""
-        label.setText(message)
-        label.setProperty("status", "error" if is_error else "success")
-        label.style().unpolish(label)
-        label.style().polish(label)
-        label.show()
-    
-    def clear_api_key(self, provider: str, input_field: QLineEdit, status_label: QLabel):
-        """Clear the API key for the given provider."""
-        try:
-            # Clear the input field
-            input_field.clear()
-            self.show_status(status_label, "API key cleared. Remember to save changes!")
-        except Exception as e:
-            self.show_status(status_label, f"Error clearing API key: {str(e)}", True)
-        
     def _on_any_change(self):
         """Handler for any change in the settings."""
         self.check_for_changes()
@@ -478,13 +296,6 @@ class WebSearchTab(QWidget):
         # Restore checkboxes
         self.scrape_content.setChecked(self.original_values['scrape_content'])
         self.include_citations.setChecked(self.original_values['include_citations'])
-        
-        # Restore API keys
-        for provider in ['google_serper', 'brave_search', 'exa_search', 'tavily_search']:
-            input_field = getattr(self, f"{provider}_input", None)
-            if input_field:
-                api_key = self.settings.get_api_key(provider)
-                input_field.setText(api_key)
         
         self.has_unsaved_changes = False
         self.update_button_visibility()
@@ -505,18 +316,6 @@ class WebSearchTab(QWidget):
         
         # Save enabled providers - all providers are always enabled
         self.settings.set(current['enabled_providers'], 'web_search', 'enabled_providers')
-        
-        # Save API keys
-        for provider in ['google_serper', 'brave_search', 'exa_search', 'tavily_search']:
-            input_field = getattr(self, f"{provider}_input", None)
-            if input_field:
-                api_key = input_field.text().strip()
-                self.settings.set_api_key(provider, api_key)
-                
-                # Show success message in status label
-                status_label = getattr(self, f"{provider}_status", None)
-                if status_label:
-                    self.show_status(status_label, "API key saved successfully!")
         
         # Update original values
         self.save_original_values()
