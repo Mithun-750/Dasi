@@ -18,8 +18,10 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QStyledItemDelegate,
     QFileDialog,
+    QSlider,
 )
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QColor, QPalette
 from .settings_manager import Settings
 import sys
 import os
@@ -36,24 +38,18 @@ class SearchableComboBox(QComboBox):
         # Create search line edit
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Search keys...")
-        self.search_edit.setStyleSheet("""
-            QLineEdit {
-                padding: 5px;
-                border: none;
-                background-color: #2b2b2b;
-                color: white;
-                border-radius: 0px;
-            }
-        """)
+        self.search_edit.setProperty("class", "search-input")
 
         # Create and setup the popup frame
         self.popup = QFrame(self)
         self.popup.setWindowFlags(Qt.WindowType.Popup)
-        self.popup.setFrameStyle(QFrame.Shape.Box)
+        self.popup.setFrameStyle(QFrame.Shape.NoFrame)
+        self.popup.setProperty("class", "card")
         self.popup.setStyleSheet("""
             QFrame {
-                border: 1px solid #3f3f3f;
-                background-color: #2b2b2b;
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 6px;
             }
         """)
 
@@ -62,53 +58,38 @@ class SearchableComboBox(QComboBox):
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-            QScrollBar:vertical {
-                border: none;
-                background-color: #2b2b2b;
-                width: 10px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #404040;
-                min-height: 20px;
-                border-radius: 5px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                border: none;
-                background: none;
-            }
-        """)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setStyleSheet("QScrollArea { padding-right: 8px; background-color: transparent; }")
 
         # Create list widget for items
         self.list_widget = QListWidget()
+        self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
         self.list_widget.setStyleSheet("""
             QListWidget {
-                border: none;
                 background-color: transparent;
+                border: none;
                 outline: none;
             }
             QListWidget::item {
-                padding: 5px;
-                border: none;
+                padding: 8px;
+                border-radius: 4px;
+                margin: 2px;
+                color: #e0e0e0;
             }
             QListWidget::item:selected {
-                background-color: #404040;
+                background-color: #3b82f6;
+                color: white;
             }
-            QListWidget::item:hover {
-                background-color: #353535;
+            QListWidget::item:hover:!selected {
+                background-color: #333333;
             }
         """)
         self.scroll.setWidget(self.list_widget)
 
         # Setup popup layout
         self.popup_layout = QVBoxLayout(self.popup)
-        self.popup_layout.setContentsMargins(0, 0, 0, 0)
-        self.popup_layout.setSpacing(0)
+        self.popup_layout.setContentsMargins(8, 8, 8, 8)
+        self.popup_layout.setSpacing(8)
         self.popup_layout.addWidget(self.search_edit)
         self.popup_layout.addWidget(self.scroll)
 
@@ -151,6 +132,30 @@ class SearchableComboBox(QComboBox):
         """Handle item selection."""
         self.setCurrentText(item.text())
         self.hidePopup()
+
+
+class SectionFrame(QFrame):
+    """A styled frame for each section in the settings."""
+    
+    def __init__(self, title, description=None, parent=None):
+        super().__init__(parent)
+        self.setProperty("class", "card")
+        
+        self.layout = QVBoxLayout(self)
+        self.layout.setSpacing(12)
+        self.layout.setContentsMargins(16, 16, 16, 16)
+        
+        # Title
+        self.title_label = QLabel(title)
+        self.title_label.setProperty("class", "subheading")
+        self.layout.addWidget(self.title_label)
+        
+        # Description
+        if description:
+            self.description_label = QLabel(description)
+            self.description_label.setWordWrap(True)
+            self.description_label.setProperty("class", "description")
+            self.layout.addWidget(self.description_label)
 
 
 class GeneralTab(QWidget):
@@ -217,78 +222,34 @@ class GeneralTab(QWidget):
     def init_ui(self):
         # Create main layout
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(20)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-
-        # Title
-        title = QLabel("General Settings")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        main_layout.addWidget(title)
+        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(16, 16, 24, 16)  # Increased right padding
 
         # Create a scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-            QScrollBar:vertical {
-                border: none;
-                background-color: #2b2b2b;
-                width: 10px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #404040;
-                min-height: 20px;
-                border-radius: 5px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                border: none;
-                background: none;
-            }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                background: none;
-            }
-        """)
+        scroll.setStyleSheet("QScrollArea { padding-right: 8px; background-color: transparent; }")
 
         # Create a widget to hold all settings
         content = QWidget()
+        content.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(content)
-        layout.setSpacing(20)
-        layout.setContentsMargins(0, 0, 20, 0)  # Right margin for scrollbar
+        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 12, 0)  # Add right padding for scroll bar spacing
 
         # Custom Instructions Section
-        instructions_section = QFrame()
-        instructions_layout = QVBoxLayout(instructions_section)
-        instructions_layout.setSpacing(10)
-
-        instructions_label = QLabel("Custom Instructions")
-        instructions_label.setStyleSheet("font-size: 14px; font-weight: bold;")
-
-        instructions_description = QLabel(
+        instructions_section = SectionFrame(
+            "Custom Instructions",
             "Add custom instructions that will be included in every prompt. "
             "These instructions will influence how Dasi responds to your queries. "
-            "Note: Changes require restarting the Dasi service or using the 'Save & Apply' button to take full effect.")
-        instructions_description.setWordWrap(True)
-        instructions_description.setStyleSheet("color: #888888; font-size: 12px;")
-
+            "Note: Changes require restarting the Dasi service or using the 'Save & Apply' button to take full effect."
+        )
+        
         self.custom_instructions = QTextEdit()
-        self.custom_instructions.setMinimumHeight(100)
+        self.custom_instructions.setMinimumHeight(120)
         self.custom_instructions.setPlaceholderText(
             "Example:\n- Use British English spelling\n- Include code examples in Python\n- Prefer shorter responses")
-        self.custom_instructions.setStyleSheet("""
-            QTextEdit {
-                background-color: #363636;
-                border: none;
-                border-radius: 4px;
-                padding: 8px;
-                font-family: monospace;
-                font-size: 12px;
-            }
-        """)
 
         # Load existing custom instructions
         custom_instructions = self.settings.get(
@@ -298,77 +259,69 @@ class GeneralTab(QWidget):
         # Connect textChanged signal for auto-save
         self.custom_instructions.textChanged.connect(self._on_any_change)
         
-        instructions_layout.addWidget(instructions_label)
-        instructions_layout.addWidget(instructions_description)
-        instructions_layout.addWidget(self.custom_instructions)
+        instructions_section.layout.addWidget(self.custom_instructions)
+        layout.addWidget(instructions_section)
 
         # LLM Settings Section
-        llm_section = QFrame()
-        llm_layout = QVBoxLayout(llm_section)
-        llm_layout.setSpacing(10)
-
-        llm_label = QLabel("LLM Settings")
-        llm_label.setStyleSheet("font-size: 14px; font-weight: bold;")
-        
-        temp_description = QLabel(
+        llm_section = SectionFrame(
+            "LLM Settings",
             "Temperature controls the randomness of responses. Lower values (0.0) make responses more deterministic, "
             "while higher values (1.0) make them more creative. "
-            "Note: Changes require restarting the Dasi service or using the 'Save & Apply' button to take full effect.")
-        temp_description.setWordWrap(True)
-        temp_description.setStyleSheet("color: #888888; font-size: 12px;")
-
+            "Note: Changes require restarting the Dasi service or using the 'Save & Apply' button to take full effect."
+        )
+        
         # Temperature setting
         temp_container = QWidget()
+        temp_container.setProperty("class", "transparent-container")
+        temp_container.setStyleSheet("background-color: transparent;")
         temp_layout = QHBoxLayout(temp_container)
         temp_layout.setContentsMargins(0, 0, 0, 0)
+        temp_layout.setSpacing(12)
 
         temp_label = QLabel("Temperature:")
-        temp_label.setStyleSheet("font-size: 12px;")
+        
+        # Create a slider for temperature
+        self.temp_slider = QSlider(Qt.Orientation.Horizontal)
+        self.temp_slider.setRange(0, 100)  # 0.0 to 1.0 with 100 steps
+        self.temp_slider.setValue(int(self.settings.get('general', 'temperature', default=0.7) * 100))
+        self.temp_slider.setMinimumWidth(150)
+        self.temp_slider.setStyleSheet("background-color: transparent;")
+        
+        # Keep the spin box for precise control but make it smaller
         self.temperature = QDoubleSpinBox()
         self.temperature.setRange(0.0, 1.0)
         self.temperature.setSingleStep(0.1)
-        self.temperature.setValue(self.settings.get(
-            'general', 'temperature', default=0.7))
-        self.temperature.setStyleSheet("""
-            QDoubleSpinBox {
-                background-color: #363636;
-                border: none;
-                border-radius: 4px;
-                padding: 5px;
-                min-width: 80px;
-            }
-        """)
+        self.temperature.setValue(self.settings.get('general', 'temperature', default=0.7))
+        self.temperature.setFixedWidth(70)
         
-        # Connect valueChanged signal for auto-save
+        # Connect signals for syncing slider and spin box
+        self.temp_slider.valueChanged.connect(self._sync_temp_from_slider)
+        self.temperature.valueChanged.connect(self._sync_temp_from_spinbox)
+        
+        # Connect change signal
         self.temperature.valueChanged.connect(self._on_any_change)
 
         temp_layout.addWidget(temp_label)
+        temp_layout.addWidget(self.temp_slider, 1)  # Give slider more space
         temp_layout.addWidget(self.temperature)
-        temp_layout.addStretch()
 
-        llm_layout.addWidget(llm_label)
-        llm_layout.addWidget(temp_description)
-        llm_layout.addWidget(temp_container)
+        llm_section.layout.addWidget(temp_container)
+        layout.addWidget(llm_section)
 
         # Hotkey Settings Section
-        hotkey_section = QFrame()
-        hotkey_layout = QVBoxLayout(hotkey_section)
-        hotkey_layout.setSpacing(10)
-
-        hotkey_label = QLabel("Global Hotkey")
-        hotkey_label.setStyleSheet("font-size: 14px; font-weight: bold;")
-
-        hotkey_description = QLabel(
+        hotkey_section = SectionFrame(
+            "Global Hotkey",
             "Customize the global hotkey that activates Dasi. "
             "Changes require restarting the Dasi service to take effect."
         )
-        hotkey_description.setWordWrap(True)
-        hotkey_description.setStyleSheet("color: #888888; font-size: 12px;")
 
         # Hotkey input container
         hotkey_container = QWidget()
-        hotkey_layout_inner = QHBoxLayout(hotkey_container)
-        hotkey_layout_inner.setContentsMargins(0, 0, 0, 0)
+        hotkey_container.setProperty("class", "transparent-container")
+        hotkey_container.setStyleSheet("background-color: transparent;")
+        hotkey_layout = QHBoxLayout(hotkey_container)
+        hotkey_layout.setContentsMargins(0, 0, 0, 0)
+        hotkey_layout.setSpacing(8)
 
         # Checkboxes for modifiers
         self.ctrl_checkbox = QCheckBox("Ctrl")
@@ -387,28 +340,6 @@ class GeneralTab(QWidget):
                         'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12']
         self.key_selector.addItems(special_keys)
 
-        self.key_selector.setStyleSheet("""
-            QComboBox {
-                background-color: #363636;
-                border: none;
-                border-radius: 4px;
-                padding: 8px;
-                font-size: 13px;
-                min-width: 80px;
-            }
-            QComboBox::drop-down {
-                border: none;
-                padding-right: 10px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid #cccccc;
-                margin-right: 5px;
-            }
-        """)
-
         # Load current hotkey settings
         current_hotkey = self.settings.get('general', 'hotkey', default={
             'ctrl': True,
@@ -426,62 +357,24 @@ class GeneralTab(QWidget):
         self.fn_checkbox.setChecked(current_hotkey.get('fn', False))
         self.key_selector.setCurrentText(current_hotkey.get('key', 'I'))
 
-        # Style checkboxes
-        checkbox_style = """
-            QCheckBox {
-                background-color: #363636;
-                border: none;
-                border-radius: 4px;
-                padding: 5px 8px;
-                color: #cccccc;
-            }
-            QCheckBox:hover {
-                background-color: #404040;
-            }
-        """
-        self.ctrl_checkbox.setStyleSheet(checkbox_style)
-        self.alt_checkbox.setStyleSheet(checkbox_style)
-        self.shift_checkbox.setStyleSheet(checkbox_style)
-        self.super_checkbox.setStyleSheet(checkbox_style)
-        self.fn_checkbox.setStyleSheet(checkbox_style)
+        hotkey_layout.addWidget(self.ctrl_checkbox)
+        hotkey_layout.addWidget(self.alt_checkbox)
+        hotkey_layout.addWidget(self.shift_checkbox)
+        hotkey_layout.addWidget(self.super_checkbox)
+        hotkey_layout.addWidget(self.fn_checkbox)
+        hotkey_layout.addWidget(self.key_selector)
+        hotkey_layout.addStretch()
 
-        hotkey_layout_inner.addWidget(self.ctrl_checkbox)
-        hotkey_layout_inner.addWidget(self.alt_checkbox)
-        hotkey_layout_inner.addWidget(self.shift_checkbox)
-        hotkey_layout_inner.addWidget(self.super_checkbox)
-        hotkey_layout_inner.addWidget(self.fn_checkbox)
-        hotkey_layout_inner.addWidget(self.key_selector)
-        hotkey_layout_inner.addStretch()
-
-        hotkey_layout.addWidget(hotkey_label)
-        hotkey_layout.addWidget(hotkey_description)
-        hotkey_layout.addWidget(hotkey_container)
+        hotkey_section.layout.addWidget(hotkey_container)
+        layout.addWidget(hotkey_section)
 
         # Startup Settings Section
-        startup_section = QFrame()
-        startup_layout = QVBoxLayout(startup_section)
-        startup_layout.setSpacing(10)
-
-        startup_label = QLabel("Startup Settings")
-        startup_label.setStyleSheet("font-size: 14px; font-weight: bold;")
-
-        startup_description = QLabel(
+        startup_section = SectionFrame(
+            "Startup Settings",
             "Configure whether Dasi should automatically start when you log in."
         )
-        startup_description.setWordWrap(True)
-        startup_description.setStyleSheet("color: #888888; font-size: 12px;")
 
         self.startup_checkbox = QCheckBox("Start Dasi on system startup")
-        self.startup_checkbox.setStyleSheet("""
-            QCheckBox {
-                font-size: 12px;
-                padding: 5px;
-            }
-            QCheckBox:hover {
-                background-color: #404040;
-                border-radius: 4px;
-            }
-        """)
         
         # Load current startup setting
         self.startup_checkbox.setChecked(self.settings.get('general', 'start_on_boot', default=False))
@@ -489,42 +382,25 @@ class GeneralTab(QWidget):
         # Connect stateChanged signal for auto-save
         self.startup_checkbox.stateChanged.connect(self._on_any_change)
 
-        startup_layout.addWidget(startup_label)
-        startup_layout.addWidget(startup_description)
-        startup_layout.addWidget(self.startup_checkbox)
+        startup_section.layout.addWidget(self.startup_checkbox)
+        layout.addWidget(startup_section)
 
         # Export Location Settings Section
-        export_section = QFrame()
-        export_layout = QVBoxLayout(export_section)
-        export_layout.setSpacing(10)
-
-        export_label = QLabel("Export Location")
-        export_label.setStyleSheet("font-size: 14px; font-weight: bold;")
-
-        export_description = QLabel(
+        export_section = SectionFrame(
+            "Export Location",
             "Set the default location where exported files will be saved."
         )
-        export_description.setWordWrap(True)
-        export_description.setStyleSheet("color: #888888; font-size: 12px;")
 
         # Create container for path input and browse button
         path_container = QWidget()
+        path_container.setProperty("class", "transparent-container")
+        path_container.setStyleSheet("background-color: transparent;")
         path_layout = QHBoxLayout(path_container)
         path_layout.setContentsMargins(0, 0, 0, 0)
         path_layout.setSpacing(8)
 
         self.export_path = QLineEdit()
         self.export_path.setPlaceholderText("Default: ~/Documents")
-        self.export_path.setStyleSheet("""
-            QLineEdit {
-                background-color: #363636;
-                border: none;
-                border-radius: 4px;
-                padding: 8px;
-                font-size: 12px;
-                color: #ffffff;
-            }
-        """)
         
         # Load current export path setting
         current_path = self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents"))
@@ -534,37 +410,15 @@ class GeneralTab(QWidget):
         self.export_path.textChanged.connect(self._on_any_change)
         
         browse_button = QPushButton("Browse")
-        browse_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2b5c99;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                color: white;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #366bb3;
-            }
-            QPushButton:pressed {
-                background-color: #1f4573;
-            }
-        """)
         browse_button.clicked.connect(self._browse_export_path)
 
         path_layout.addWidget(self.export_path)
         path_layout.addWidget(browse_button)
 
-        export_layout.addWidget(export_label)
-        export_layout.addWidget(export_description)
-        export_layout.addWidget(path_container)
-
-        # Add sections to main layout
-        layout.addWidget(instructions_section)
-        layout.addWidget(llm_section)
-        layout.addWidget(hotkey_section)
-        layout.addWidget(startup_section)
+        export_section.layout.addWidget(path_container)
         layout.addWidget(export_section)
+
+        # Add spacing at the bottom
         layout.addStretch()
 
         # Set scroll area widget
@@ -573,70 +427,23 @@ class GeneralTab(QWidget):
         
         # Create button container at the bottom
         self.button_container = QWidget()
+        self.button_container.setProperty("class", "transparent-container")
+        self.button_container.setStyleSheet("background-color: transparent;")
         button_layout = QHBoxLayout(self.button_container)
-        button_layout.setContentsMargins(0, 10, 0, 0)
+        button_layout.setContentsMargins(0, 16, 0, 0)
+        button_layout.setSpacing(8)
 
         # Add Cancel button
         cancel_button = QPushButton("Cancel")
-        cancel_button.setStyleSheet("""
-            QPushButton {
-                background-color: #404040;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #4a4a4a;
-            }
-            QPushButton:pressed {
-                background-color: #353535;
-            }
-        """)
         cancel_button.clicked.connect(self._cancel_changes)
 
         # Add Reset button
         reset_button = QPushButton("Reset")
-        reset_button.setStyleSheet("""
-            QPushButton {
-                background-color: #404040;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #4a4a4a;
-            }
-            QPushButton:pressed {
-                background-color: #353535;
-            }
-        """)
         reset_button.clicked.connect(self._reset_changes)
 
         # Add Save & Apply button
         save_all_button = QPushButton("Save & Apply")
-        save_all_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2b5c99;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #366bb3;
-            }
-            QPushButton:pressed {
-                background-color: #1f4573;
-            }
-        """)
+        save_all_button.setProperty("class", "primary")
         save_all_button.clicked.connect(self._apply_all_settings)
 
         button_layout.addWidget(cancel_button)
@@ -771,21 +578,9 @@ class GeneralTab(QWidget):
             # Style the buttons
             for button in msg_box.buttons():
                 if msg_box.buttonRole(button) == QMessageBox.ButtonRole.YesRole:
-                    button.setStyleSheet("""
-                        QPushButton {
-                            background-color: #2b5c99;
-                            color: white;
-                            border: none;
-                            padding: 6px 12px;
-                            border-radius: 4px;
-                        }
-                        QPushButton:hover {
-                            background-color: #366bb3;
-                        }
-                        QPushButton:pressed {
-                            background-color: #1f4573;
-                        }
-                    """)
+                    button.setProperty("class", "primary")
+                    button.style().unpolish(button)
+                    button.style().polish(button)
 
             response = msg_box.exec()
 
@@ -878,3 +673,19 @@ X-GNOME-Autostart-enabled=true
                 f"Failed to browse export path: {str(e)}",
                 QMessageBox.StandardButton.Ok
             )
+
+    def _sync_temp_from_slider(self, value):
+        """Sync temperature value from slider to spin box."""
+        # Prevent infinite loop by blocking signals
+        self.temperature.blockSignals(True)
+        self.temperature.setValue(value / 100.0)
+        self.temperature.blockSignals(False)
+        self._on_any_change()
+        
+    def _sync_temp_from_spinbox(self, value):
+        """Sync temperature value from spin box to slider."""
+        # Prevent infinite loop by blocking signals
+        self.temp_slider.blockSignals(True)
+        self.temp_slider.setValue(int(value * 100))
+        self.temp_slider.blockSignals(False)
+        self._on_any_change()

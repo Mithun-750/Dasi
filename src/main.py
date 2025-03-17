@@ -16,6 +16,8 @@ from typing import Optional, Callable
 from constants import DEFAULT_CHAT_PROMPT, DEFAULT_COMPOSE_PROMPT
 # Import instance manager
 from instance_manager import DasiInstanceManager
+# Import theme system
+from ui.assets import apply_theme
 
 
 def setup_logging():
@@ -81,6 +83,9 @@ class Dasi:
                 self.app = QApplication(sys.argv)
             else:
                 self.app = QApplication.instance()
+
+            # Apply our modern theme
+            apply_theme(self.app, "dark")
 
             # Keep running when windows are closed
             self.app.setQuitOnLastWindowClosed(False)

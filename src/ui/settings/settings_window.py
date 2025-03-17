@@ -10,9 +10,10 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QFrame,
     QMessageBox,
+    QLabel,
 )
-from PyQt6.QtCore import Qt, QObject
-import qdarktheme
+from PyQt6.QtCore import Qt, QObject, QSize
+from PyQt6.QtGui import QIcon
 import logging
 import socket
 
@@ -23,60 +24,36 @@ from .general_tab import GeneralTab
 from .prompt_chunks_tab import PromptChunksTab
 from .web_search_tab import WebSearchTab
 from instance_manager import DasiInstanceManager
+from ui.assets import apply_theme
 
 
 class SidebarButton(QPushButton):
-    def __init__(self, text, parent=None):
+    def __init__(self, text, icon_path=None, parent=None):
         super().__init__(text, parent)
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("""
-            QPushButton {
-                text-align: left;
-                padding: 10px 20px;
-                border: none;
-                border-radius: 0;
-                font-size: 14px;
-                color: #cccccc;
-            }
-            QPushButton:checked {
-                background-color: #404040;
-                color: white;
-            }
-            QPushButton:hover {
-                background-color: #333333;
-            }
-        """)
+        self.setProperty("class", "sidebar-button")
+        
+        # Set icon if provided
+        if icon_path and os.path.exists(icon_path):
+            self.setIcon(QIcon(icon_path))
+            self.setIconSize(QSize(20, 20))
+            
+        # Set minimum height for better touch targets
+        self.setMinimumHeight(48)
 
 
 class ActionButton(QPushButton):
     """Button for actions like Start Dasi."""
-    def __init__(self, text, parent=None):
+    def __init__(self, text, icon_path=None, parent=None):
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("""
-            QPushButton {
-                text-align: center;
-                padding: 12px 20px;
-                border: none;
-                background-color: #2b5c99;
-                color: white;
-                font-weight: bold;
-                font-size: 14px;
-                margin: 10px;
-                border-radius: 6px;
-            }
-            QPushButton:hover {
-                background-color: #366bb3;
-            }
-            QPushButton:pressed {
-                background-color: #1f4573;
-            }
-            QPushButton:disabled {
-                background-color: #404040;
-                color: #666666;
-            }
-        """)
+        self.setProperty("class", "primary")
+        
+        # Set icon if provided
+        if icon_path and os.path.exists(icon_path):
+            self.setIcon(QIcon(icon_path))
+            self.setIconSize(QSize(20, 20))
 
 
 class SettingsWindow(QMainWindow):
@@ -104,7 +81,7 @@ class SettingsWindow(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle("Dasi Settings")
-        self.setMinimumSize(800, 500)
+        self.setMinimumSize(900, 600)
 
         # Create central widget and main layout
         central_widget = QWidget()
@@ -115,23 +92,28 @@ class SettingsWindow(QMainWindow):
 
         # Create sidebar
         sidebar = QFrame()
-        sidebar.setStyleSheet("""
-            QFrame {
-                background-color: #2b2b2b;
-                border-right: 1px solid #3f3f3f;
-            }
-        """)
-        sidebar.setFixedWidth(200)
+        sidebar.setProperty("class", "sidebar")
+        sidebar.setFixedWidth(220)
         sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setSpacing(0)
-        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(8)
+        sidebar_layout.setContentsMargins(0, 20, 0, 20)
 
-        # Create sidebar buttons
-        self.general_btn = SidebarButton("General")
-        self.api_keys_btn = SidebarButton("API Keys")
-        self.models_btn = SidebarButton("Models")
-        self.prompt_chunks_btn = SidebarButton("Prompt Chunks")
-        self.web_search_btn = SidebarButton("Web Search")
+        # Add logo or app name at the top of sidebar
+        logo_label = QLabel("Dasi Settings")
+        logo_label.setProperty("class", "heading")
+        logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo_label.setContentsMargins(0, 0, 0, 20)
+        sidebar_layout.addWidget(logo_label)
+
+        # Create sidebar buttons with icons
+        # Note: You'll need to create or download these icons and place them in the assets directory
+        assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
+        
+        self.general_btn = SidebarButton("General", os.path.join(assets_dir, "icons/settings.png"))
+        self.api_keys_btn = SidebarButton("API Keys", os.path.join(assets_dir, "icons/key.png"))
+        self.models_btn = SidebarButton("Models", os.path.join(assets_dir, "icons/model.png"))
+        self.prompt_chunks_btn = SidebarButton("Prompt Chunks", os.path.join(assets_dir, "icons/prompt.png"))
+        self.web_search_btn = SidebarButton("Web Search", os.path.join(assets_dir, "icons/search.png"))
 
         sidebar_layout.addWidget(self.general_btn)
         sidebar_layout.addWidget(self.api_keys_btn)
@@ -141,17 +123,21 @@ class SettingsWindow(QMainWindow):
         sidebar_layout.addStretch()
 
         # Add Start Dasi button at the bottom
-        self.start_dasi_btn = ActionButton("Start Dasi")
+        self.start_dasi_btn = ActionButton("Start Dasi", os.path.join(assets_dir, "icons/play.png"))
         self.start_dasi_btn.clicked.connect(self.start_dasi)
         sidebar_layout.addWidget(self.start_dasi_btn)
 
+        # Create content area with card-like appearance
+        content_container = QFrame()
+        content_container.setContentsMargins(20, 20, 20, 20)
+        content_layout = QVBoxLayout(content_container)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        
         # Create stacked widget for content
         self.content = QStackedWidget()
-        self.content.setStyleSheet("""
-            QStackedWidget {
-                background-color: #323232;
-            }
-        """)
+        
+        # Add content directly to layout without the card frame
+        content_layout.addWidget(self.content)
 
         # Create and add tabs
         self.general_tab = GeneralTab(self.settings)
@@ -178,7 +164,7 @@ class SettingsWindow(QMainWindow):
 
         # Add widgets to main layout
         main_layout.addWidget(sidebar)
-        main_layout.addWidget(self.content)
+        main_layout.addWidget(content_container, 1)  # Give content area more space
 
         # Set initial tab
         self.switch_tab(0)
@@ -202,6 +188,9 @@ class SettingsWindow(QMainWindow):
             # Update button to show Stop Dasi
             self.start_dasi_btn.setText("Stop Dasi")
             self.start_dasi_btn.setEnabled(True)
+            self.start_dasi_btn.setProperty("class", "danger")
+            self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
+            self.start_dasi_btn.style().polish(self.start_dasi_btn)
             
             # Connect to stop_dasi
             try:
@@ -223,6 +212,9 @@ class SettingsWindow(QMainWindow):
             # Update button to show Stop Dasi
             self.start_dasi_btn.setText("Stop Dasi")
             self.start_dasi_btn.setEnabled(True)
+            self.start_dasi_btn.setProperty("class", "danger")
+            self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
+            self.start_dasi_btn.style().polish(self.start_dasi_btn)
             
             # Connect to stop_dasi
             try:
@@ -242,6 +234,9 @@ class SettingsWindow(QMainWindow):
             if self.dasi_instance and self.hotkey_listener and self.hotkey_listener.is_running():
                 self.start_dasi_btn.setText("Stop Dasi")
                 self.start_dasi_btn.setEnabled(True)
+                self.start_dasi_btn.setProperty("class", "danger")
+                self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
+                self.start_dasi_btn.style().polish(self.start_dasi_btn)
                 
                 # Ensure the button is connected to stop_dasi
                 try:
@@ -262,6 +257,9 @@ class SettingsWindow(QMainWindow):
                 
                 self.start_dasi_btn.setText("Stop Dasi")
                 self.start_dasi_btn.setEnabled(True)
+                self.start_dasi_btn.setProperty("class", "danger")
+                self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
+                self.start_dasi_btn.style().polish(self.start_dasi_btn)
                 
                 # Ensure the button is connected to stop_dasi
                 try:
@@ -274,6 +272,9 @@ class SettingsWindow(QMainWindow):
                 has_models = bool(self.settings.get_selected_models())
                 self.start_dasi_btn.setEnabled(has_models)
                 self.start_dasi_btn.setText("Start Dasi" if has_models else "Select Models First")
+                self.start_dasi_btn.setProperty("class", "primary")
+                self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
+                self.start_dasi_btn.style().polish(self.start_dasi_btn)
                 
                 # Ensure the button is connected to start_dasi
                 try:
@@ -335,6 +336,9 @@ class SettingsWindow(QMainWindow):
                 
                 # Update button to show Stop Dasi
                 self.start_dasi_btn.setText("Stop Dasi")
+                self.start_dasi_btn.setProperty("class", "danger")
+                self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
+                self.start_dasi_btn.style().polish(self.start_dasi_btn)
                 try:
                     self.start_dasi_btn.clicked.disconnect()
                 except:
@@ -375,6 +379,9 @@ class SettingsWindow(QMainWindow):
             has_models = bool(self.settings.get_selected_models())
             self.start_dasi_btn.setText("Start Dasi" if has_models else "Select Models First")
             self.start_dasi_btn.setEnabled(has_models)
+            self.start_dasi_btn.setProperty("class", "primary")
+            self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
+            self.start_dasi_btn.style().polish(self.start_dasi_btn)
             try:
                 self.start_dasi_btn.clicked.disconnect()
             except:
@@ -403,12 +410,13 @@ def main():
     """Run the settings window as a standalone application."""
     import sys
     from PyQt6.QtWidgets import QApplication
-    import qdarktheme
+    from ui.assets import apply_theme
     
     # Create application
     app = QApplication(sys.argv)
-    app.setStyle('Fusion')
-    qdarktheme.setup_theme("dark")
+    
+    # Apply our custom theme
+    apply_theme(app, "dark")
     
     # Check if Dasi is already running
     existing_instance = DasiInstanceManager.get_instance()

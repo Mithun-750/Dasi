@@ -1,0 +1,169 @@
+## Project Overview
+
+Dasi is a powerful desktop copilot application that provides inline LLM support through a global hotkey (Ctrl+Alt+Shift+I by default). The app integrates with multiple AI model providers including Google Gemini, OpenAI, Anthropic, Groq, Ollama, Deepseek, Together AI, OpenRouter, and custom OpenAI-compatible endpoints. It features a modern, borderless interface that appears near the cursor and operates in two primary modes: Chat Mode for interactive conversations and Compose Mode for direct content generation and insertion.
+
+## Architecture
+
+- **Main Components**:
+  - `main.py`: Entry point and application controller
+  - `llm_handler.py`: Manages interactions with various LLM providers
+  - `hotkey_listener.py`: Handles global hotkey detection
+  - `ui/`: Contains all UI components and settings
+  - `backend/`: Backend services and utilities
+  - `ui/assets/`: Contains stylesheets, themes, and icons for the UI
+
+## Code Style Guidelines
+
+- **Python Conventions**:
+  - Use PEP 8 style guidelines
+  - Class names use CamelCase
+  - Function and variable names use snake_case
+  - Constants use UPPER_SNAKE_CASE
+  - Maximum line length of 100 characters
+
+- **UI Components**:
+  - PyQt6 is used for all UI elements
+  - UI components are organized in a modular fashion
+  - Custom styling is applied via centralized stylesheets
+  - Follow the existing pattern of separating UI setup from logic
+  - Use CSS-like class properties instead of inline styles
+  - Leverage the theme system for consistent styling
+
+- **Error Handling**:
+  - Use try/except blocks for operations that might fail
+  - Log errors with appropriate severity levels
+  - Provide user-friendly error messages in the UI
+
+## Key Features
+
+### Prompt Chunks System
+- Prompt chunks are predefined templates that can be invoked using `@` mentions
+- Each chunk has a title (used for @mentions) and content (the template text)
+- Titles must be alphanumeric with underscores, no spaces, lowercase
+- Implementation is in `src/ui/settings/prompt_chunks_tab.py`
+
+### LLM Integration
+- Uses LangChain for unified interface to multiple LLM providers
+- Supports system prompts, custom instructions, and temperature settings
+- Maintains chat history with configurable limits
+- Implementation is in `src/llm_handler.py`
+
+### Settings Management
+- Settings are stored in JSON format at `~/.config/dasi/settings.json`
+- Follows XDG specification for configuration storage
+- Includes API keys, model configurations, and general preferences
+- Implementation is in `src/ui/settings/settings_manager.py`
+
+### Modern UI System
+- Uses a combination of QDarkTheme and custom stylesheets for a professional look
+- Implements a card-based design with proper spacing and visual hierarchy
+- Provides consistent styling across all components through a centralized stylesheet
+- Uses icons for better visual recognition and user experience
+- Supports both light and dark themes with proper color contrast
+
+## Best Practices
+
+1. **Configuration Management**:
+   - Always use the Settings class for accessing configuration
+   - Emit appropriate signals when settings change
+   - Follow the pattern of providing sensible defaults
+
+2. **UI Development**:
+   - Create reusable components when possible
+   - Maintain consistent styling across the application
+   - Use the centralized stylesheet in `ui/assets/style.qss` for styling
+   - Apply CSS-like classes to widgets using the `setProperty` method
+   - Use the theme system in `ui/assets/theme.py` for consistent theming
+   - Follow the card-based UI pattern for content organization
+   - Use proper spacing and margins for better visual hierarchy
+   - Include icons for better visual recognition
+
+3. **LLM Integration**:
+   - Use the LLMHandler class for all LLM interactions
+   - Follow the established pattern for adding new model providers
+   - Properly handle API keys and authentication
+
+4. **Error Handling and Logging**:
+   - Use the established logging system
+   - Log appropriate information at the correct severity level
+   - Handle exceptions gracefully with user-friendly messages
+
+5. **Hotkey Management**:
+   - Use the HotkeyListener class for global hotkey functionality
+   - Follow platform-specific patterns for key detection
+
+6. **Prompt Chunks**:
+   - Follow the established pattern for creating and managing prompt chunks
+   - Ensure titles are properly formatted (alphanumeric with underscores)
+   - Maintain backward compatibility with existing chunk formats
+
+## Common Patterns
+
+1. **Settings Access**:
+   ```python
+   from ui.settings import Settings
+   
+   settings = Settings()
+   value = settings.get('section', 'key', default='default_value')
+   ```
+
+2. **LLM Interaction**:
+   ```python
+   from llm_handler import LLMHandler
+   
+   llm_handler = LLMHandler()
+   response = await llm_handler.generate_response(prompt, session_id)
+   ```
+
+3. **UI Component Creation**:
+   ```python
+   from PyQt6.QtWidgets import QWidget, QVBoxLayout
+   
+   class CustomComponent(QWidget):
+       def __init__(self, parent=None):
+           super().__init__(parent)
+           self.setup_ui()
+           
+       def setup_ui(self):
+           layout = QVBoxLayout(self)
+           # Add widgets to layout
+   ```
+
+4. **Applying Styles to Widgets**:
+   ```python
+   # Use CSS-like classes instead of inline styles
+   my_button.setProperty("class", "primary")
+   
+   # For dynamic style changes, refresh the style
+   my_button.style().unpolish(my_button)
+   my_button.style().polish(my_button)
+   ```
+
+5. **Creating Card-Based Layouts**:
+   ```python
+   # Create a card container
+   card = QFrame()
+   card.setProperty("class", "card")
+   
+   # Add content to the card
+   card_layout = QVBoxLayout(card)
+   card_layout.setContentsMargins(20, 20, 20, 20)
+   card_layout.addWidget(content_widget)
+   ```
+
+6. **Applying the Theme**:
+   ```python
+   from ui.assets import apply_theme
+   
+   # Apply the theme to the application
+   apply_theme(app, "dark")  # Options: "dark", "light", "auto"
+   ```
+
+7. **Prompt Chunk Usage**:
+   ```python
+   # Format for accessing prompt chunks in text
+   text_with_chunk = "Let me help you with this @chunk_name problem"
+   ```
+
+**After installing a package check if its present in requirements.txt**
+- To run the app activate venv and run python `src/main.py`
