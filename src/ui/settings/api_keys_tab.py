@@ -10,10 +10,16 @@ from PyQt6.QtWidgets import (
     QFrame,
     QComboBox,
     QCheckBox,
+    QStyledItemDelegate,
+    QAbstractButton,
+    QProxyStyle,
+    QStyle
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QSize
+from PyQt6.QtGui import QFontMetrics, QIcon
 from .settings_manager import Settings
 import logging
+import os
 
 
 class APICategory:
@@ -36,21 +42,15 @@ class APIKeysTab(QWidget):
         # This will be connected externally by the settings dialog
 
     def init_ui(self):
-        # Create main layout
+        # Create main layout with proper spacing
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(20)
-        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(16, 16, 0, 16)  # Right padding is 0
+        
+        # Set transparent background for this widget
+        self.setStyleSheet("background-color: transparent;")
 
-        # Title
-        title = QLabel("API Keys")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        main_layout.addWidget(title)
-
-        # Search and Filter Section
-        filter_section = self.create_filter_section()
-        main_layout.addWidget(filter_section)
-
-        # Create scroll area
+        # Create scroll area with modern styling
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -60,84 +60,226 @@ class APIKeysTab(QWidget):
                 background-color: transparent;
             }
             QScrollBar:vertical {
-                border: none;
-                background-color: #2b2b2b;
+                background-color: #1a1a1a;
                 width: 10px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #404040;
-                min-height: 20px;
+                margin: 0px 0px 0px 8px;
                 border-radius: 5px;
             }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                border: none;
-                background: none;
+            QScrollBar::handle:vertical {
+                background-color: #333333;
+                min-height: 30px;
+                border-radius: 5px;
             }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                background: none;
+            QScrollBar::handle:vertical:hover {
+                background-color: #444444;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar:horizontal {
+                background-color: #1a1a1a;
+                height: 10px;
+                margin: 0px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:horizontal {
+                background-color: #333333;
+                min-width: 30px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background-color: #444444;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
             }
         """)
 
         # Create content widget for scroll area
-        self.content = QWidget()
-        self.content_layout = QVBoxLayout(self.content)
-        self.content_layout.setSpacing(20)
-        self.content_layout.setContentsMargins(0, 0, 20, 0)
+        content = QWidget()
+        content.setStyleSheet("background-color: transparent;")
+        self.content_layout = QVBoxLayout(content)
+        self.content_layout.setSpacing(16)
+        self.content_layout.setContentsMargins(0, 0, 8, 0)  # Added 8px right padding for gap between content and scrollbar
+
+        # Create filter section with modern card design
+        filter_section = self.create_filter_section()
+        self.content_layout.addWidget(filter_section)
 
         # Initialize API key sections
         self.initialize_api_sections()
 
-        scroll.setWidget(self.content)
+        scroll.setWidget(content)
         main_layout.addWidget(scroll)
 
     def create_filter_section(self):
         """Create the search and filter section."""
         filter_widget = QFrame()
+        filter_widget.setProperty("class", "card")
         filter_widget.setStyleSheet("""
-            QFrame {
-                background-color: #2b2b2b;
+            QFrame.card {
+                background-color: #222222;
                 border-radius: 8px;
-                padding: 15px;
+                border: 1px solid #333333;
             }
         """)
         filter_layout = QVBoxLayout(filter_widget)
+        filter_layout.setSpacing(12)
+        filter_layout.setContentsMargins(16, 16, 16, 16)
 
-        # Search bar
-        search_container = QHBoxLayout()
+        # Section title
+        title_label = QLabel("Filter API Keys")
+        title_label.setStyleSheet("""
+            font-size: 16px;
+            font-weight: bold;
+            color: #e0e0e0;
+            margin-bottom: 8px;
+        """)
+        filter_layout.addWidget(title_label)
+
+        # Create form layout for consistent alignment
+        form_widget = QWidget()
+        form_widget.setStyleSheet("background-color: transparent;")
+        form_layout = QVBoxLayout(form_widget)
+        form_layout.setContentsMargins(0, 0, 0, 0)
+        form_layout.setSpacing(12)
+        
+        # Search bar with icon styling
+        search_container = QWidget()
+        search_container.setStyleSheet("background-color: transparent;")
+        search_layout = QHBoxLayout(search_container)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(12)
+        
         search_label = QLabel("Search:")
+        search_label.setFixedWidth(90)
+        search_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        search_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
+        
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search API keys...")
+        self.search_input.setProperty("class", "search-input")
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                padding: 10px 12px;
+                background-color: #2a2a2a;
+                border: 1px solid #3b3b3b;
+                border-radius: 6px;
+                color: #e0e0e0;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #3b82f6;
+                background-color: #2d2d2d;
+            }
+            QLineEdit::placeholder {
+                color: #888888;
+            }
+        """)
         self.search_input.textChanged.connect(self.apply_filters)
-        search_container.addWidget(search_label)
-        search_container.addWidget(self.search_input)
+        
+        search_layout.addWidget(search_label)
+        search_layout.addWidget(self.search_input)
+        form_layout.addWidget(search_container)
 
-        # Category filter
-        category_container = QHBoxLayout()
+        # Category filter with modern styling
+        category_container = QWidget()
+        category_container.setStyleSheet("background-color: transparent;")
+        category_layout = QHBoxLayout(category_container)
+        category_layout.setContentsMargins(0, 0, 0, 0)
+        category_layout.setSpacing(12)
+        
         category_label = QLabel("Category:")
+        category_label.setFixedWidth(90)
+        category_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        category_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
+        
         self.category_combo = QComboBox()
+        self.category_combo.setProperty("class", "category-combo")
         self.category_combo.addItem("All Categories")
         self.category_combo.addItem(APICategory.LLM_PROVIDERS)
         self.category_combo.addItem(APICategory.SEARCH_PROVIDERS)
+        self.category_combo.setStyleSheet("""
+            QComboBox {
+                padding: 10px 12px;
+                background-color: #2a2a2a;
+                border: 1px solid #3b3b3b;
+                border-radius: 6px;
+                color: #e0e0e0;
+                min-height: 20px;
+                font-size: 13px;
+            }
+            QComboBox:hover {
+                border: 1px solid #4a4a4a;
+                background-color: #2d2d2d;
+            }
+            QComboBox:focus {
+                border: 1px solid #3b82f6;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                width: 24px;
+                border-left: 1px solid #3b3b3b;
+                border-top-right-radius: 6px;
+                border-bottom-right-radius: 6px;
+                background-color: transparent;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2a2a2a;
+                border: 1px solid #3b3b3b;
+                border-radius: 6px;
+                selection-background-color: #3b82f6;
+                selection-color: white;
+                padding: 4px;
+            }
+        """)
+        
+        # Apply custom style for the arrow
+        self.category_combo.setStyle(ComboBoxStyle())
+        
+        # Connect signal
         self.category_combo.currentTextChanged.connect(self.apply_filters)
-        category_container.addWidget(category_label)
-        category_container.addWidget(self.category_combo)
+        
+        category_layout.addWidget(category_label)
+        category_layout.addWidget(self.category_combo)
+        form_layout.addWidget(category_container)
 
-        # Status filter
-        status_container = QHBoxLayout()
+        # Status filter with modern checkbox styling
+        status_container = QWidget()
+        status_container.setStyleSheet("background-color: transparent;")
+        status_layout = QHBoxLayout(status_container)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(12)
+        
+        status_label = QLabel("Status:")
+        status_label.setFixedWidth(90)
+        status_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
+        
+        checkbox_container = QWidget()
+        checkbox_container.setStyleSheet("background-color: transparent;")
+        checkbox_layout = QHBoxLayout(checkbox_container)
+        checkbox_layout.setContentsMargins(0, 0, 0, 0)
+        checkbox_layout.setSpacing(16)
+        
         self.show_empty = QCheckBox("Show Empty")
         self.show_empty.setChecked(True)
         self.show_empty.stateChanged.connect(self.apply_filters)
+        
         self.show_filled = QCheckBox("Show Filled")
         self.show_filled.setChecked(True)
         self.show_filled.stateChanged.connect(self.apply_filters)
-        status_container.addWidget(self.show_empty)
-        status_container.addWidget(self.show_filled)
-        status_container.addStretch()
-
-        filter_layout.addLayout(search_container)
-        filter_layout.addLayout(category_container)
-        filter_layout.addLayout(status_container)
+        
+        checkbox_layout.addWidget(self.show_empty)
+        checkbox_layout.addWidget(self.show_filled)
+        checkbox_layout.addStretch()
+        
+        status_layout.addWidget(status_label)
+        status_layout.addWidget(checkbox_container)
+        
+        form_layout.addWidget(status_container)
+        filter_layout.addWidget(form_widget)
 
         return filter_widget
 
@@ -175,32 +317,49 @@ class APIKeysTab(QWidget):
         # Custom OpenAI-compatible model section
         # Create a container for the title and add button
         custom_title_container = QWidget()
+        custom_title_container.setStyleSheet("background-color: transparent;")
         custom_title_layout = QHBoxLayout(custom_title_container)
         custom_title_layout.setContentsMargins(0, 20, 0, 0)  # Add top margin for spacing
+        custom_title_layout.setSpacing(10)  # Add spacing between title and button
         
-        # Add title
+        # Add title with modern styling
         self.custom_openai_title = QLabel("Custom OpenAI-compatible Models")
-        self.custom_openai_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #cccccc;")
+        self.custom_openai_title.setStyleSheet("""
+            font-size: 15px;
+            font-weight: bold;
+            color: #e0e0e0;
+        """)
         custom_title_layout.addWidget(self.custom_openai_title)
         
-        # Add button for adding custom OpenAI models
-        self.add_custom_button = QPushButton("+ Add Model")
-        self.add_custom_button.setStyleSheet("""
+        # Add button for adding custom OpenAI models with modern styling
+        add_model_button = QPushButton("Add Model")
+        add_model_button.setProperty("class", "danger")
+        add_model_button.setFixedWidth(100)  # Increased width to prevent text from being cut off
+        add_model_button.setStyleSheet("""
             QPushButton {
-                background-color: #2b5c99;
-                border: none;
-                border-radius: 4px;
-                padding: 6px 12px;
-                color: white;
+                padding: 5px 8px;
                 font-size: 12px;
+                font-weight: bold;
+                border-radius: 4px;
+                background-color: #dc2626;
+                border: 1px solid #ef4444;
+                color: white;
                 text-align: center;
             }
             QPushButton:hover {
-                background-color: #366bb3;
+                background-color: #ef4444;
+                border: 1px solid #f87171;
+            }
+            QPushButton:pressed {
+                background-color: #b91c1c;
+            }
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #888888;
             }
         """)
-        self.add_custom_button.clicked.connect(self.add_another_custom_openai)
-        custom_title_layout.addWidget(self.add_custom_button)
+        add_model_button.clicked.connect(self.add_another_custom_openai)
+        custom_title_layout.addWidget(add_model_button)
         
         llm_section.layout().addWidget(custom_title_container)
         
@@ -208,14 +367,21 @@ class APIKeysTab(QWidget):
         custom_separator = QFrame()
         custom_separator.setFrameShape(QFrame.Shape.HLine)
         custom_separator.setFrameShadow(QFrame.Shadow.Sunken)
-        custom_separator.setStyleSheet("background-color: #444444; margin-top: 5px; margin-bottom: 10px;")
+        custom_separator.setStyleSheet("""
+            background-color: #404040;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            border: none;
+            height: 1px;
+        """)
         llm_section.layout().addWidget(custom_separator)
         
         # Create container for custom OpenAI models
         self.custom_openai_container = QWidget()
+        self.custom_openai_container.setStyleSheet("background-color: transparent;")
         self.custom_openai_layout = QVBoxLayout(self.custom_openai_container)
         self.custom_openai_layout.setContentsMargins(0, 0, 0, 0)
-        self.custom_openai_layout.setSpacing(20)
+        self.custom_openai_layout.setSpacing(16)
         llm_section.layout().addWidget(self.custom_openai_container)
         
         # Load existing custom OpenAI models
@@ -250,25 +416,33 @@ class APIKeysTab(QWidget):
     def create_section(self, title):
         """Create a section with title."""
         section = QFrame()
+        section.setProperty("class", "card")
         section.setStyleSheet("""
-            QFrame {
-                background-color: #2b2b2b;
+            QFrame.card {
+                background-color: #222222;
                 border-radius: 8px;
-                padding: 15px;
+                padding: 16px;
+                margin: 4px 0px;
+                border: 1px solid #333333;
             }
         """)
         
         layout = QVBoxLayout(section)
-        layout.setSpacing(15)
+        layout.setSpacing(16)
         
         # Create title container with horizontal layout
         title_container = QWidget()
+        title_container.setStyleSheet("background-color: transparent;")
         title_layout = QHBoxLayout(title_container)
         title_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Add title
+        # Add title with modern styling
         title_label = QLabel(title)
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #cccccc;")
+        title_label.setStyleSheet("""
+            font-size: 16px;
+            font-weight: bold;
+            color: #e0e0e0;
+        """)
         title_layout.addWidget(title_label)
         
         # Add stretch to push any additional widgets to the right
@@ -280,7 +454,13 @@ class APIKeysTab(QWidget):
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
         separator.setFrameShadow(QFrame.Shadow.Sunken)
-        separator.setStyleSheet("background-color: #444444; margin-top: 5px; margin-bottom: 10px;")
+        separator.setStyleSheet("""
+            background-color: #3b3b3b;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            border: none;
+            height: 1px;
+        """)
         layout.addWidget(separator)
         
         return section
@@ -450,27 +630,80 @@ class APIKeysTab(QWidget):
 
     def create_api_key_section(self, title: str, provider: str, placeholder: str, category: str) -> QWidget:
         """Create a section for an API key input."""
-        section = QWidget()
+        section = QFrame()
+        section.setProperty("class", "api-card")
+        section.setStyleSheet("""
+            QFrame.api-card {
+                background-color: #292929;
+                border-radius: 8px;
+                padding: 0px;
+                margin: 8px 0px;
+                border: 1px solid #333333;
+            }
+        """)
         section_layout = QVBoxLayout(section)
-        section_layout.setSpacing(10)
+        section_layout.setSpacing(12)
+        section_layout.setContentsMargins(16, 16, 16, 16)
 
-        # Label
-        label = QLabel(title)
-        label.setStyleSheet("font-size: 14px;")
+        # Title with icon
+        title_container = QWidget()
+        title_container.setStyleSheet("background-color: transparent;")
+        title_layout = QHBoxLayout(title_container)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(8)
 
-        # API Key input with show/hide toggle
+        title_label = QLabel(title)
+        title_label.setStyleSheet("""
+            font-size: 15px;
+            font-weight: bold;
+            color: #e0e0e0;
+        """)
+        title_layout.addWidget(title_label)
+        title_layout.addStretch()
+
+        section_layout.addWidget(title_container)
+
+        # Add separator under title
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet("""
+            background-color: #3b3b3b;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            border: none;
+            height: 1px;
+        """)
+        section_layout.addWidget(separator)
+
+        # API Key input with modern styling
         key_container = QWidget()
+        key_container.setStyleSheet("background-color: transparent;")
         key_layout = QHBoxLayout(key_container)
         key_layout.setContentsMargins(0, 0, 0, 0)
+        key_layout.setSpacing(8)
 
         api_input = QLineEdit()
         api_input.setPlaceholderText(placeholder)
         api_input.setEchoMode(QLineEdit.EchoMode.Password)
+        api_input.setProperty("class", "api-input")
         api_input.setStyleSheet("""
             QLineEdit {
-                padding: 8px;
-                border-radius: 4px;
+                padding: 10px 12px;
+                background-color: #333333;
+                border: 1px solid #3b3b3b;
+                border-radius: 6px;
+                color: #e0e0e0;
                 font-size: 13px;
+                min-height: 20px;
+            }
+            QLineEdit:focus {
+                border: 2px solid #3b82f6;
+                background-color: #383838;
+                padding: 9px 11px;
+            }
+            QLineEdit::placeholder {
+                color: #888888;
             }
         """)
 
@@ -478,66 +711,46 @@ class APIKeysTab(QWidget):
         if api_key := self.settings.get_api_key(provider):
             api_input.setText(api_key)
 
-        # Toggle visibility button
-        toggle_button = QPushButton("👁")
-        toggle_button.setFixedSize(30, 30)
+        # Toggle visibility button with modern styling using SVG icon
+        toggle_button = QPushButton()
+        toggle_button.setFixedSize(38, 38)
+        toggle_button.setProperty("class", "icon-button")
         toggle_button.setStyleSheet("""
             QPushButton {
-                border-radius: 6px;
-                font-size: 14px;
-                background-color: #404040;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #4a4a4a;
-            }
-            QPushButton:pressed {
                 background-color: #333333;
-                padding-top: 1px;
-                padding-left: 1px;
-            }
-        """)
-        toggle_button.clicked.connect(
-            lambda: self.toggle_key_visibility(api_input, toggle_button))
-
-        # Clear button
-        clear_button = QPushButton("×")
-        clear_button.setFixedSize(30, 30)
-        clear_button.setStyleSheet("""
-            QPushButton {
+                border: 1px solid #3b3b3b;
                 border-radius: 6px;
-                font-size: 18px;
-                font-weight: bold;
-                background-color: #404040;
-                border: none;
-                color: #888888;
-            }
-            QPushButton:hover {
-                background-color: #ff4444;
-                color: white;
+                color: #e0e0e0;
+                padding: 0px;
             }
             QPushButton:pressed {
-                background-color: #cc3333;
-                padding-top: 1px;
-                padding-left: 1px;
+                background-color: #444444;
             }
         """)
-        clear_button.clicked.connect(lambda: self.clear_api_key(provider, api_input, status_label))
+        
+        # Set the SVG icon
+        icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "icons")
+        eye_icon_path = os.path.join(icons_dir, "eye.svg")
+        toggle_button.setIcon(QIcon(eye_icon_path))
+        toggle_button.setIconSize(QSize(20, 20))
+        
+        toggle_button.clicked.connect(
+            lambda: self.toggle_key_visibility(api_input, toggle_button)
+        )
 
         key_layout.addWidget(api_input)
         key_layout.addWidget(toggle_button)
-        key_layout.addWidget(clear_button)
 
-        section_layout.addWidget(label)
         section_layout.addWidget(key_container)
 
-        # Status label
+        # Status label with modern styling
         status_label = QLabel()
         status_label.setStyleSheet("""
             QLabel {
-                padding: 5px;
-                border-radius: 4px;
-                font-size: 12px;
+                padding: 10px 12px;
+                border-radius: 6px;
+                font-size: 13px;
+                margin-top: 8px;
             }
             QLabel[status="success"] {
                 background-color: #1e4620;
@@ -551,31 +764,65 @@ class APIKeysTab(QWidget):
         status_label.hide()
         section_layout.addWidget(status_label)
 
-        # Save button
-        save_button = QPushButton(f"Save {title}")
+        # Button container with modern styling
+        button_container = QWidget()
+        button_container.setStyleSheet("background-color: transparent;")
+        button_layout = QHBoxLayout(button_container)
+        button_layout.setContentsMargins(0, 8, 0, 0)
+        button_layout.setSpacing(10)
+
+        # Save button with modern styling matching the danger button in settings_window.py
+        save_button = QPushButton("Save")
+        save_button.setProperty("class", "danger")
         save_button.setStyleSheet("""
             QPushButton {
                 padding: 8px 16px;
                 font-size: 13px;
                 font-weight: bold;
                 border-radius: 6px;
-                max-width: 200px;
-                background-color: #2b5c99;
+                background-color: #dc2626;
+                border: 1px solid #ef4444;
                 color: white;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #366bb3;
             }
             QPushButton:pressed {
-                background-color: #1f4573;
-                padding: 9px 16px 7px 16px;
+                background-color: #b91c1c;
+            }
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #888888;
             }
         """)
         save_button.clicked.connect(lambda: self.save_api_key(
             provider, api_input, status_label))
+        
+        # Reset button with modern styling
+        reset_button = QPushButton("Reset")
+        reset_button.setProperty("class", "secondary")
+        reset_button.setStyleSheet("""
+            QPushButton {
+                padding: 8px 16px;
+                font-size: 13px;
+                font-weight: bold;
+                border-radius: 6px;
+                background-color: #404040;
+                border: 1px solid #505050;
+                color: white;
+            }
+            QPushButton:pressed {
+                background-color: #333333;
+            }
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #888888;
+            }
+        """)
+        reset_button.clicked.connect(lambda: self.clear_api_key(provider, api_input, status_label))
 
-        section_layout.addWidget(save_button)
+        # Make buttons take full width
+        button_layout.addWidget(save_button, 1)  # 1 is the stretch factor
+        button_layout.addWidget(reset_button, 1)  # 1 is the stretch factor
+
+        section_layout.addWidget(button_container)
 
         # Store references
         setattr(self, f"{provider}_input", api_input)
@@ -586,12 +833,17 @@ class APIKeysTab(QWidget):
 
     def toggle_key_visibility(self, input_field: QLineEdit, toggle_button: QPushButton):
         """Toggle API key visibility."""
+        # Get the paths to the eye icons
+        icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "icons")
+        eye_icon_path = os.path.join(icons_dir, "eye.svg")
+        eye_off_icon_path = os.path.join(icons_dir, "eye_off.svg")
+        
         if input_field.echoMode() == QLineEdit.EchoMode.Password:
             input_field.setEchoMode(QLineEdit.EchoMode.Normal)
-            toggle_button.setText("🔒")
+            toggle_button.setIcon(QIcon(eye_off_icon_path))
         else:
             input_field.setEchoMode(QLineEdit.EchoMode.Password)
-            toggle_button.setText("👁")
+            toggle_button.setIcon(QIcon(eye_icon_path))
 
     def show_status(self, label: QLabel, message: str, is_error: bool = False):
         """Show a status message with appropriate styling."""
@@ -603,6 +855,10 @@ class APIKeysTab(QWidget):
 
     def save_api_key(self, provider: str, input_field: QLineEdit, status_label: QLabel):
         """Save the API key."""
+        # Get the path to the eye icon
+        eye_icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                                    "assets", "icons", "eye.svg")
+        
         api_key = input_field.text().strip()
 
         if not api_key:
@@ -612,7 +868,7 @@ class APIKeysTab(QWidget):
         if self.settings.set_api_key(provider, api_key):
             # Hide the key after saving
             input_field.setEchoMode(QLineEdit.EchoMode.Password)
-            getattr(self, f"{provider}_toggle").setText("👁")
+            getattr(self, f"{provider}_toggle").setIcon(QIcon(eye_icon_path))
 
             # Show success message
             self.show_status(status_label, "API key saved successfully!")
@@ -636,97 +892,196 @@ class APIKeysTab(QWidget):
 
     def add_custom_openai_section(self, index=0):
         """Create section for custom OpenAI-compatible model configuration."""
-        section = QWidget()
+        section = QFrame()
+        section.setProperty("class", "api-card")
+        section.setStyleSheet("""
+            QFrame.api-card {
+                background-color: #292929;
+                border-radius: 8px;
+                padding: 0px;
+                margin: 8px 0px;
+                border: 1px solid #333333;
+            }
+        """)
         section_layout = QVBoxLayout(section)
-        section_layout.setSpacing(10)
-        section_layout.setContentsMargins(0, 10, 0, 10)
+        section_layout.setSpacing(12)
+        section_layout.setContentsMargins(16, 16, 16, 16)
+
+        # Title container with modern styling
+        title_container = QWidget()
+        title_container.setStyleSheet("background-color: transparent;")
+        title_layout = QHBoxLayout(title_container)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(8)
 
         # Title with index if not the first one
-        title_layout = QHBoxLayout()
         title_text = "Custom OpenAI-Compatible Model" if index == 0 else f"Custom OpenAI-Compatible Model #{index+1}"
         title = QLabel(title_text)
-        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        title.setStyleSheet("""
+            font-size: 15px;
+            font-weight: bold;
+            color: #e0e0e0;
+        """)
         title_layout.addWidget(title)
         
         # Add remove button for sections after the first one
         if index > 0:
             remove_button = QPushButton("Remove")
+            remove_button.setProperty("class", "danger")
             remove_button.setStyleSheet("""
                 QPushButton {
-                    padding: 4px 8px;
+                    padding: 6px 12px;
                     font-size: 12px;
-                    border-radius: 4px;
-                    background-color: #661a1a;
+                    border-radius: 6px;
+                    background-color: #dc2626;
+                    border: 1px solid #ef4444;
                     color: white;
-                    border: none;
-                }
-                QPushButton:hover {
-                    background-color: #8a2222;
                 }
                 QPushButton:pressed {
-                    background-color: #551515;
+                    background-color: #b91c1c;
                 }
             """)
             remove_button.clicked.connect(lambda: self.remove_custom_openai_section(index))
             title_layout.addWidget(remove_button)
         
         title_layout.addStretch()
-        section_layout.addLayout(title_layout)
+        section_layout.addWidget(title_container)
+
+        # Add separator under title
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet("""
+            background-color: #3b3b3b;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            border: none;
+            height: 1px;
+        """)
+        section_layout.addWidget(separator)
 
         # Determine the settings key based on index
         settings_key = f"custom_openai_{index}" if index > 0 else "custom_openai"
         provider_key = settings_key
 
-        # Base URL input
-        base_url_layout = QHBoxLayout()
+        # Base URL input with modern styling
+        base_url_container = QWidget()
+        base_url_container.setStyleSheet("background-color: transparent;")
+        base_url_layout = QVBoxLayout(base_url_container)
+        base_url_layout.setContentsMargins(0, 0, 0, 0)
+        base_url_layout.setSpacing(6)
+
         base_url_label = QLabel("Base URL:")
+        base_url_label.setStyleSheet("font-size: 13px; color: #e0e0e0; font-weight: bold;")
         base_url_input = QLineEdit()
-        base_url_input.setPlaceholderText(
-            "Enter base URL (e.g., http://localhost:8000)")
+        base_url_input.setPlaceholderText("Enter base URL (e.g., http://localhost:8000)")
+        base_url_input.setProperty("class", "api-input")
+        base_url_input.setStyleSheet("""
+            QLineEdit {
+                padding: 10px 12px;
+                background-color: #333333;
+                border: 1px solid #3b3b3b;
+                border-radius: 6px;
+                color: #e0e0e0;
+                font-size: 13px;
+                min-height: 20px;
+            }
+            QLineEdit:focus {
+                border: 2px solid #3b82f6;
+                background-color: #383838;
+                padding: 9px 11px;
+            }
+            QLineEdit::placeholder {
+                color: #888888;
+            }
+        """)
         
         # Load existing value if available
-        current_url = self.settings.get(
-            'models', settings_key, 'base_url', default='')
+        current_url = self.settings.get('models', settings_key, 'base_url', default='')
         base_url_input.setText(current_url)
         
         base_url_layout.addWidget(base_url_label)
         base_url_layout.addWidget(base_url_input)
-        section_layout.addLayout(base_url_layout)
+        section_layout.addWidget(base_url_container)
 
-        # Model ID input
-        model_id_layout = QHBoxLayout()
+        # Model ID input with modern styling
+        model_id_container = QWidget()
+        model_id_container.setStyleSheet("background-color: transparent;")
+        model_id_layout = QVBoxLayout(model_id_container)
+        model_id_layout.setContentsMargins(0, 0, 0, 0)
+        model_id_layout.setSpacing(6)
+
         model_id_label = QLabel("Model ID:")
+        model_id_label.setStyleSheet("font-size: 13px; color: #e0e0e0; font-weight: bold;")
         model_id_input = QLineEdit()
-        model_id_input.setPlaceholderText(
-            "Enter model ID (e.g., gpt-3.5-turbo)")
+        model_id_input.setPlaceholderText("Enter model ID (e.g., gpt-3.5-turbo)")
+        model_id_input.setProperty("class", "api-input")
+        model_id_input.setStyleSheet("""
+            QLineEdit {
+                padding: 10px 12px;
+                background-color: #333333;
+                border: 1px solid #3b3b3b;
+                border-radius: 6px;
+                color: #e0e0e0;
+                font-size: 13px;
+                min-height: 20px;
+            }
+            QLineEdit:focus {
+                border: 2px solid #3b82f6;
+                background-color: #383838;
+                padding: 9px 11px;
+            }
+            QLineEdit::placeholder {
+                color: #888888;
+            }
+        """)
         
         # Load existing value if available
-        current_model_id = self.settings.get(
-            'models', settings_key, 'model_id', default='')
+        current_model_id = self.settings.get('models', settings_key, 'model_id', default='')
         model_id_input.setText(current_model_id)
         
         model_id_layout.addWidget(model_id_label)
         model_id_layout.addWidget(model_id_input)
-        section_layout.addLayout(model_id_layout)
+        section_layout.addWidget(model_id_container)
 
-        # API Key input with show/hide toggle
-        api_key_layout = QVBoxLayout()
+        # API Key input with modern styling
+        api_key_container = QWidget()
+        api_key_container.setStyleSheet("background-color: transparent;")
+        api_key_layout = QVBoxLayout(api_key_container)
+        api_key_layout.setContentsMargins(0, 0, 0, 0)
+        api_key_layout.setSpacing(6)
+
         api_key_label = QLabel("API Key:")
-        api_key_label.setStyleSheet("font-size: 14px;")
+        api_key_label.setStyleSheet("font-size: 13px; color: #e0e0e0; font-weight: bold;")
         api_key_layout.addWidget(api_key_label)
 
-        key_container = QWidget()
-        key_container_layout = QHBoxLayout(key_container)
-        key_container_layout.setContentsMargins(0, 0, 0, 0)
+        key_input_container = QWidget()
+        key_input_container.setStyleSheet("background-color: transparent;")
+        key_input_layout = QHBoxLayout(key_input_container)
+        key_input_layout.setContentsMargins(0, 0, 0, 0)
+        key_input_layout.setSpacing(8)
 
         api_input = QLineEdit()
         api_input.setPlaceholderText("Enter API key for custom OpenAI-compatible model...")
         api_input.setEchoMode(QLineEdit.EchoMode.Password)
+        api_input.setProperty("class", "api-input")
         api_input.setStyleSheet("""
             QLineEdit {
-                padding: 8px;
-                border-radius: 4px;
+                padding: 10px 12px;
+                background-color: #333333;
+                border: 1px solid #3b3b3b;
+                border-radius: 6px;
+                color: #e0e0e0;
                 font-size: 13px;
+                min-height: 20px;
+            }
+            QLineEdit:focus {
+                border: 2px solid #3b82f6;
+                background-color: #383838;
+                padding: 9px 11px;
+            }
+            QLineEdit::placeholder {
+                color: #888888;
             }
         """)
 
@@ -734,58 +1089,46 @@ class APIKeysTab(QWidget):
         if api_key := self.settings.get_api_key(provider_key):
             api_input.setText(api_key)
 
-        # Toggle visibility button
-        toggle_button = QPushButton("👁")
-        toggle_button.setFixedSize(30, 30)
+        # Toggle visibility button with modern styling using SVG icon
+        toggle_button = QPushButton()
+        toggle_button.setFixedSize(38, 38)
+        toggle_button.setProperty("class", "icon-button")
         toggle_button.setStyleSheet("""
             QPushButton {
-                border-radius: 6px;
-                font-size: 14px;
-                background-color: #404040;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #4a4a4a;
-            }
-            QPushButton:pressed {
                 background-color: #333333;
-                padding-top: 1px;
-                padding-left: 1px;
-            }
-        """)
-        toggle_button.clicked.connect(
-            lambda: self.toggle_key_visibility(api_input, toggle_button))
-
-        # Clear button
-        clear_button = QPushButton("×")
-        clear_button.setFixedSize(30, 30)
-        clear_button.setStyleSheet("""
-            QPushButton {
+                border: 1px solid #3b3b3b;
                 border-radius: 6px;
-                font-size: 18px;
-                font-weight: bold;
-                background-color: #404040;
-                border: none;
-                color: #888888;
-            }
-            QPushButton:hover {
-                background-color: #ff4444;
-                color: white;
+                color: #e0e0e0;
+                padding: 0px;
             }
             QPushButton:pressed {
-                background-color: #cc3333;
-                padding-top: 1px;
-                padding-left: 1px;
+                background-color: #444444;
             }
         """)
         
-        # Status label
+        # Set the SVG icon
+        icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "icons")
+        eye_icon_path = os.path.join(icons_dir, "eye.svg")
+        toggle_button.setIcon(QIcon(eye_icon_path))
+        toggle_button.setIconSize(QSize(20, 20))
+        
+        toggle_button.clicked.connect(
+            lambda: self.toggle_key_visibility(api_input, toggle_button)
+        )
+
+        key_input_layout.addWidget(api_input)
+        key_input_layout.addWidget(toggle_button)
+
+        api_key_layout.addWidget(key_input_container)
+        
+        # Status label with modern styling
         status_label = QLabel()
         status_label.setStyleSheet("""
             QLabel {
-                padding: 5px;
-                border-radius: 4px;
-                font-size: 12px;
+                padding: 10px 12px;
+                border-radius: 6px;
+                font-size: 13px;
+                margin-top: 8px;
             }
             QLabel[status="success"] {
                 background-color: #1e4620;
@@ -797,38 +1140,36 @@ class APIKeysTab(QWidget):
             }
         """)
         status_label.hide()
-        
-        clear_button.clicked.connect(
-            lambda: self.clear_api_key(provider_key, api_input, status_label))
-
-        key_container_layout.addWidget(api_input)
-        key_container_layout.addWidget(toggle_button)
-        key_container_layout.addWidget(clear_button)
-
-        api_key_layout.addWidget(key_container)
         api_key_layout.addWidget(status_label)
-        section_layout.addLayout(api_key_layout)
+        
+        section_layout.addWidget(api_key_container)
 
-        # Save button
-        button_layout = QHBoxLayout()
+        # Button container with modern styling
+        button_container = QWidget()
+        button_container.setStyleSheet("background-color: transparent;")
+        button_layout = QHBoxLayout(button_container)
+        button_layout.setContentsMargins(0, 8, 0, 0)
+        button_layout.setSpacing(10)
+
+        # Save button with modern styling matching the danger button in settings_window.py
         save_button = QPushButton("Save")
+        save_button.setProperty("class", "danger")
         save_button.setStyleSheet("""
             QPushButton {
                 padding: 8px 16px;
                 font-size: 13px;
                 font-weight: bold;
                 border-radius: 6px;
-                max-width: 200px;
-                background-color: #2b5c99;
+                background-color: #dc2626;
+                border: 1px solid #ef4444;
                 color: white;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #366bb3;
             }
             QPushButton:pressed {
-                background-color: #1f4573;
-                padding: 9px 16px 7px 16px;
+                background-color: #b91c1c;
+            }
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #888888;
             }
         """)
         
@@ -843,35 +1184,61 @@ class APIKeysTab(QWidget):
             )
         )
         
-        button_layout.addWidget(save_button)
+        # Reset button with modern styling
+        reset_button = QPushButton("Reset")
+        reset_button.setProperty("class", "secondary")
+        reset_button.setStyleSheet("""
+            QPushButton {
+                padding: 8px 16px;
+                font-size: 13px;
+                font-weight: bold;
+                border-radius: 6px;
+                background-color: #404040;
+                border: 1px solid #505050;
+                color: white;
+            }
+            QPushButton:pressed {
+                background-color: #333333;
+            }
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #888888;
+            }
+        """)
+        reset_button.clicked.connect(lambda: self.clear_api_key(provider_key, api_input, status_label))
         
-        # Add "Add Another" button if this is the last section
+        # Add "Add Another" button with modern styling
         add_another_button = QPushButton("Add Another")
+        add_another_button.setProperty("class", "secondary")
         add_another_button.setStyleSheet("""
             QPushButton {
                 padding: 8px 16px;
                 font-size: 13px;
                 font-weight: bold;
                 border-radius: 6px;
-                max-width: 200px;
                 background-color: #404040;
+                border: 1px solid #505050;
                 color: white;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #4a4a4a;
             }
             QPushButton:pressed {
                 background-color: #333333;
-                padding: 9px 16px 7px 16px;
+            }
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #888888;
             }
         """)
         add_another_button.clicked.connect(self.add_another_custom_openai)
-        button_layout.addWidget(add_another_button)
         
-        # Add spacer to push buttons to the left
-        button_layout.addStretch()
-        section_layout.addLayout(button_layout)
+        # Make buttons take full width
+        button_layout.addWidget(save_button, 1)  # 1 is the stretch factor
+        button_layout.addWidget(reset_button, 1)  # 1 is the stretch factor
+        
+        # Add the "Add Another" button if this is the first section
+        if index == 0:
+            button_layout.addWidget(add_another_button)
+        
+        section_layout.addWidget(button_container)
 
         # Store references to inputs for this section
         section_data = {
@@ -891,7 +1258,7 @@ class APIKeysTab(QWidget):
         self.custom_openai_layout.addWidget(section)
         
         # Add to api_sections for filtering
-        display_name = f"Custom OpenAI Model {index+1}" if index > 0 else "Custom OpenAI Model"
+        display_name = f"Custom OpenAI Model {index+1}" if index > 0 else f"Custom: {model_id_input.text().strip()}"
         self.api_sections[provider_key] = {
             'widget': section,
             'category': APICategory.LLM_PROVIDERS
@@ -944,65 +1311,54 @@ class APIKeysTab(QWidget):
             self.add_custom_openai_section(new_index)
 
     def save_custom_openai_model(self, index, base_url_input, model_id_input, api_input, status_label):
-        """Save custom OpenAI model settings."""
+        """Save custom OpenAI model configuration."""
+        # Get the path to the eye icon
+        icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "icons")
+        eye_icon_path = os.path.join(icons_dir, "eye.svg")
+        
         base_url = base_url_input.text().strip()
         model_id = model_id_input.text().strip()
         api_key = api_input.text().strip()
         
         # Validate inputs
-        if not base_url or not model_id or not api_key:
-            self.show_status(status_label, "All fields are required", True)
-            return False
-        
-        # Validate base URL format
-        if not base_url.startswith(('http://', 'https://')):
-            self.show_status(status_label, "Base URL must start with http:// or https://", True)
-            return False
+        if not base_url:
+            self.show_status(status_label, "Please enter a base URL", True)
+            return
             
-        # Remove trailing slashes from base URL
-        base_url = base_url.rstrip('/')
-        base_url_input.setText(base_url)
-        
+        if not model_id:
+            self.show_status(status_label, "Please enter a model ID", True)
+            return
+            
+        if not api_key:
+            self.show_status(status_label, "Please enter an API key", True)
+            return
+            
         try:
-            # Determine the provider key based on index
-            provider_key = f"custom_openai_{index}" if index > 0 else "custom_openai"
+            # Determine the settings key based on index
+            settings_key = f"custom_openai_{index}" if index > 0 else "custom_openai"
+            provider_key = settings_key
             
             # Save API key
-            if not self.settings.set_api_key(provider_key, api_key):
-                self.show_status(status_label, "Failed to save API key", True)
-                return False
-            
-            # Hide the key after saving
-            api_input.setEchoMode(QLineEdit.EchoMode.Password)
-            
-            # Find the toggle button for this section
-            for section in self.custom_openai_sections:
-                if section['index'] == index:
-                    section['toggle_button'].setText("👁")
-                    break
+            self.settings.set_api_key(provider_key, api_key)
             
             # Save model settings
-            settings_key = f"custom_openai_{index}" if index > 0 else "custom_openai"
-            
-            # Ensure the models.custom_openai dictionary exists
-            if not self.settings.get('models', settings_key):
-                self.settings.set({}, 'models', settings_key)
-            
-            # Save the base URL and model ID
             self.settings.set(base_url, 'models', settings_key, 'base_url')
             self.settings.set(model_id, 'models', settings_key, 'model_id')
             
             # Add to selected models
             display_name = f"Custom {index+1}: {model_id}" if index > 0 else f"Custom: {model_id}"
             
-            # Log the model being added
-            logging.info(f"Adding custom OpenAI model: {model_id} with provider: {settings_key}")
+            # Hide the key after saving
+            api_input.setEchoMode(QLineEdit.EchoMode.Password)
             
-            self.settings.add_selected_model(
-                model_id,
-                settings_key,
-                display_name
-            )
+            # Update the toggle button icon
+            for section in self.custom_openai_sections:
+                if section['index'] == index:
+                    section['toggle_button'].setIcon(QIcon(eye_icon_path))
+                    break
+            
+            # Save model settings
+            self.settings.save()
             
             # Update the api_sections entry if it exists
             if provider_key in self.api_sections:
@@ -1010,27 +1366,30 @@ class APIKeysTab(QWidget):
                 widget = self.api_sections[provider_key]['widget']
                 label = widget.findChild(QLabel)
                 if label and "Custom OpenAI" in label.text():
-                    label.setText(f"Custom OpenAI Model: {model_id}")
+                    label.setText(f"Custom OpenAI-Compatible Model {index+1}" if index > 0 else "Custom OpenAI-Compatible Model")
             
             # Show success message
-            self.show_status(status_label, "Model settings saved successfully!")
+            self.show_status(status_label, "Model configuration saved successfully!")
             
             # Show confirmation dialog
             QMessageBox.information(
                 self,
                 "Success",
-                f"Custom OpenAI model settings have been saved successfully.",
+                f"Custom OpenAI model configuration has been saved successfully.",
                 QMessageBox.StandardButton.Ok
             )
             
-            # Apply filters to update visibility
-            self.apply_filters()
-            
-            return True  # Return success status
+            return True
             
         except Exception as e:
-            self.show_status(status_label, f"Error saving settings: {str(e)}", True)
-            logging.error(f"Error saving custom OpenAI model: {str(e)}", exc_info=True)
+            # Show error message
+            self.show_status(status_label, f"Failed to save model configuration: {str(e)}", True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to save model configuration: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
             return False
 
     def create_custom_openai_section(self):
@@ -1136,3 +1495,19 @@ class APIKeysTab(QWidget):
             "Custom OpenAI model has been removed.",
             QMessageBox.StandardButton.Ok
         )
+
+# Custom style to draw a text arrow for combo boxes
+class ComboBoxStyle(QProxyStyle):
+    def __init__(self, style=None):
+        super().__init__(style)
+        
+    def drawPrimitive(self, element, option, painter, widget=None):
+        if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown and isinstance(widget, QComboBox):
+            # Draw a custom arrow
+            rect = option.rect
+            painter.save()
+            painter.setPen(Qt.GlobalColor.white)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "▼")
+            painter.restore()
+            return
+        super().drawPrimitive(element, option, painter, widget)

@@ -223,20 +223,20 @@ class GeneralTab(QWidget):
         # Create main layout
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(12)
-        main_layout.setContentsMargins(16, 16, 24, 16)  # Increased right padding
+        main_layout.setContentsMargins(16, 16, 0, 16)  # Right padding is 0
 
         # Create a scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea { padding-right: 8px; background-color: transparent; }")
+        scroll.setStyleSheet("QScrollArea { padding-right: 0px; background-color: transparent; }")
 
         # Create a widget to hold all settings
         content = QWidget()
         content.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(content)
         layout.setSpacing(12)
-        layout.setContentsMargins(0, 0, 12, 0)  # Add right padding for scroll bar spacing
+        layout.setContentsMargins(0, 0, 8, 0)  # Added 8px right padding for gap between content and scrollbar
 
         # Custom Instructions Section
         instructions_section = SectionFrame(

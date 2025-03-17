@@ -129,9 +129,9 @@ class SettingsWindow(QMainWindow):
 
         # Create content area with card-like appearance
         content_container = QFrame()
-        content_container.setContentsMargins(20, 20, 20, 20)
+        content_container.setContentsMargins(0, 0, 5, 0) 
         content_layout = QVBoxLayout(content_container)
-        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setContentsMargins(0, 0, 0, 0) 
         
         # Create stacked widget for content
         self.content = QStackedWidget()
