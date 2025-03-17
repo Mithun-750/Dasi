@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QLabel,
 )
 from PyQt6.QtCore import Qt, QObject, QSize
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QPixmap
 import logging
 import socket
 
@@ -49,11 +49,34 @@ class ActionButton(QPushButton):
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setProperty("class", "primary")
+        self._original_text = text  # Store original text
+        
+        # Set fixed width for the button
+        self.setFixedWidth(170)  # Slightly smaller width
+        
+        # Center the button in its layout
+        self.setStyleSheet("""
+            QPushButton { 
+                text-align: center;
+            }
+        """)
         
         # Set icon if provided
         if icon_path and os.path.exists(icon_path):
             self.setIcon(QIcon(icon_path))
-            self.setIconSize(QSize(20, 20))
+            self.setIconSize(QSize(18, 18))  # Slightly smaller icon
+            
+            # Add spacing between icon and text, but keep centered
+            self.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+            # Adjust text with spacing that maintains center alignment
+            self.setText(" " + text)  # Less space needed with centered text
+    
+    def setText(self, text):
+        """Override setText to maintain proper spacing with icon"""
+        self._original_text = text
+        # Add a small spacing for better appearance
+        spaced_text = " " + text
+        super().setText(spaced_text)
 
 
 class SettingsWindow(QMainWindow):
@@ -83,6 +106,13 @@ class SettingsWindow(QMainWindow):
         self.setWindowTitle("Dasi Settings")
         self.setMinimumSize(900, 600)
 
+        # Get assets directory paths
+        # UI assets dir (for icons)
+        ui_assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
+        # Project root assets dir (for app logo)
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))  # src/ directory
+        root_assets_dir = os.path.join(project_root, "assets")
+
         # Create central widget and main layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -98,22 +128,94 @@ class SettingsWindow(QMainWindow):
         sidebar_layout.setSpacing(8)
         sidebar_layout.setContentsMargins(0, 20, 0, 20)
 
-        # Add logo or app name at the top of sidebar
-        logo_label = QLabel("Dasi Settings")
-        logo_label.setProperty("class", "heading")
-        logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo_label.setContentsMargins(0, 0, 0, 20)
-        sidebar_layout.addWidget(logo_label)
+        # Add modern logo and header at the top of sidebar
+        header_container = QWidget()
+        header_layout = QVBoxLayout(header_container)
+        header_layout.setContentsMargins(12, 15, 12, 5)  # Adjusted padding
+        header_layout.setSpacing(0)
+        
+        # Create horizontal layout for logo and title
+        logo_title_container = QWidget()
+        logo_title_layout = QHBoxLayout(logo_title_container)
+        logo_title_layout.setContentsMargins(0, 0, 0, 0)
+        logo_title_layout.setSpacing(14)  # Slightly more space between logo and text
+        logo_title_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)  # Ensure vertical centering
+        
+        # Add logo image
+        logo_image = QLabel()
+        logo_image.setFixedSize(QSize(40, 40))  # Consistent size
+        
+        # Set logo from assets using the root_assets_dir path
+        logo_path = os.path.join(root_assets_dir, "Dasi.png")
+        
+        if os.path.exists(logo_path):
+            pixmap = QPixmap(logo_path)
+            pixmap = pixmap.scaled(QSize(40, 40), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            logo_image.setPixmap(pixmap)
+            logo_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        else:
+            # Fallback text if logo can't be found
+            logo_image.setText("D")
+            logo_image.setStyleSheet("font-size: 22px; font-weight: bold; color: white;")
+            logo_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            logging.warning(f"Logo file not found at {logo_path}")
+            
+        # Text content for better vertical alignment
+        text_content = QWidget()
+        text_content_layout = QVBoxLayout(text_content)
+        text_content_layout.setContentsMargins(0, 0, 0, 0)
+        text_content_layout.setSpacing(0)  # No spacing between elements
+        
+        # Add stylish app name text
+        title_label = QLabel("Dasi")
+        title_label.setProperty("class", "header-title")
+        subtitle_label = QLabel("SETTINGS")
+        subtitle_label.setProperty("class", "header-subtitle")
+        
+        # Add text elements to layout
+        text_content_layout.addWidget(title_label)
+        text_content_layout.addWidget(subtitle_label)
+        
+        # Add elements to horizontal layout with proper alignment
+        logo_title_layout.addWidget(logo_image)
+        logo_title_layout.addWidget(text_content, 1)
+        
+        # Add the horizontal container to the main header layout
+        header_layout.addWidget(logo_title_container)
+        
+        # Add styling for text elements
+        header_container.setStyleSheet("""
+            QLabel.header-title {
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-weight: 600;
+                font-size: 19px;
+                color: #ffffff;
+                letter-spacing: 0.5px;
+                padding: 0px;
+            }
+            QLabel.header-subtitle {
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-weight: 400;
+                font-size: 10px;
+                color: #a0a0a0;
+                letter-spacing: 2px;
+                text-transform: uppercase;
+                padding: 0px;
+            }
+        """)
+        
+        # Add spacing and the header container to the sidebar
+        header_container.setContentsMargins(0, 0, 0, 25)  # More bottom spacing to separate from buttons
+        sidebar_layout.addWidget(header_container)
 
         # Create sidebar buttons with icons
         # Note: You'll need to create or download these icons and place them in the assets directory
-        assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
         
-        self.general_btn = SidebarButton("General", os.path.join(assets_dir, "icons/settings.png"))
-        self.api_keys_btn = SidebarButton("API Keys", os.path.join(assets_dir, "icons/key.png"))
-        self.models_btn = SidebarButton("Models", os.path.join(assets_dir, "icons/model.png"))
-        self.prompt_chunks_btn = SidebarButton("Prompt Chunks", os.path.join(assets_dir, "icons/prompt.png"))
-        self.web_search_btn = SidebarButton("Web Search", os.path.join(assets_dir, "icons/search.png"))
+        self.general_btn = SidebarButton("General", os.path.join(ui_assets_dir, "icons/settings.png"))
+        self.api_keys_btn = SidebarButton("API Keys", os.path.join(ui_assets_dir, "icons/key.png"))
+        self.models_btn = SidebarButton("Models", os.path.join(ui_assets_dir, "icons/model.png"))
+        self.prompt_chunks_btn = SidebarButton("Prompt Chunks", os.path.join(ui_assets_dir, "icons/prompt.png"))
+        self.web_search_btn = SidebarButton("Web Search", os.path.join(ui_assets_dir, "icons/search.png"))
 
         sidebar_layout.addWidget(self.general_btn)
         sidebar_layout.addWidget(self.api_keys_btn)
@@ -122,10 +224,23 @@ class SettingsWindow(QMainWindow):
         sidebar_layout.addWidget(self.web_search_btn)
         sidebar_layout.addStretch()
 
+        # Save icon paths for use in update_start_button method
+        self.play_icon_path = os.path.join(ui_assets_dir, "icons/play.png")
+        self.stop_icon_path = os.path.join(ui_assets_dir, "icons/stop.png")
+
         # Add Start Dasi button at the bottom
-        self.start_dasi_btn = ActionButton("Start Dasi", os.path.join(assets_dir, "icons/play.png"))
+        self.start_dasi_btn = ActionButton("Start Dasi", self.play_icon_path)
         self.start_dasi_btn.clicked.connect(self.start_dasi)
-        sidebar_layout.addWidget(self.start_dasi_btn)
+        
+        # Create a container for button to allow centering
+        button_container = QHBoxLayout()
+        button_container.setContentsMargins(0, 5, 0, 5)
+        button_container.addStretch()
+        button_container.addWidget(self.start_dasi_btn)
+        button_container.addStretch()
+        
+        # Add the container to the sidebar layout
+        sidebar_layout.addLayout(button_container)
 
         # Create content area with card-like appearance
         content_container = QFrame()
@@ -189,6 +304,7 @@ class SettingsWindow(QMainWindow):
             self.start_dasi_btn.setText("Stop Dasi")
             self.start_dasi_btn.setEnabled(True)
             self.start_dasi_btn.setProperty("class", "danger")
+            self.start_dasi_btn.setIcon(QIcon(self.stop_icon_path))
             self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
             self.start_dasi_btn.style().polish(self.start_dasi_btn)
             
@@ -213,6 +329,7 @@ class SettingsWindow(QMainWindow):
             self.start_dasi_btn.setText("Stop Dasi")
             self.start_dasi_btn.setEnabled(True)
             self.start_dasi_btn.setProperty("class", "danger")
+            self.start_dasi_btn.setIcon(QIcon(self.stop_icon_path))
             self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
             self.start_dasi_btn.style().polish(self.start_dasi_btn)
             
@@ -235,6 +352,7 @@ class SettingsWindow(QMainWindow):
                 self.start_dasi_btn.setText("Stop Dasi")
                 self.start_dasi_btn.setEnabled(True)
                 self.start_dasi_btn.setProperty("class", "danger")
+                self.start_dasi_btn.setIcon(QIcon(self.stop_icon_path))
                 self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
                 self.start_dasi_btn.style().polish(self.start_dasi_btn)
                 
@@ -258,6 +376,7 @@ class SettingsWindow(QMainWindow):
                 self.start_dasi_btn.setText("Stop Dasi")
                 self.start_dasi_btn.setEnabled(True)
                 self.start_dasi_btn.setProperty("class", "danger")
+                self.start_dasi_btn.setIcon(QIcon(self.stop_icon_path))
                 self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
                 self.start_dasi_btn.style().polish(self.start_dasi_btn)
                 
@@ -272,7 +391,8 @@ class SettingsWindow(QMainWindow):
                 has_models = bool(self.settings.get_selected_models())
                 self.start_dasi_btn.setEnabled(has_models)
                 self.start_dasi_btn.setText("Start Dasi" if has_models else "Select Models First")
-                self.start_dasi_btn.setProperty("class", "primary")
+                self.start_dasi_btn.setProperty("class", "danger")  # Keep the same color as Stop button
+                self.start_dasi_btn.setIcon(QIcon(self.play_icon_path))
                 self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
                 self.start_dasi_btn.style().polish(self.start_dasi_btn)
                 
@@ -337,6 +457,7 @@ class SettingsWindow(QMainWindow):
                 # Update button to show Stop Dasi
                 self.start_dasi_btn.setText("Stop Dasi")
                 self.start_dasi_btn.setProperty("class", "danger")
+                self.start_dasi_btn.setIcon(QIcon(self.stop_icon_path))
                 self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
                 self.start_dasi_btn.style().polish(self.start_dasi_btn)
                 try:
@@ -379,7 +500,8 @@ class SettingsWindow(QMainWindow):
             has_models = bool(self.settings.get_selected_models())
             self.start_dasi_btn.setText("Start Dasi" if has_models else "Select Models First")
             self.start_dasi_btn.setEnabled(has_models)
-            self.start_dasi_btn.setProperty("class", "primary")
+            self.start_dasi_btn.setProperty("class", "danger")  # Keep the "danger" class
+            self.start_dasi_btn.setIcon(QIcon(self.play_icon_path))
             self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
             self.start_dasi_btn.style().polish(self.start_dasi_btn)
             try:
