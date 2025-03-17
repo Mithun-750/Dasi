@@ -141,6 +141,14 @@ class SectionFrame(QFrame):
         super().__init__(parent)
         self.setProperty("class", "card")
         
+        self.setStyleSheet("""
+            QFrame.card {
+                background-color: #1e1e1e;
+                border-radius: 8px;
+                border: 1px solid #333333;
+            }
+        """)
+        
         self.layout = QVBoxLayout(self)
         self.layout.setSpacing(12)
         self.layout.setContentsMargins(16, 16, 16, 16)

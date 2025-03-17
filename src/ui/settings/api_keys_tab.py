@@ -118,7 +118,7 @@ class APIKeysTab(QWidget):
         filter_widget.setProperty("class", "card")
         filter_widget.setStyleSheet("""
             QFrame.card {
-                background-color: #222222;
+                background-color: #1e1e1e;
                 border-radius: 8px;
                 border: 1px solid #333333;
             }
@@ -419,7 +419,7 @@ class APIKeysTab(QWidget):
         section.setProperty("class", "card")
         section.setStyleSheet("""
             QFrame.card {
-                background-color: #222222;
+                background-color: #1e1e1e;
                 border-radius: 8px;
                 padding: 16px;
                 margin: 4px 0px;
