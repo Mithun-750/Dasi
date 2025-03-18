@@ -24,10 +24,15 @@ Dasi is a powerful desktop copilot application that provides inline LLM support 
 - **UI Components**:
   - PyQt6 is used for all UI elements
   - UI components are organized in a modular fashion
+  - Use SectionFrame for consistent section styling across all tabs
   - Custom styling is applied via centralized stylesheets
   - Follow the existing pattern of separating UI setup from logic
   - Use CSS-like class properties instead of inline styles
   - Leverage the theme system for consistent styling
+  - Maintain consistent spacing (12px between sections, 16px padding)
+  - Set right content margin to 8px to allow space between content and scrollbar
+  - Use transparent backgrounds for container widgets with the "transparent-container" class
+  - Implement custom ComboBoxStyle for dropdown arrows for consistent styling
 
 - **Error Handling**:
   - Use try/except blocks for operations that might fail
@@ -60,6 +65,34 @@ Dasi is a powerful desktop copilot application that provides inline LLM support 
 - Provides consistent styling across all components through a centralized stylesheet
 - Uses icons for better visual recognition and user experience
 - Supports both light and dark themes with proper color contrast
+- Implements scrollable content areas with transparent scrollbars
+- Uses SectionFrame for consistent section headers with titles and descriptions
+
+## Form Controls Styling
+
+- **Checkboxes**:
+  - Rely on the global stylesheet for checkbox styling rather than inline styles
+  - Use `checkmark.png` or `checkmark.svg` from the icons directory for the checked state
+  - Apply hover effects for better user feedback
+  - Use proper spacing (8px) and consistent styling
+
+- **Dropdown Menus**:
+  - Use the ComboBoxStyle class for consistent dropdown arrow styling
+  - Implement proper padding (10px 12px) and border radius (6px)
+  - Use consistent colors: #2a2a2a background with #3b3b3b borders
+  - Include hover and focused states with appropriate styling
+
+- **Spinboxes**:
+  - Style spinboxes consistently with padding (10px 12px)
+  - Style up/down buttons with proper colors and hover effects
+  - Use border radius (6px) matching other form controls
+
+- **Buttons**:
+  - Primary actions: Use "primary" class (blue styling)
+  - Danger actions: Use "danger" class (red styling) 
+  - Secondary actions: Use default styling
+  - Apply consistent button spacing (8px between buttons)
+  - Follow appropriate button ordering conventions (Cancel/Reset, then Save/Apply)
 
 ## Best Practices
 
@@ -74,9 +107,13 @@ Dasi is a powerful desktop copilot application that provides inline LLM support 
    - Use the centralized stylesheet in `ui/assets/style.qss` for styling
    - Apply CSS-like classes to widgets using the `setProperty` method
    - Use the theme system in `ui/assets/theme.py` for consistent theming
-   - Follow the card-based UI pattern for content organization
-   - Use proper spacing and margins for better visual hierarchy
-   - Include icons for better visual recognition
+   - Follow the card-based UI pattern with SectionFrame for content organization
+   - Use consistent spacing (12px between sections, 16px margins)
+   - Use transparent backgrounds for container widgets
+   - Implement scrollable content areas with transparent scrollbars
+   - Ensure all form controls follow the established styling patterns
+   - Show/hide action buttons based on whether there are unsaved changes
+   - Support keyboard navigation with proper tab order and keyboard shortcuts
 
 3. **LLM Integration**:
    - Use the LLMHandler class for all LLM interactions
@@ -118,6 +155,7 @@ Dasi is a powerful desktop copilot application that provides inline LLM support 
 3. **UI Component Creation**:
    ```python
    from PyQt6.QtWidgets import QWidget, QVBoxLayout
+   from .general_tab import SectionFrame
    
    class CustomComponent(QWidget):
        def __init__(self, parent=None):
@@ -126,7 +164,27 @@ Dasi is a powerful desktop copilot application that provides inline LLM support 
            
        def setup_ui(self):
            layout = QVBoxLayout(self)
-           # Add widgets to layout
+           layout.setSpacing(12)
+           layout.setContentsMargins(16, 16, 0, 16)
+           
+           # Create a section with title and description
+           section = SectionFrame(
+               "Section Title",
+               "Section description providing context for the contained settings."
+           )
+           
+           # Add content to the section
+           content_container = QWidget()
+           content_container.setProperty("class", "transparent-container")
+           content_layout = QVBoxLayout(content_container)
+           content_layout.setContentsMargins(0, 0, 0, 0)
+           content_layout.setSpacing(8)
+           
+           # Add the content container to the section
+           section.layout.addWidget(content_container)
+           
+           # Add the section to the main layout
+           layout.addWidget(section)
    ```
 
 4. **Applying Styles to Widgets**:
@@ -141,17 +199,52 @@ Dasi is a powerful desktop copilot application that provides inline LLM support 
 
 5. **Creating Card-Based Layouts**:
    ```python
-   # Create a card container
-   card = QFrame()
-   card.setProperty("class", "card")
+   # Import SectionFrame for consistent card styling
+   from .general_tab import SectionFrame
+   
+   # Create a section with title and description
+   card = SectionFrame(
+       "Card Title",
+       "Card description with additional context."
+   )
    
    # Add content to the card
-   card_layout = QVBoxLayout(card)
-   card_layout.setContentsMargins(20, 20, 20, 20)
-   card_layout.addWidget(content_widget)
+   content_widget = QWidget()
+   content_widget.setProperty("class", "transparent-container")
+   content_layout = QVBoxLayout(content_widget)
+   content_layout.setContentsMargins(0, 0, 0, 0)
+   content_layout.setSpacing(8)
+   
+   # Add widgets to content_layout
+   
+   # Add the content widget to the card
+   card.layout.addWidget(content_widget)
    ```
 
-6. **Applying the Theme**:
+6. **ComboBox with Custom Arrow Style**:
+   ```python
+   # Create custom style class for drawing combobox arrows
+   class ComboBoxStyle(QProxyStyle):
+       def __init__(self, style=None):
+           super().__init__(style)
+           
+       def drawPrimitive(self, element, option, painter, widget=None):
+           if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown and isinstance(widget, QComboBox):
+               # Draw a custom arrow
+               rect = option.rect
+               painter.save()
+               painter.setPen(Qt.GlobalColor.white)
+               painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "▼")
+               painter.restore()
+               return
+           super().drawPrimitive(element, option, painter, widget)
+   
+   # Create and style the combobox
+   combo_box = QComboBox()
+   combo_box.setStyle(ComboBoxStyle())
+   ```
+
+7. **Applying the Theme**:
    ```python
    from ui.assets import apply_theme
    
@@ -159,7 +252,27 @@ Dasi is a powerful desktop copilot application that provides inline LLM support 
    apply_theme(app, "dark")  # Options: "dark", "light", "auto"
    ```
 
-7. **Prompt Chunk Usage**:
+8. **Handling Unsaved Changes**:
+   ```python
+   # Check for unsaved changes
+   def check_for_changes(self):
+       current = self.get_current_values()
+       self.has_unsaved_changes = current != self.original_values
+       self.update_button_visibility()
+       
+   # Update button visibility based on changes
+   def update_button_visibility(self):
+       self.button_container.setVisible(self.has_unsaved_changes)
+   
+   # Connect change signals
+   self.input_field.textChanged.connect(self._on_any_change)
+   
+   # Handle change events
+   def _on_any_change(self):
+       self.check_for_changes()
+   ```
+
+9. **Prompt Chunk Usage**:
    ```python
    # Format for accessing prompt chunks in text
    text_with_chunk = "Let me help you with this @chunk_name problem"

@@ -13,10 +13,32 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QGridLayout,
     QMessageBox,
+    QStyledItemDelegate,
+    QProxyStyle,
+    QStyle
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
+from PyQt6.QtGui import QIcon
 from .settings_manager import Settings
+from .general_tab import SectionFrame  # Import SectionFrame from general_tab
 import logging
+
+
+# Custom style to draw a text arrow for combo boxes
+class ComboBoxStyle(QProxyStyle):
+    def __init__(self, style=None):
+        super().__init__(style)
+        
+    def drawPrimitive(self, element, option, painter, widget=None):
+        if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown and isinstance(widget, QComboBox):
+            # Draw a custom arrow
+            rect = option.rect
+            painter.save()
+            painter.setPen(Qt.GlobalColor.white)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "▼")
+            painter.restore()
+            return
+        super().drawPrimitive(element, option, painter, widget)
 
 
 class WebSearchTab(QWidget):
@@ -79,13 +101,8 @@ class WebSearchTab(QWidget):
     def init_ui(self):
         # Create main layout
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(20)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        
-        # Title
-        title = QLabel("Web Search Settings")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        main_layout.addWidget(title)
+        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(16, 16, 0, 16)  # Match general_tab padding
         
         # Create a scroll area
         scroll = QScrollArea()
@@ -93,13 +110,13 @@ class WebSearchTab(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
+            QScrollArea { 
+                padding-right: 8px; 
+                background-color: transparent; 
             }
             QScrollBar:vertical {
                 border: none;
-                background-color: #2b2b2b;
+                background-color: transparent;
                 width: 10px;
                 margin: 0px;
             }
@@ -119,31 +136,66 @@ class WebSearchTab(QWidget):
         
         # Content widget for scroll area
         content = QWidget()
+        content.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(content)
-        layout.setSpacing(20)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 8, 0)  # Added 8px right padding for gap between content and scrollbar
         
         # General search settings section
-        general_section, general_layout = self.create_section("General Search Settings")
+        general_section = SectionFrame(
+            "Web Search Settings",
+            "Configure how Dasi performs web searches and presents results."
+        )
         
         # Default search provider
         provider_container = QWidget()
+        provider_container.setProperty("class", "transparent-container")
         provider_layout = QVBoxLayout(provider_container)
         provider_layout.setContentsMargins(0, 0, 0, 0)
+        provider_layout.setSpacing(8)
         
         provider_label = QLabel("Default Search Provider")
-        provider_label.setStyleSheet("font-weight: bold;")
+        provider_label.setProperty("class", "setting-label")
         
         self.default_provider = QComboBox()
         self.default_provider.setStyleSheet("""
             QComboBox {
-                background-color: #363636;
-                border: none;
-                border-radius: 4px;
-                padding: 8px;
+                padding: 10px 12px;
+                background-color: #2a2a2a;
+                border: 1px solid #3b3b3b;
+                border-radius: 6px;
+                color: #e0e0e0;
+                min-height: 20px;
                 font-size: 13px;
             }
+            QComboBox:hover {
+                border: 1px solid #4a4a4a;
+                background-color: #2d2d2d;
+            }
+            QComboBox:focus {
+                border: 1px solid #3b82f6;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                width: 24px;
+                border-left: 1px solid #3b3b3b;
+                border-top-right-radius: 6px;
+                border-bottom-right-radius: 6px;
+                background-color: transparent;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2a2a2a;
+                border: 1px solid #3b3b3b;
+                border-radius: 6px;
+                selection-background-color: #3b82f6;
+                selection-color: white;
+                padding: 4px;
+            }
         """)
+        
+        # Apply custom style for the arrow
+        self.default_provider.setStyle(ComboBoxStyle())
         
         # Add search providers
         self.default_provider.addItem("Google Serper", "google_serper")
@@ -163,41 +215,71 @@ class WebSearchTab(QWidget):
         
         # Max results
         results_container = QWidget()
+        results_container.setProperty("class", "transparent-container")
         results_layout = QVBoxLayout(results_container)
         results_layout.setContentsMargins(0, 0, 0, 0)
+        results_layout.setSpacing(8)
         
         results_label = QLabel("Maximum Search Results")
-        results_label.setStyleSheet("font-weight: bold;")
+        results_label.setProperty("class", "setting-label")
         
         self.max_results = QSpinBox()
         self.max_results.setRange(1, 20)
         self.max_results.setValue(self.settings.get('web_search', 'max_results', default=5))
         self.max_results.setStyleSheet("""
             QSpinBox {
-                background-color: #363636;
-                border: none;
-                border-radius: 4px;
-                padding: 8px;
+                padding: 10px 12px;
+                background-color: #2a2a2a;
+                border: 1px solid #3b3b3b;
+                border-radius: 6px;
+                color: #e0e0e0;
+                min-height: 20px;
                 font-size: 13px;
+            }
+            QSpinBox:focus {
+                border: 1px solid #3b82f6;
+                background-color: #2d2d2d;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                background-color: #333333;
+                border: none;
+                width: 16px;
+                border-radius: 3px;
+            }
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+                background-color: #444444;
             }
         """)
         
         results_layout.addWidget(results_label)
         results_layout.addWidget(self.max_results)
         
-        # Scrape content checkbox
+        # Options section
+        options_container = QWidget()
+        options_container.setProperty("class", "transparent-container")
+        options_layout = QVBoxLayout(options_container)
+        options_layout.setContentsMargins(0, 8, 0, 0)
+        options_layout.setSpacing(8)
+        
+        options_label = QLabel("Additional Options")
+        options_label.setProperty("class", "setting-label")
+        options_layout.addWidget(options_label)
+        
+        # Scrape content checkbox - exactly matching api_keys_tab.py styling
         self.scrape_content = QCheckBox("Scrape content from search results")
         self.scrape_content.setChecked(self.settings.get('web_search', 'scrape_content', default=True))
         
-        # Include citations checkbox
+        # Include citations checkbox - exactly matching api_keys_tab.py styling
         self.include_citations = QCheckBox("Include citations in responses")
         self.include_citations.setChecked(self.settings.get('web_search', 'include_citations', default=True))
         
+        options_layout.addWidget(self.scrape_content)
+        options_layout.addWidget(self.include_citations)
+        
         # Add all to general layout
-        general_layout.addWidget(provider_container)
-        general_layout.addWidget(results_container)
-        general_layout.addWidget(self.scrape_content)
-        general_layout.addWidget(self.include_citations)
+        general_section.layout.addWidget(provider_container)
+        general_section.layout.addWidget(results_container)
+        general_section.layout.addWidget(options_container)
         
         # Add sections to main layout
         layout.addWidget(general_section)
@@ -209,45 +291,23 @@ class WebSearchTab(QWidget):
         
         # Create button container at the bottom
         self.button_container = QWidget()
+        self.button_container.setProperty("class", "transparent-container")
+        self.button_container.setStyleSheet("background-color: transparent;")
         button_layout = QHBoxLayout(self.button_container)
-        button_layout.setContentsMargins(0, 10, 0, 0)
+        button_layout.setContentsMargins(0, 16, 0, 0)
+        button_layout.setSpacing(8)
         
         # Add Cancel button
         cancel_button = QPushButton("Cancel")
-        cancel_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4a4a4a;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                color: white;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #5a5a5a;
-            }
-        """)
         cancel_button.clicked.connect(self._cancel_changes)
         
         # Add Save button
-        save_all_button = QPushButton("Save Changes")
-        save_all_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2b5c99;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                color: white;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #366bb3;
-            }
-        """)
+        save_all_button = QPushButton("Save & Apply")
+        save_all_button.setProperty("class", "primary")
         save_all_button.clicked.connect(self._save_all_changes)
         
-        button_layout.addStretch()
         button_layout.addWidget(cancel_button)
+        button_layout.addStretch()
         button_layout.addWidget(save_all_button)
         
         main_layout.addWidget(self.button_container)
@@ -258,26 +318,6 @@ class WebSearchTab(QWidget):
         self.max_results.valueChanged.connect(self._on_any_change)
         self.scrape_content.stateChanged.connect(self._on_any_change)
         self.include_citations.stateChanged.connect(self._on_any_change)
-        
-    def create_section(self, title):
-        """Create a styled section with title and return both the section and its layout."""
-        section = QFrame()
-        section.setStyleSheet("""
-            QFrame {
-                background-color: #2b2b2b;
-                border-radius: 8px;
-                padding: 15px;
-            }
-        """)
-        
-        layout = QVBoxLayout(section)
-        layout.setSpacing(15)
-        
-        title_label = QLabel(title)
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #cccccc;")
-        layout.addWidget(title_label)
-        
-        return section, layout
     
     def _on_any_change(self):
         """Handler for any change in the settings."""
@@ -338,21 +378,9 @@ class WebSearchTab(QWidget):
         # Style the buttons
         for button in msg_box.buttons():
             if msg_box.buttonRole(button) == QMessageBox.ButtonRole.YesRole:
-                button.setStyleSheet("""
-                    QPushButton {
-                        background-color: #2b5c99;
-                        color: white;
-                        border: none;
-                        padding: 6px 12px;
-                        border-radius: 4px;
-                    }
-                    QPushButton:hover {
-                        background-color: #366bb3;
-                    }
-                    QPushButton:pressed {
-                        background-color: #1f4573;
-                    }
-                """)
+                button.setProperty("class", "primary")
+                button.style().unpolish(button)
+                button.style().polish(button)
 
         response = msg_box.exec()
 
@@ -361,8 +389,6 @@ class WebSearchTab(QWidget):
         
     def _restart_dasi_service(self):
         """Helper method to restart Dasi service with a single message."""
-        from PyQt6.QtCore import QTimer
-        
         main_window = self.window()
         if main_window and hasattr(main_window, 'stop_dasi') and hasattr(main_window, 'start_dasi'):
             # Stop Dasi without showing message
