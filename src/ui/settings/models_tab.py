@@ -468,23 +468,18 @@ class SearchableComboBox(QComboBox):
         # Create search line edit
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Search models...")
-        self.search_edit.setStyleSheet("""
-            QLineEdit {
-                padding: 5px;
-                border: none;
-                background-color: #2b2b2b;
-                color: white;
-            }
-        """)
+        self.search_edit.setProperty("class", "search-input")
 
         # Create and setup the popup frame
         self.popup = QFrame(self)
         self.popup.setWindowFlags(Qt.WindowType.Popup)
-        self.popup.setFrameStyle(QFrame.Shape.Box)
+        self.popup.setFrameStyle(QFrame.Shape.NoFrame)
+        self.popup.setProperty("class", "card")
         self.popup.setStyleSheet("""
             QFrame {
-                border: 1px solid #3f3f3f;
-                background-color: #2b2b2b;
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 6px;
             }
         """)
 
@@ -493,53 +488,38 @@ class SearchableComboBox(QComboBox):
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-            QScrollBar:vertical {
-                border: none;
-                background-color: #2b2b2b;
-                width: 10px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #404040;
-                min-height: 20px;
-                border-radius: 5px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                border: none;
-                background: none;
-            }
-        """)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setStyleSheet("background-color: transparent;")
 
         # Create list widget for items
         self.list_widget = QListWidget()
+        self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
         self.list_widget.setStyleSheet("""
             QListWidget {
-                border: none;
                 background-color: transparent;
+                border: none;
                 outline: none;
             }
             QListWidget::item {
-                padding: 5px;
-                border: none;
+                padding: 8px;
+                border-radius: 4px;
+                margin: 2px;
+                color: #e0e0e0;
             }
             QListWidget::item:selected {
-                background-color: #404040;
+                background-color: #3b82f6;
+                color: white;
             }
-            QListWidget::item:hover {
-                background-color: #353535;
+            QListWidget::item:hover:!selected {
+                background-color: #333333;
             }
         """)
         self.scroll.setWidget(self.list_widget)
 
         # Setup popup layout
         self.popup_layout = QVBoxLayout(self.popup)
-        self.popup_layout.setContentsMargins(0, 0, 0, 0)
-        self.popup_layout.setSpacing(0)
+        self.popup_layout.setContentsMargins(8, 8, 8, 8)
+        self.popup_layout.setSpacing(8)
         self.popup_layout.addWidget(self.search_edit)
         self.popup_layout.addWidget(self.scroll)
 
@@ -598,21 +578,21 @@ class ModelsTab(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
-        layout.setContentsMargins(16, 16, 0, 16)  # Right padding is 0 to match general_tab
+        layout.setContentsMargins(16, 16, 16, 16)  # Adjusted right padding from 0 to 16
 
         # Create a scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { padding-right: 8px; background-color: transparent; }")
+        scroll.setStyleSheet("QScrollArea { background-color: transparent; }")
 
         # Create a widget to hold all content
         content = QWidget()
         content.setStyleSheet("background-color: transparent;")
         content_layout = QVBoxLayout(content)
         content_layout.setSpacing(12)
-        content_layout.setContentsMargins(0, 0, 8, 0)  # Added 8px right padding for gap between content and scrollbar
+        content_layout.setContentsMargins(0, 0, 0, 0)  # Removed 8px right padding
 
         # Model Selection Section
         selection_section = SectionFrame(

@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QStyle
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QPainter, QPainterPath, QColor
 from .settings_manager import Settings
 from .general_tab import SectionFrame  # Import SectionFrame from general_tab
 import logging
@@ -31,11 +31,36 @@ class ComboBoxStyle(QProxyStyle):
         
     def drawPrimitive(self, element, option, painter, widget=None):
         if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown and isinstance(widget, QComboBox):
-            # Draw a custom arrow
+            # Draw a cleaner triangle arrow matching the modern UI
             rect = option.rect
             painter.save()
-            painter.setPen(Qt.GlobalColor.white)
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "▼")
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            # Define the arrow shape as a triangle
+            center_x = rect.center().x()
+            center_y = rect.center().y()
+            # Slightly smaller, more refined triangle size
+            arrow_size = 8
+            
+            # Create triangle points
+            points = [
+                (center_x - arrow_size//2, center_y - arrow_size//4),
+                (center_x + arrow_size//2, center_y - arrow_size//4),
+                (center_x, center_y + arrow_size//2)
+            ]
+            
+            # Draw the arrow with slightly lighter color for better visibility
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor('#aaaaaa'))
+            
+            # Draw the triangle
+            path = QPainterPath()
+            path.moveTo(points[0][0], points[0][1])
+            path.lineTo(points[1][0], points[1][1])
+            path.lineTo(points[2][0], points[2][1])
+            path.closeSubpath()
+            painter.drawPath(path)
+            
             painter.restore()
             return
         super().drawPrimitive(element, option, painter, widget)
@@ -102,7 +127,7 @@ class WebSearchTab(QWidget):
         # Create main layout
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(12)
-        main_layout.setContentsMargins(16, 16, 0, 16)  # Match general_tab padding
+        main_layout.setContentsMargins(16, 16, 16, 16)  # Adjusted right margin from 0 to 16
         
         # Create a scroll area
         scroll = QScrollArea()
@@ -111,7 +136,6 @@ class WebSearchTab(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("""
             QScrollArea { 
-                padding-right: 8px; 
                 background-color: transparent; 
             }
             QScrollBar:vertical {
@@ -139,7 +163,7 @@ class WebSearchTab(QWidget):
         content.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(content)
         layout.setSpacing(12)
-        layout.setContentsMargins(0, 0, 8, 0)  # Added 8px right padding for gap between content and scrollbar
+        layout.setContentsMargins(0, 0, 0, 0)  # Removed 8px right padding
         
         # General search settings section
         general_section = SectionFrame(

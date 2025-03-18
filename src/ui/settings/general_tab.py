@@ -59,7 +59,7 @@ class SearchableComboBox(QComboBox):
         self.scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll.setStyleSheet("QScrollArea { padding-right: 8px; background-color: transparent; }")
+        self.scroll.setStyleSheet("background-color: transparent;")
 
         # Create list widget for items
         self.list_widget = QListWidget()
@@ -231,20 +231,20 @@ class GeneralTab(QWidget):
         # Create main layout
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(12)
-        main_layout.setContentsMargins(16, 16, 0, 16)  # Right padding is 0
+        main_layout.setContentsMargins(16, 16, 16, 16)  # Adjusted right padding
 
         # Create a scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea { padding-right: 0px; background-color: transparent; }")
+        scroll.setStyleSheet("background-color: transparent;")
 
         # Create a widget to hold all settings
         content = QWidget()
         content.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(content)
         layout.setSpacing(12)
-        layout.setContentsMargins(0, 0, 8, 0)  # Added 8px right padding for gap between content and scrollbar
+        layout.setContentsMargins(0, 0, 0, 0)  # Adjusted right padding
 
         # Custom Instructions Section
         instructions_section = SectionFrame(
