@@ -17,10 +17,122 @@ from PyQt6.QtWidgets import (
     QStyledItemDelegate,
     QProgressBar,
     QSizePolicy,
+    QStyleOption,
+    QStyle,
 )
-from PyQt6.QtCore import Qt, QEvent, QThread, pyqtSignal, QObject
-from PyQt6.QtGui import QPalette
+from PyQt6.QtCore import Qt, QEvent, QThread, pyqtSignal, QObject, QRectF
+from PyQt6.QtGui import QPalette, QPainter, QPainterPath, QColor, QFont, QFontMetrics
 from .settings_manager import Settings
+from .general_tab import SectionFrame
+
+
+class RoundLabel(QLabel):
+    """Custom label with rounded corners using QPainter."""
+    
+    def __init__(self, text, parent=None, radius=12):
+        super().__init__(text, parent)
+        self.radius = radius
+        # Set colors for the label - match the original styling
+        self.bg_color = QColor(76, 175, 80, 25)  # Light green background with ~10% opacity
+        self.text_color = QColor(76, 175, 80)  # Green text (#4caf50)
+        # Set fixed height for consistent look
+        self.setFixedHeight(24)
+        # Set content margins to create padding
+        self.setContentsMargins(12, 4, 12, 4)
+        # Set font size
+        font = self.font()
+        font.setPointSize(9)  # Same as the original 12px
+        self.setFont(font)
+        # Calculate width based on text + padding
+        metrics = self.fontMetrics()
+        text_width = metrics.horizontalAdvance(text)
+        self.setMinimumWidth(text_width + 24)  # 12px padding on each side
+    
+    def sizeHint(self):
+        size = super().sizeHint()
+        size.setHeight(24)
+        return size
+    
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        try:
+            # Create the path for the rounded rectangle
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(0, 0, self.width(), self.height()), 
+                                self.radius, self.radius)
+            
+            # Set the clipping path
+            painter.setClipPath(path)
+            
+            # Fill background
+            painter.fillRect(self.rect(), self.bg_color)
+            
+            # Draw text - use the font we set in the constructor
+            painter.setPen(self.text_color)
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
+        finally:
+            painter.end()
+
+
+class RoundButton(QPushButton):
+    """Custom button with rounded corners using QPainter."""
+    
+    def __init__(self, text, parent=None, radius=14):
+        super().__init__(text, parent)
+        self.radius = radius
+        self.hover = False
+        # Store colors as QColor objects
+        self.border_color = QColor(220, 38, 38, 76)  # ~30% opacity
+        self.hover_border_color = QColor(220, 38, 38, 102)  # ~40% opacity
+        self.hover_bg_color = QColor(220, 38, 38, 25)  # ~10% opacity
+        self.text_color = QColor(239, 68, 68)  # #ef4444
+        
+    def enterEvent(self, event):
+        self.hover = True
+        self.update()
+        return super().enterEvent(event)
+        
+    def leaveEvent(self, event):
+        self.hover = False
+        self.update()
+        return super().leaveEvent(event)
+        
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        try:
+            # Create the path for the perfect circle
+            path = QPainterPath()
+            path.addEllipse(QRectF(1, 1, self.width()-2, self.height()-2))
+            
+            # Set the clipping path
+            painter.setClipPath(path)
+            
+            # Draw the background
+            if self.hover:
+                # Hover state
+                painter.fillRect(self.rect(), self.hover_bg_color)
+            else:
+                # Normal state
+                painter.fillRect(self.rect(), Qt.GlobalColor.transparent)
+            
+            # Draw the border
+            painter.setPen(self.hover_border_color if self.hover else self.border_color)
+            painter.drawEllipse(1, 1, self.width()-2, self.height()-2)
+            
+            # Draw the text centered
+            painter.setPen(self.text_color)
+            font = painter.font()
+            font.setPointSize(12)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
+        finally:
+            # Make sure painter is ended properly
+            painter.end()
 
 
 class ModelFetchWorker(QThread):
@@ -362,7 +474,6 @@ class SearchableComboBox(QComboBox):
                 border: none;
                 background-color: #2b2b2b;
                 color: white;
-                border-radius: 0px;
             }
         """)
 
@@ -486,109 +597,67 @@ class ModelsTab(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 0, 16)  # Right padding is 0 to match general_tab
 
-        # Title
-        title = QLabel("Models")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        layout.addWidget(title)
+        # Create a scroll area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { padding-right: 8px; background-color: transparent; }")
 
-        # Model selection section
+        # Create a widget to hold all content
+        content = QWidget()
+        content.setStyleSheet("background-color: transparent;")
+        content_layout = QVBoxLayout(content)
+        content_layout.setSpacing(12)
+        content_layout.setContentsMargins(0, 0, 8, 0)  # Added 8px right padding for gap between content and scrollbar
+
+        # Model Selection Section
+        selection_section = SectionFrame(
+            "Model Selection",
+            "Select and manage AI models for use with Dasi. Changes take effect after restarting the service."
+        )
+
+        # Model selection container
         selection_widget = QWidget()
+        selection_widget.setProperty("class", "transparent-container")
         selection_layout = QHBoxLayout(selection_widget)
         selection_layout.setContentsMargins(0, 0, 0, 0)
+        selection_layout.setSpacing(8)
 
         # Model dropdown (using custom searchable combo box)
         self.model_dropdown = SearchableComboBox()
-        self.model_dropdown.setStyleSheet("""
-            QComboBox {
-                padding: 8px;
-                border-radius: 4px;
-                font-size: 13px;
-                min-width: 200px;
-                background-color: #363636;
-            }
-            QComboBox::drop-down {
-                border: none;
-                padding-right: 10px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid #cccccc;
-                margin-right: 5px;
-            }
-        """)
+        self.model_dropdown.setMinimumWidth(300)
         self.model_dropdown.addItem("Loading models...")
         self.model_dropdown.setEnabled(False)
 
-        # Refresh button
+        # Refresh button with modern styling
         refresh_button = QPushButton("⟳")
-        refresh_button.setFixedSize(30, 30)
+        refresh_button.setFixedSize(36, 36)
         refresh_button.setStyleSheet("""
             QPushButton {
+                background-color: #2a2a2a;
+                border: 1px solid #333333;
                 border-radius: 6px;
                 font-size: 16px;
-                background-color: #404040;
-                border: none;
+                padding: 0;
             }
             QPushButton:hover {
-                background-color: #4a4a4a;
+                background-color: #333333;
+                border: 1px solid #444444;
             }
             QPushButton:pressed {
-                background-color: #333333;
-                padding-top: 1px;
-                padding-left: 1px;
-            }
-            QPushButton:disabled {
-                background-color: #363636;
-                color: #666666;
+                background-color: #444444;
             }
         """)
         refresh_button.clicked.connect(self.fetch_models)
         refresh_button.setToolTip("Refresh models list")
 
-        # Loading progress bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setFixedHeight(2)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: none;
-                background-color: #404040;
-            }
-            QProgressBar::chunk {
-                background-color: #4a9eff;
-            }
-        """)
-        self.progress_bar.hide()
-
-        # Add button
+        # Add button with modern styling
         add_button = QPushButton("Add Model")
-        add_button.setStyleSheet("""
-            QPushButton {
-                padding: 8px 16px;
-                font-size: 13px;
-                font-weight: bold;
-                border-radius: 6px;
-                background-color: #2b5c99;
-                color: white;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #366bb3;
-            }
-            QPushButton:pressed {
-                background-color: #1f4573;
-                padding: 9px 16px 7px 16px;
-            }
-            QPushButton:disabled {
-                background-color: #404040;
-                color: #666666;
-            }
-        """)
+        add_button.setProperty("class", "primary")
         add_button.clicked.connect(self.add_model)
 
         selection_layout.addWidget(self.model_dropdown)
@@ -596,60 +665,72 @@ class ModelsTab(QWidget):
         selection_layout.addWidget(add_button)
         selection_layout.addStretch()
 
-        # Add selection widget and progress bar to a container
-        dropdown_container = QWidget()
-        dropdown_layout = QVBoxLayout(dropdown_container)
-        dropdown_layout.setContentsMargins(0, 0, 0, 0)
-        dropdown_layout.setSpacing(8)
-        dropdown_layout.addWidget(selection_widget)
-        dropdown_layout.addWidget(self.progress_bar)
+        # Progress bar container
+        progress_container = QWidget()
+        progress_container.setProperty("class", "transparent-container")
+        progress_layout = QVBoxLayout(progress_container)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(0)
 
-        layout.addWidget(dropdown_container)
-
-        # Selected models list
-        list_label = QLabel("Selected Models")
-        list_label.setStyleSheet("font-size: 14px; margin-top: 10px;")
-        layout.addWidget(list_label)
-
-        self.models_list = QListWidget()
-        self.models_list.setStyleSheet("""
-            QListWidget {
-                border-radius: 4px;
-                font-size: 13px;
-                padding: 0px;
-                background-color: #363636;
-            }
-            QListWidget::item {
-                padding: 0px;
-                border-radius: 3px;
-                min-height: 40px;
-            }
-            QListWidget::item:hover {
-                background-color: #404040;
-            }
-            QScrollBar:vertical {
+        # Loading progress bar with modern styling
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(2)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
                 border: none;
-                background-color: #2b2b2b;
-                width: 10px;
-                margin: 0px;
+                background-color: #333333;
             }
-            QScrollBar::handle:vertical {
-                background-color: #404040;
-                min-height: 20px;
-                border-radius: 5px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                border: none;
-                background: none;
-            }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                background: none;
+            QProgressBar::chunk {
+                background-color: #3b82f6;
             }
         """)
-        # Set size policy to expand
-        self.models_list.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        layout.addWidget(self.models_list)
+        self.progress_bar.hide()
+
+        progress_layout.addWidget(self.progress_bar)
+
+        selection_section.layout.addWidget(selection_widget)
+        selection_section.layout.addWidget(progress_container)
+        content_layout.addWidget(selection_section)
+
+        # Selected Models Section
+        models_section = SectionFrame(
+            "Selected Models",
+            "Models that will be available for use in Dasi. Set a default model that will be used when no specific model is requested."
+        )
+
+        # Selected models list with modern styling
+        self.models_list = QListWidget()
+        self.models_list.setFrameShape(QFrame.Shape.NoFrame)
+        self.models_list.setSpacing(8)  # Increased spacing between items
+        self.models_list.setStyleSheet("""
+            QListWidget {
+                background-color: transparent;
+                border: none;
+                outline: none;
+            }
+            QListWidget::item {
+                background-color: transparent;
+                border: none;
+                padding: 0;
+                margin: 4px 0;
+            }
+            QListWidget::item:selected {
+                background-color: transparent;
+                border: none;
+            }
+            QListWidget::item:hover {
+                background-color: transparent;
+                border: none;
+            }
+        """)
+
+        models_section.layout.addWidget(self.models_list)
+        content_layout.addWidget(models_section)
+
+        # Set scroll area widget
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
 
         # Load selected models
         self.load_selected_models()
@@ -853,107 +934,118 @@ class ModelsTab(QWidget):
     def add_model_to_list(self, model_info: dict):
         """Add a model to the list widget with a remove button."""
         item = QListWidgetItem()
+        item.setBackground(Qt.GlobalColor.transparent)
         self.models_list.addItem(item)
 
+        # Main container widget with single border
         widget = QWidget()
+        widget.setObjectName("modelItem")  # Give it a specific name for styling
+        widget.setStyleSheet("""
+            #modelItem {
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 8px;
+            }
+        """)
+        
+        # Use a single horizontal layout
         layout = QHBoxLayout(widget)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(16)
 
-        # Create label with model name and provider
-        label = QLabel(f"{model_info['name']} ({model_info['provider']})")
-        label.setStyleSheet("""
-            QLabel {
-                font-size: 13px;
-            }
+        # Create content layout for text directly without any container
+        content_layout = QVBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(4)
+
+        # Create name and provider labels
+        name_label = QLabel(model_info['name'])
+        name_label.setAutoFillBackground(False)
+        name_label.setFrameShape(QFrame.Shape.NoFrame)
+        name_label.setStyleSheet("""
+            font-size: 14px;
+            font-weight: 500;
+            color: #ffffff;
+            background-color: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
         """)
 
-        # Create button container for better alignment
-        button_container = QWidget()
-        button_container.setObjectName("buttonContainer")
-        button_layout = QHBoxLayout(button_container)
-        button_layout.setContentsMargins(0, 0, 0, 0)
-        button_layout.setSpacing(8)
-
-        # Default model indicator and button
-        is_default = self.settings.get(
-            'models', 'default_model') == model_info['id']
-        default_label = QLabel("Default")
-        default_label.setStyleSheet("""
-            QLabel {
-                color: #4caf50;
-                font-size: 12px;
-                padding: 4px 8px;
-                background-color: #1e4620;
-                border-radius: 3px;
-            }
+        provider_label = QLabel(f"Provider: {model_info['provider']}")
+        provider_label.setAutoFillBackground(False)
+        provider_label.setFrameShape(QFrame.Shape.NoFrame)
+        provider_label.setStyleSheet("""
+            font-size: 12px;
+            color: #aaaaaa;
+            background-color: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
         """)
+
+        # Add labels to content layout
+        content_layout.addWidget(name_label)
+        content_layout.addWidget(provider_label)
+
+        # Add the layout directly to main layout
+        layout.addLayout(content_layout, 1)  # Give it a stretch factor of 1
+
+        # Create actions layout directly (no container widget)
+        actions_layout = QHBoxLayout()
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(10)
+        actions_layout.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        # Default model indicator
+        is_default = self.settings.get('models', 'default_model') == model_info['id']
+        default_label = RoundLabel("Default")
         default_label.setVisible(is_default)
 
+        # Set Default button with modern styling
         default_btn = QPushButton("Set Default")
-        default_btn.setObjectName("defaultButton")
         default_btn.setStyleSheet("""
-            QPushButton#defaultButton {
-                background-color: #2b5c99;
-                border: none;
-                border-radius: 3px;
-                padding: 4px 8px;
-                font-size: 12px;
-                min-width: 80px;
-            }
-            QPushButton#defaultButton:hover {
-                background-color: #366bb3;
-            }
-            QPushButton#defaultButton:pressed {
-                background-color: #1f4573;
-            }
+            padding: 4px 12px;
+            font-size: 12px;
+            border-radius: 12px;
+            background-color: transparent;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #60a5fa;
         """)
-        # Hide by default, will be shown on hover
         default_btn.setVisible(False)
-        default_btn.clicked.connect(
-            lambda: self.set_default_model(model_info['id']))
-
-        remove_btn = QPushButton("×")
-        remove_btn.setObjectName("removeButton")
-        remove_btn.setFixedSize(24, 24)
-        remove_btn.setStyleSheet("""
-            QPushButton#removeButton {
-                background-color: #ff4444;
-                border-radius: 12px;
-                font-weight: bold;
-                font-size: 16px;
-                margin: 0;
-                padding: 0;
-                line-height: 24px;
-                min-width: 24px;
-                max-width: 24px;
-                min-height: 24px;
-                max-height: 24px;
-                text-align: center;
-                border: none;
-            }
-            QPushButton#removeButton:hover {
-                background-color: #ff6666;
-            }
-            QPushButton#removeButton:pressed {
-                background-color: #cc3333;
-                padding-top: 1px;
-                padding-left: 1px;
-            }
+        default_btn.clicked.connect(lambda: self.set_default_model(model_info['id']))
+        
+        # Add hover effects with event filter
+        default_btn.enterEvent = lambda e: default_btn.setStyleSheet("""
+            padding: 4px 12px;
+            font-size: 12px;
+            border-radius: 12px;
+            background-color: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.4);
+            color: #60a5fa;
         """)
-        # Hide by default, will be shown on hover
+        default_btn.leaveEvent = lambda e: default_btn.setStyleSheet("""
+            padding: 4px 12px;
+            font-size: 12px;
+            border-radius: 12px;
+            background-color: transparent;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #60a5fa;
+        """)
+
+        # Remove button with modern styling - now using RoundButton with custom painting
+        remove_btn = RoundButton("×")
+        remove_btn.setFixedSize(28, 28)
         remove_btn.setVisible(False)
         remove_btn.clicked.connect(lambda: self.remove_model(model_info['id']))
+        
+        # Add buttons to actions layout
+        actions_layout.addWidget(default_label)
+        actions_layout.addWidget(default_btn)
+        actions_layout.addWidget(remove_btn)
 
-        button_layout.addWidget(default_label)
-        button_layout.addWidget(default_btn)
-        button_layout.addWidget(remove_btn)
-
-        layout.addWidget(label)
-        layout.addStretch()
-        layout.addWidget(button_container)
-
-        widget.setLayout(layout)
+        # Add actions layout to main layout
+        layout.addLayout(actions_layout)
 
         # Create event filter for hover effects
         class HoverEventFilter(QObject):
@@ -962,29 +1054,50 @@ class ModelsTab(QWidget):
                 self.default_btn = default_btn
                 self.remove_btn = remove_btn
                 self.is_default = is_default
+                # Keep reference to original style to avoid affecting inner elements
+                self.original_style = """
+                    #modelItem {
+                        background-color: #222222;
+                        border: 1px solid #333333;
+                        border-radius: 8px;
+                    }
+                """
+                self.hover_style = """
+                    #modelItem {
+                        background-color: #2a2a2a;
+                        border: 1px solid #444444;
+                        border-radius: 8px;
+                    }
+                """
 
             def eventFilter(self, obj, event):
                 if event.type() == QEvent.Type.Enter:
+                    # Show buttons
                     if not self.is_default:
                         self.default_btn.setVisible(True)
                     self.remove_btn.setVisible(True)
+                    
+                    # Apply hover style only to the main widget
+                    obj.setStyleSheet(self.hover_style)
+                    
                 elif event.type() == QEvent.Type.Leave:
+                    # Hide buttons
                     self.default_btn.setVisible(False)
                     self.remove_btn.setVisible(False)
+                    
+                    # Restore original style
+                    obj.setStyleSheet(self.original_style)
+                
                 return False
 
-        # Install event filter on the widget
+        # Install event filter
         hover_filter = HoverEventFilter(widget)
         widget.installEventFilter(hover_filter)
-        # Store reference to prevent garbage collection
         widget.hover_filter = hover_filter
 
-        # Calculate item height to ensure enough space for all elements
-        padding = layout.contentsMargins().top() + layout.contentsMargins().bottom()
-        min_height = max(40, remove_btn.height() +
-                         padding + 8)  # Added extra padding
+        # Set appropriate size for the item
         size_hint = widget.sizeHint()
-        size_hint.setHeight(min_height)
+        size_hint.setHeight(max(64, size_hint.height()))
         item.setSizeHint(size_hint)
 
         self.models_list.setItemWidget(item, widget)
