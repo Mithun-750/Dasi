@@ -58,7 +58,7 @@ class WebSearchTab(QWidget):
     def save_original_values(self):
         """Save the original values of all settings for comparison."""
         self.original_values = {
-            'default_provider': self.settings.get('web_search', 'default_provider', default='google_serper'),
+            'default_provider': self.settings.get('web_search', 'default_provider', default='ddg_search'),
             'max_results': self.settings.get('web_search', 'max_results', default=5),
             'scrape_content': self.settings.get('web_search', 'scrape_content', default=True),
             'include_citations': self.settings.get('web_search', 'include_citations', default=True),
@@ -158,19 +158,20 @@ class WebSearchTab(QWidget):
         provider_label.setProperty("class", "setting-label")
         
         self.default_provider = QComboBox()
+        # Updated modern UI styling that matches the global stylesheet
         self.default_provider.setStyleSheet("""
             QComboBox {
-                padding: 10px 12px;
-                background-color: #2a2a2a;
-                border: 1px solid #3b3b3b;
+                background-color: #222222;
+                border: 1px solid #333333;
                 border-radius: 6px;
+                padding: 10px 12px;
                 color: #e0e0e0;
                 min-height: 20px;
                 font-size: 13px;
             }
             QComboBox:hover {
-                border: 1px solid #4a4a4a;
-                background-color: #2d2d2d;
+                border: 1px solid #444444;
+                background-color: #2a2a2a;
             }
             QComboBox:focus {
                 border: 1px solid #3b82f6;
@@ -179,18 +180,25 @@ class WebSearchTab(QWidget):
                 subcontrol-origin: padding;
                 subcontrol-position: center right;
                 width: 24px;
-                border-left: 1px solid #3b3b3b;
+                border-left: 1px solid #333333;
                 border-top-right-radius: 6px;
                 border-bottom-right-radius: 6px;
                 background-color: transparent;
             }
             QComboBox QAbstractItemView {
-                background-color: #2a2a2a;
-                border: 1px solid #3b3b3b;
+                background-color: #222222;
+                border: 1px solid #333333;
                 border-radius: 6px;
                 selection-background-color: #3b82f6;
                 selection-color: white;
-                padding: 4px;
+                padding: 8px;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 8px;
+                min-height: 24px;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #2a2a2a;
             }
         """)
         
@@ -204,8 +212,8 @@ class WebSearchTab(QWidget):
         self.default_provider.addItem("Exa Search", "exa_search")
         self.default_provider.addItem("Tavily Search", "tavily_search")
         
-        # Set current default provider
-        current_provider = self.settings.get('web_search', 'default_provider', default='google_serper')
+        # Set current default provider - changed to ddg_search
+        current_provider = self.settings.get('web_search', 'default_provider', default='ddg_search')
         index = self.default_provider.findData(current_provider)
         if index >= 0:
             self.default_provider.setCurrentIndex(index)
@@ -229,8 +237,8 @@ class WebSearchTab(QWidget):
         self.max_results.setStyleSheet("""
             QSpinBox {
                 padding: 10px 12px;
-                background-color: #2a2a2a;
-                border: 1px solid #3b3b3b;
+                background-color: #222222;
+                border: 1px solid #333333;
                 border-radius: 6px;
                 color: #e0e0e0;
                 min-height: 20px;
@@ -238,7 +246,7 @@ class WebSearchTab(QWidget):
             }
             QSpinBox:focus {
                 border: 1px solid #3b82f6;
-                background-color: #2d2d2d;
+                background-color: #2a2a2a;
             }
             QSpinBox::up-button, QSpinBox::down-button {
                 background-color: #333333;
