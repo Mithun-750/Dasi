@@ -9,6 +9,7 @@ import os
 import re
 from pathlib import Path
 import logging
+from .general_tab import SectionFrame  # Import SectionFrame from general_tab
 
 
 class ChunkCard(QFrame):
@@ -25,28 +26,30 @@ class ChunkCard(QFrame):
         self.setObjectName("chunkCard")
         self.setStyleSheet("""
             #chunkCard {
-                background-color: #363636;
+                background-color: #222222;
+                border: 1px solid #333333;
                 border-radius: 8px;
                 padding: 12px;
                 margin: 4px;
             }
             #chunkCard:hover {
-                background-color: #404040;
+                background-color: #2a2a2a;
+                border: 1px solid #444444;
             }
             QLabel {
                 color: #ffffff;
             }
         """)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setFixedHeight(120)
+        self.setFixedHeight(140)  # Increased from 120 to 140 to allow more content
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(8)
 
         # Title
         title_label = QLabel(self.title)
-        title_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        title_label.setStyleSheet("font-size: 14px; font-weight: 500; color: #ffffff;")
         title_label.setMaximumHeight(20)
         layout.addWidget(title_label)
 
@@ -54,17 +57,16 @@ class ChunkCard(QFrame):
         content_label = QLabel()
         content_label.setWordWrap(True)
         content_label.setStyleSheet("""
-            color: #cccccc; 
+            color: #aaaaaa; 
             font-size: 12px;
             padding-bottom: 4px;
         """)
-        content_label.setMaximumHeight(70)  # Limit height to prevent overflow
+        content_label.setMaximumHeight(90)  # Increased from 70 to 90
         
-        # Elide text if too long
-        metrics = content_label.fontMetrics()
-        preview = self.content[:300]  # Take first 300 chars
-        elided_text = metrics.elidedText(preview, Qt.TextElideMode.ElideRight, content_label.width() * 2)
-        content_label.setText(elided_text)
+        # Elide text if too long - improved approach
+        preview = self.content[:400]  # Take more characters
+        # Set the text directly and let wordwrap handle display
+        content_label.setText(preview)
         
         layout.addWidget(content_label)
 
@@ -81,13 +83,15 @@ class CreateCard(ChunkCard):
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))  # Set cursor to pointer
         self.setStyleSheet("""
             #createCard {
-                background-color: #2b5c99;
+                background-color: #375a7f;
+                border: 1px solid #2c3e50;
                 border-radius: 8px;
                 padding: 12px;
                 margin: 4px;
             }
             #createCard:hover {
-                background-color: #366bb3;
+                background-color: #4682b4;
+                border: 1px solid #2c3e50;
             }
             QLabel {
                 color: #ffffff;
@@ -121,14 +125,15 @@ class ChunkEditor(QWidget):
     def setup_ui(self, title: str, content: str):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(20)
+        layout.setSpacing(12)
 
-        # Header with title
+        # Header with title - using a SectionFrame inspired design
         header = QFrame()
         header.setObjectName("editorHeader")
         header.setStyleSheet("""
             #editorHeader {
-                background-color: #363636;
+                background-color: #1e1e1e;
+                border: 1px solid #333333;
                 border-radius: 8px;
             }
         """)
@@ -142,10 +147,14 @@ class ChunkEditor(QWidget):
         self.title_input.setStyleSheet("""
             QLineEdit {
                 border: none;
-                padding: 0;
+                padding: 8px;
                 font-size: 14px;
                 color: white;
                 background: transparent;
+            }
+            QLineEdit:focus {
+                border: none;
+                outline: none;
             }
         """)
 
@@ -158,13 +167,13 @@ class ChunkEditor(QWidget):
         self.editor.setText(content)
         self.editor.setStyleSheet("""
             QTextEdit {
-                background-color: #2b2b2b;
-                border: none;
+                background-color: #222222;
+                border: 1px solid #333333;
                 border-radius: 8px;
                 padding: 16px;
                 font-family: monospace;
                 font-size: 13px;
-                color: white;
+                color: #e0e0e0;
             }
         """)
         layout.addWidget(self.editor)
@@ -172,7 +181,8 @@ class ChunkEditor(QWidget):
         # Buttons container at the bottom
         button_container = QFrame()
         button_layout = QHBoxLayout(button_container)
-        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setContentsMargins(0, 8, 0, 0)
+        button_layout.setSpacing(8)
 
         # Back button on the left
         back_button = QPushButton("← Back")
@@ -180,7 +190,7 @@ class ChunkEditor(QWidget):
             QPushButton {
                 background-color: transparent;
                 border: none;
-                color: #cccccc;
+                color: #aaaaaa;
                 font-size: 14px;
                 padding: 8px 16px;
             }
@@ -192,9 +202,10 @@ class ChunkEditor(QWidget):
 
         # Save and Delete buttons on the right
         save_button = QPushButton("Save Changes")
+        save_button.setProperty("class", "primary")
         save_button.setStyleSheet("""
             QPushButton {
-                background-color: #2b5c99;
+                background-color: #1e3a8a;
                 border: none;
                 border-radius: 4px;
                 padding: 8px 16px;
@@ -202,7 +213,7 @@ class ChunkEditor(QWidget):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #366bb3;
+                background-color: #1e40af;
             }
         """)
         save_button.clicked.connect(self.save_changes)
@@ -210,7 +221,7 @@ class ChunkEditor(QWidget):
         delete_button = QPushButton("Delete")
         delete_button.setStyleSheet("""
             QPushButton {
-                background-color: #ff4444;
+                background-color: rgba(220, 38, 38, 0.8);
                 border: none;
                 border-radius: 4px;
                 padding: 8px 16px;
@@ -218,7 +229,7 @@ class ChunkEditor(QWidget):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #ff6666;
+                background-color: rgba(220, 38, 38, 1.0);
             }
         """)
         delete_button.clicked.connect(self.delete_chunk)
@@ -251,8 +262,8 @@ class PromptChunksTab(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 0, 16)  # Match general_tab padding
 
         # Create stacked widget for main content
         self.stack = QStackedWidget()
@@ -260,37 +271,39 @@ class PromptChunksTab(QWidget):
         # Create and set up the chunks list page
         self.chunks_page = QWidget()
         chunks_layout = QVBoxLayout(self.chunks_page)
-        chunks_layout.setSpacing(20)
+        chunks_layout.setSpacing(12)
         chunks_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Header with title and search
-        header = QFrame()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
+        # Create a section frame for the chunks list
+        chunks_section = SectionFrame(
+            "Prompt Chunks",
+            "Create and manage prompt templates that can be invoked using @mentions in your conversations."
+        )
 
-        title = QLabel("Prompt Chunks")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        # Search container
+        search_container = QWidget()
+        search_container.setProperty("class", "transparent-container")
+        search_layout = QHBoxLayout(search_container)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(8)
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search chunks...")
         self.search_input.setStyleSheet("""
             QLineEdit {
-                background-color: #363636;
-                border: none;
+                background-color: #2a2a2a;
+                border: 1px solid #333333;
                 border-radius: 4px;
                 padding: 8px;
                 font-size: 13px;
                 color: white;
-                max-width: 250px;
             }
         """)
         self.search_input.textChanged.connect(self.filter_chunks)
 
-        header_layout.addWidget(title)
-        header_layout.addStretch()
-        header_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.search_input, 1)  # Add stretch factor 1 to make it take full width
 
-        chunks_layout.addWidget(header)
+        chunks_section.layout.addWidget(search_container)
 
         # Scroll area for cards
         scroll = QScrollArea()
@@ -304,7 +317,7 @@ class PromptChunksTab(QWidget):
             }
             QScrollBar:vertical {
                 border: none;
-                background-color: #2b2b2b;
+                background-color: transparent;
                 width: 10px;
                 margin: 0px;
             }
@@ -327,7 +340,9 @@ class PromptChunksTab(QWidget):
         self.cards_layout.addStretch()
 
         scroll.setWidget(self.cards_container)
-        chunks_layout.addWidget(scroll)
+        chunks_section.layout.addWidget(scroll)
+        
+        chunks_layout.addWidget(chunks_section)
 
         # Add chunks page to stack
         self.stack.addWidget(self.chunks_page)
