@@ -180,8 +180,8 @@ class DasiWindow(QWidget):
         self.web_search_panel.hide()
 
         # Add elements to right panel
-        right_layout.addWidget(self.preview_panel, 1)
-        right_layout.addWidget(self.web_search_panel, 1)
+        right_layout.addWidget(self.preview_panel)  # Remove stretch factor
+        right_layout.addWidget(self.web_search_panel)  # Remove stretch factor
         right_layout.addWidget(self.stop_button)  # Move stop button to bottom
         right_panel.setLayout(right_layout)
         right_panel.hide()
@@ -341,7 +341,7 @@ class DasiWindow(QWidget):
             # Show web search panel for web searches
             if self.is_web_search:
                 # Hide the response preview and show the web search panel
-                self.preview_panel.show_preview(False)
+                self.preview_panel.hide()  # Hide preview panel completely
                 search_term = query.replace("#web", "").strip()
                 self.web_search_panel.start(search_term)
                 self.right_panel.show()
@@ -349,6 +349,7 @@ class DasiWindow(QWidget):
             else:
                 # Regular query - hide web search panel
                 self.web_search_panel.hide()
+                self.preview_panel.show()  # Show preview panel
 
             # Build context dictionary
             context = self.input_panel.get_context()
@@ -386,8 +387,10 @@ class DasiWindow(QWidget):
         
         # Stop web search panel if it's active
         self.web_search_panel.stop()
+        self.web_search_panel.hide()  # Hide web search panel
         
-        # Hide panels and collapse UI
+        # Show preview panel
+        self.preview_panel.show()
         self.preview_panel.show_preview(False)
         self.right_panel.hide()
         self.setFixedWidth(340)   # Reset to input-only width
@@ -551,6 +554,8 @@ class DasiWindow(QWidget):
             # This prevents flickering between loading and very short initial responses
             if len(response) > 50:
                 self.web_search_panel.stop()
+                self.web_search_panel.hide()  # Hide web search panel
+                self.preview_panel.show()  # Show preview panel
 
         # Show response preview (as read-only during streaming)
         self.preview_panel.set_response(response)
@@ -680,7 +685,7 @@ class DasiWindow(QWidget):
             self.preview_panel.export_button.setText("Export")
             self.preview_panel.export_button.clicked.disconnect()
             self.preview_panel.export_button.clicked.connect(self.preview_panel._handle_export)
-
+    
     def _handle_export_error(self, response: str):
         """Handle export errors by falling back to timestamp-based filename."""
         try:
