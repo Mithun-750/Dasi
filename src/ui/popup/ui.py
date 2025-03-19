@@ -13,7 +13,7 @@ class CopilotUI:
         try:
             # First reset all context and input
             self.window.reset_context()
-            self.window.input_field.clear()
+            self.window.input_panel.clear_input()
 
             # Get selected text from clipboard
             clipboard = QApplication.clipboard()
@@ -33,7 +33,7 @@ class CopilotUI:
             self.window.show()
             self.window.activateWindow()
             self.window.raise_()
-            self.window.input_field.setFocus()
+            self.window.input_panel.input_field.setFocus()
 
         except Exception as e:
             logging.error(f"Error showing window: {str(e)}", exc_info=True)

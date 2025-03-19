@@ -22,28 +22,20 @@ from datetime import datetime
 # Import LLMHandler for filename suggestions
 from llm_handler import LLMHandler
 
+# Import InputPanel component
+from .components.input_panel import InputPanel
+
 
 class DasiWindow(QWidget):
     def reset_context(self):
         """Reset all context including selected text and last response."""
-        self.selected_text = None
         self.last_response = None
         self.conversation_context = {}
-        self.context_label.hide()
-        self.ignore_button.hide()
+        self.input_panel.reset_context()
 
     def set_selected_text(self, text: str):
         """Set the selected text and update UI."""
-        self.selected_text = text
-        if text:
-            self.context_label.setText(f"Selected Text: {text[:100]}..." if len(
-                text) > 100 else f"Selected Text: {text}")
-            self.context_label.show()
-            self.ignore_button.show()
-        else:
-            self.context_label.hide()
-            self.ignore_button.hide()
-            self.selected_text = None
+        self.input_panel.set_selected_text(text)
 
     """Main popup window for Dasi."""
 
@@ -56,18 +48,12 @@ class DasiWindow(QWidget):
         self.signals = signals
         self.old_pos = None
         self.worker = None
-        self.selected_text = None  # Store selected text
         self.last_response = None  # Store last response
         self.conversation_context = {}  # Store conversation context
         self.settings = Settings()  # Initialize settings
         self.chunks_dir = Path(self.settings.config_dir) / 'prompt_chunks'
-        self.chunk_dropdown = None  # Will be initialized in setup_ui
-        self.highlighter = None  # Initialize highlighter reference
         self.loading_animation = None  # Will be initialized in setup_ui
         self.is_web_search = False  # Flag to track if current query is a web search
-
-        # Connect to settings signals
-        self.settings.models_changed.connect(self.update_model_selector)
 
         # Window flags
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint |
@@ -76,12 +62,6 @@ class DasiWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
 
         self.setup_ui()
-        
-        # Add syntax highlighter with chunks directory
-        self.highlighter = MentionHighlighter(self.input_field.document(), self.chunks_dir)
-        
-        # Setup chunk dropdown
-        self.setup_chunk_dropdown()
         
         # Setup loading animation
         self.setup_loading_animation()
@@ -169,208 +149,10 @@ class DasiWindow(QWidget):
         content_layout.setContentsMargins(5, 5, 5, 5)
         content_layout.setSpacing(10)
 
-        # Left side - Input area
-        left_panel = QFrame()
-        left_layout = QVBoxLayout()
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(5)
-        
-        # Set minimum width for consistent UI
-        left_panel.setMinimumWidth(310)  # Added to ensure input field has adequate width
-
-        # Context area with label and ignore button
-        context_frame = QFrame()
-        context_frame.setObjectName("contextFrame")
-        context_layout = QVBoxLayout()
-        context_layout.setContentsMargins(3, 3, 3, 3)
-        context_layout.setSpacing(0)
-        context_frame.setLayout(context_layout)
-
-        # Create container for the context area
-        container = QWidget()
-        grid = QGridLayout(container)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(0)
-
-        # Add context label
-        self.context_label = QLabel()
-        self.context_label.setObjectName("contextLabel")
-        self.context_label.setWordWrap(True)
-        self.context_label.hide()
-
-        # Add ignore button
-        self.ignore_button = QPushButton("×")
-        self.ignore_button.setObjectName("ignoreButton")
-        self.ignore_button.setFixedSize(16, 16)
-        self.ignore_button.clicked.connect(self.reset_context)
-        self.ignore_button.hide()
-
-        # Add both widgets to the same grid cell
-        grid.addWidget(self.context_label, 0, 0)
-        grid.addWidget(self.ignore_button, 0, 0,
-                       Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-
-        # Ensure ignore button stays on top
-        self.context_label.stackUnder(self.ignore_button)
-
-        context_layout.addWidget(container)
-        left_layout.addWidget(context_frame)
-
-        # Override show/hide to handle button visibility and position
-        def show_context():
-            # Show both widgets
-            super(type(self.context_label), self.context_label).show()
-            self.ignore_button.show()
-            self.ignore_button.raise_()
-
-        def hide_context():
-            super(type(self.context_label), self.context_label).hide()
-            self.ignore_button.hide()
-
-        self.context_label.show = show_context
-        self.context_label.hide = hide_context
-
-        self.input_field = QTextEdit()
-        self.input_field.setPlaceholderText("Type your query... (Use #web to search the internet)")
-        self.input_field.setMinimumHeight(80)
-
-        # Create control bar for mode and model selection
-        control_bar = QFrame()
-        control_bar.setObjectName("controlBar")
-        control_bar.setStyleSheet("""
-            #controlBar {
-                background-color: #363636;
-                border-radius: 4px;
-                padding: 4px;
-            }
-        """)
-        control_layout = QVBoxLayout(control_bar)
-        control_layout.setContentsMargins(8, 4, 8, 4)
-        control_layout.setSpacing(8)
-
-        # Create mode selector container
-        mode_container = QFrame()
-        mode_container.setObjectName("modeContainer")
-        mode_layout = QHBoxLayout(mode_container)
-        mode_layout.setContentsMargins(0, 0, 0, 0)
-        mode_layout.setSpacing(0)
-
-        # Create radio buttons
-        self.mode_group = QButtonGroup()
-        self.chat_mode = QRadioButton("Chat")
-        self.compose_mode = QRadioButton("Compose")
-        self.chat_mode.setChecked(True)  # Default to chat mode
-        
-        # Style radio buttons
-        radio_style = """
-            QRadioButton {
-                color: #cccccc;
-                font-size: 12px;
-                padding: 6px 12px;
-                border-radius: 3px;
-                background-color: transparent;
-                border: none;
-                text-align: center;
-            }
-            QRadioButton:hover {
-                background-color: #404040;
-            }
-            QRadioButton:checked {
-                color: white;
-                background-color: #2b5c99;
-            }
-            QRadioButton::indicator {
-                width: 0px;
-                height: 0px;
-            }
-        """
-        self.chat_mode.setStyleSheet(radio_style)
-        self.compose_mode.setStyleSheet(radio_style)
-        
-        # Set size policies to make buttons expand horizontally
-        self.chat_mode.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.compose_mode.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        
-        # Add to button group
-        self.mode_group.addButton(self.chat_mode)
-        self.mode_group.addButton(self.compose_mode)
-        
-        # Connect mode change signal
-        self.mode_group.buttonClicked.connect(self._handle_mode_change)
-        
-        mode_layout.addWidget(self.chat_mode)
-        mode_layout.addWidget(self.compose_mode)
-
-        # Create model selector container
-        model_container = QWidget()
-        model_layout = QHBoxLayout(model_container)
-        model_layout.setContentsMargins(0, 0, 0, 0)
-        model_layout.setSpacing(8)
-
-        self.model_selector = QComboBox()
-        self.model_selector.setStyleSheet("""
-            QComboBox {
-                background-color: #2b2b2b;
-                border: 1px solid #404040;
-                border-radius: 3px;
-                padding: 5px 8px;
-                font-size: 12px;
-                color: #cccccc;
-            }
-            QComboBox:hover {
-                border-color: #4a4a4a;
-                background-color: #323232;
-            }
-            QComboBox::drop-down {
-                border: none;
-                padding-right: 8px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 4px solid #888;
-                margin-right: 4px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #2b2b2b;
-                border: 1px solid #404040;
-                selection-background-color: #2b5c99;
-                selection-color: white;
-                padding: 4px;
-            }
-            QComboBox QAbstractItemView::item {
-                padding: 6px 8px;
-                min-height: 24px;
-            }
-            QComboBox QAbstractItemView::item:hover {
-                background-color: #363636;
-            }
-            QComboBox::item {
-                color: #cccccc;
-            }
-            QComboBox::drop-down:button {
-                border: none;
-            }
-        """)
-        self.update_model_selector()
-
-        model_layout.addWidget(self.model_selector)
-
-        # Add all elements to control bar vertically
-        control_layout.addWidget(mode_container)
-        control_layout.addWidget(model_container)
-
-        # Loading progress bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setFixedHeight(2)
-        self.progress_bar.hide()
-
-        left_layout.addWidget(self.input_field, 1)
-        left_layout.addWidget(control_bar)
-        left_layout.addWidget(self.progress_bar)
-        left_panel.setLayout(left_layout)
+        # Left side - Input area (now using InputPanel component)
+        self.input_panel = InputPanel()
+        self.input_panel.submit_query.connect(self._handle_input_submit)
+        self.input_panel.mode_changed.connect(self._handle_mode_change)
 
         # Right side - Preview and buttons
         right_panel = QFrame()
@@ -459,7 +241,7 @@ class DasiWindow(QWidget):
         self.right_panel = right_panel
 
         # Add panels to content layout
-        content_layout.addWidget(left_panel, 1)
+        content_layout.addWidget(self.input_panel, 1)
         content_layout.addWidget(right_panel, 0)
 
         # Add all components to main frame
@@ -652,91 +434,79 @@ class DasiWindow(QWidget):
             }
         """)
 
-        # Set up key bindings
-        self.input_field.installEventFilter(self)
+    def _handle_input_submit(self, query: str):
+        """Handle query submitted from the input panel."""
+        if query:
+            # Check if this is a web search query
+            self.is_web_search = "#web" in query.lower()
 
-    def setup_chunk_dropdown(self):
-        """Set up the chunk selection dropdown."""
-        self.chunk_dropdown = ChunkDropdown(self.input_field)
-        self.chunk_dropdown.itemSelected.connect(self.insert_chunk)
-        self.update_chunk_titles()
-
-    def update_chunk_titles(self):
-        """Update the list of available chunk titles."""
-        self.chunk_titles = []
-        if self.chunks_dir.exists():
-            for file_path in self.chunks_dir.glob("*.md"):
-                title = file_path.stem
-                self.chunk_titles.append(title)
-        
-        # Update highlighter's available chunks
-        if self.highlighter:
-            self.highlighter.update_available_chunks()
-
-    def insert_chunk(self, chunk_title: str):
-        """Insert the selected chunk title at cursor position."""
-        cursor = self.input_field.textCursor()
-        current_word, start = self.get_word_under_cursor()
-        
-        # Calculate how many characters to remove
-        extra = len(current_word)
-        
-        # Move cursor to start of the word and select it
-        cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, extra)
-        cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, extra)
-        
-        # Insert chunk title with @ prefix and a space
-        cursor.insertText('@' + chunk_title.lower() + ' ')
-        self.input_field.setTextCursor(cursor)
-        self.chunk_dropdown.hide()
-
-    def get_word_under_cursor(self) -> Tuple[str, int]:
-        """Get the word being typed and its start position."""
-        cursor = self.input_field.textCursor()
-        text = self.input_field.toPlainText()
-        pos = cursor.position()
-        
-        # Find the start of the current word
-        start = pos
-        while start > 0 and text[start-1] not in [' ', '\n', '\t']:
-            start -= 1
-        
-        # Only get the word up to the first space after @
-        current_word = text[start:pos]
-        if ' ' in current_word and current_word.startswith('@'):
-            return '@', start  # Return just the @ if we hit a space
+            # Show stop button
+            if not self.is_web_search:
+                self.stop_button.show()
+                
+            self.insert_method.hide()
+            self.accept_button.hide()
+            self.export_button.hide()
             
-        return current_word, start
+            # Show loading animation for web searches
+            if self.is_web_search:
+                # Hide the response preview and show the loading animation
+                self.response_preview.hide()
+                self.loading_container.show()
+                self.right_panel.show()
+                self.setFixedWidth(680)  # Increased from 650px to 680px to match the wider preview
+                
+                # Start the animation
+                if isinstance(self.loading_animation, QMovie):
+                    self.loading_animation.start()
+                else:
+                    self.dot_timer.start(500)  # Update every 500ms
+                
+                # Update loading text
+                search_term = query.replace("#web", "").strip()
+                if search_term:
+                    self.loading_text_label.setText(f"Searching the web for: {search_term}")
+                else:
+                    self.loading_text_label.setText("Searching the web...")
+                    
+                # Reset the info label to the first message
+                self.loading_info_label.setText("This may take a moment as we gather relevant information from the web.")
+                
+                # Start the progress bar animation
+                self.loading_progress_bar.setRange(0, 0)  # Indeterminate progress
 
-    def eventFilter(self, obj, event) -> bool:
-        """Handle key events."""
-        if obj is self.input_field and event.type() == QEvent.Type.KeyPress:
-            key_event = event
+            # Build context dictionary
+            context = self.input_panel.get_context()
 
-            # Show dropdown on @ key
-            if key_event.text() == '@':
-                self.chunk_dropdown.update_items(self.chunk_titles)
-                self.chunk_dropdown.show()
-                return False  # Let the @ be typed
+            # Format query with context
+            if context:
+                full_query = "Context:\n"
+                if 'selected_text' in context:
+                    full_query += f"=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n=======================\n\n"
+                full_query += f"=====MODE=====<user selected mode>\n{context['mode']}\n=======================\n\n"
+                full_query += f"Query:\n{query}"
+            else:
+                full_query = query
 
-            # Handle submit when dropdown is not visible
-            if (key_event.key() == Qt.Key.Key_Return and 
-                not key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier and 
-                not self.chunk_dropdown.isVisible()):
-                self._handle_submit()
-                return True
+            # Get selected model
+            model_info = self.input_panel.get_selected_model()
+            model = None
+            if model_info and 'id' in model_info:
+                model = model_info['id']
+                logging.info(f"Selected model: {model_info['name']} (ID: {model})")
 
-            return False  # Let all other keys through
-
-        return super().eventFilter(obj, event)
+            # Process query in background with session ID
+            self.worker = QueryWorker(
+                self.process_query, full_query, self.signals, model, self.session_id)
+            self.worker.start()
 
     def _reset_ui_after_stop(self):
         """Reset UI elements after stopping an operation."""
         # Re-enable input field
-        self.input_field.setEnabled(True)
+        self.input_panel.enable_input(True)
         
         # Hide loading indicators
-        self.progress_bar.hide()
+        self.input_panel.show_progress(False)
         self.stop_button.hide()
         
         # Hide loading animation if it's active
@@ -823,7 +593,7 @@ class DasiWindow(QWidget):
             
             # Additionally for escape, hide the window and clear input
             self.hide()
-            self.input_field.clear()
+            self.input_panel.clear_input()
             self.reset_context()
             
             # Clear clipboard selection
@@ -836,6 +606,7 @@ class DasiWindow(QWidget):
             # Try to restore to a clean state
             self.hide()
             self.is_web_search = False
+
     def mousePressEvent(self, event):
         """Handle mouse press for dragging."""
         if event.button() == Qt.MouseButton.LeftButton:
@@ -852,118 +623,22 @@ class DasiWindow(QWidget):
         """Handle mouse release for dragging."""
         self.old_pos = None
 
-    def _handle_submit(self):
-        """Handle submit action."""
-        query = self.input_field.toPlainText().strip()
-        if query:
-            # Replace @mentions with chunk content
-            query = self._replace_chunks(query)
-            
-            # Check if this is a web search query
-            self.is_web_search = "#web" in query.lower()
-
-            # Show loading state and stop button
-            self.input_field.setEnabled(False)
-            self.progress_bar.setRange(0, 0)  # Indeterminate progress
-            self.progress_bar.show()
-            
-            # Hide the main stop button if we're showing the loading animation
-            if self.is_web_search:
-                self.stop_button.hide()
-            else:
-                self.stop_button.show()
-                
+    def _handle_mode_change(self, is_compose: bool):
+        """Handle mode change between Chat and Compose."""
+        # Show/hide action elements based on mode
+        if is_compose:
+            self.insert_method.show()
+            self.accept_button.show()
+            self.export_button.show()
+        else:
             self.insert_method.hide()
             self.accept_button.hide()
             self.export_button.hide()
-            
-            # Show loading animation for web searches
-            if self.is_web_search:
-                # Hide the response preview and show the loading animation
-                self.response_preview.hide()
-                self.loading_container.show()
-                self.right_panel.show()
-                self.setFixedWidth(680)  # Increased from 650px to 680px to match the wider preview
-                
-                # Start the animation
-                if isinstance(self.loading_animation, QMovie):
-                    self.loading_animation.start()
-                else:
-                    self.dot_timer.start(500)  # Update every 500ms
-                
-                # Update loading text
-                search_term = query.replace("#web", "").strip()
-                if search_term:
-                    self.loading_text_label.setText(f"Searching the web for: {search_term}")
-                else:
-                    self.loading_text_label.setText("Searching the web...")
-                    
-                # Reset the info label to the first message
-                self.loading_info_label.setText("This may take a moment as we gather relevant information from the web.")
-                
-                # Start the progress bar animation
-                self.loading_progress_bar.setRange(0, 0)  # Indeterminate progress
-
-            # Build context dictionary
-            context = {}
-
-            # Add selected text if available
-            if self.selected_text:
-                context['selected_text'] = self.selected_text
-
-            # Add mode to context
-            context['mode'] = 'compose' if self.compose_mode.isChecked() else 'chat'
-
-            # Format query with context
-            if context:
-                full_query = "Context:\n"
-                if 'selected_text' in context:
-                    full_query += f"=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n=======================\n\n"
-                full_query += f"=====MODE=====<user selected mode>\n{context['mode']}\n=======================\n\n"
-                full_query += f"Query:\n{query}"
-            else:
-                full_query = query
-
-            # Get selected model
-            current_index = self.model_selector.currentIndex()
-            model = None
-            if current_index >= 0 and current_index < self.model_selector.count():
-                model_info = self.model_selector.itemData(current_index)
-                if isinstance(model_info, dict) and 'id' in model_info:
-                    model = model_info['id']
-                    logging.info(
-                        f"Selected model: {model_info['name']} (ID: {model})")
-
-            # Process query in background with session ID
-            self.worker = QueryWorker(
-                self.process_query, full_query, self.signals, model, self.session_id)
-            self.worker.start()
-
-    def _replace_chunks(self, query: str) -> str:
-        """Replace @mentions with their corresponding chunk content."""
-        # Find all @mentions
-        mentions = re.finditer(r'@(\w+(?:_\w+)*)', query)
-        
-        # Replace each mention with its chunk content
-        offset = 0
-        for match in mentions:
-            chunk_title = match.group(1)  # Get the title without @
-            sanitized_title = chunk_title.lower()  # Convert to lowercase for filename
-            chunk_file = self.chunks_dir / f"{sanitized_title}.md"
-            
-            if chunk_file.exists():
-                chunk_content = chunk_file.read_text().strip()
-                start = match.start() + offset
-                end = match.end() + offset
-                query = query[:start] + chunk_content + query[end:]
-                offset += len(chunk_content) - (end - start)
-        
-        return query
 
     def _handle_error(self, error_msg: str):
         """Handle query error."""
         # Hide loading state
-        self.progress_bar.hide()
+        self.input_panel.show_progress(False)
         self.stop_button.hide()
         
         # Hide loading animation if it's active
@@ -975,7 +650,7 @@ class DasiWindow(QWidget):
             self.loading_container.hide()
         
         # Re-enable input field with existing content
-        self.input_field.setEnabled(True)
+        self.input_panel.enable_input(True)
 
         # Show error in preview
         self.response_preview.setText(f"Error: {error_msg}")
@@ -993,7 +668,7 @@ class DasiWindow(QWidget):
         """Handle query response (runs in main thread)."""
         # Check for completion signal
         if response == "<COMPLETE>":
-            self.progress_bar.hide()
+            self.input_panel.show_progress(False)
             self.stop_button.hide()
             
             # Hide loading animation if it's active
@@ -1008,13 +683,13 @@ class DasiWindow(QWidget):
             self.is_web_search = False
             
             # Clear and re-enable input field only on successful completion
-            self.input_field.clear()
-            self.input_field.setEnabled(True)
+            self.input_panel.clear_input()
+            self.input_panel.enable_input(True)
             
             # Show reset session button since we now have history
             self.reset_session_button.show()
             
-            if self.compose_mode.isChecked():
+            if self.input_panel.is_compose_mode():
                 # Make response preview editable in compose mode
                 self.response_preview.setReadOnly(False)
                 self.response_preview.setProperty("editable", True)
@@ -1078,7 +753,7 @@ class DasiWindow(QWidget):
         response = self.response_preview.toPlainText()
         if response:
             self.hide()
-            self.input_field.clear()
+            self.input_panel.clear_input()
             self.reset_context()
             # Clear clipboard selection
             clipboard = QApplication.clipboard()
@@ -1240,94 +915,6 @@ class DasiWindow(QWidget):
                 QMessageBox.StandardButton.Ok
             )
 
-    def update_model_selector(self):
-        """Update the model selector with currently selected models."""
-        # Reload settings from disk
-        self.settings.load_settings()
-
-        self.model_selector.clear()
-        selected_models = self.settings.get_selected_models()
-
-        if not selected_models:
-            self.model_selector.addItem("No models selected")
-            self.model_selector.setEnabled(False)
-            return
-
-        # Get default model ID
-        default_model_id = self.settings.get('models', 'default_model')
-        default_index = 0  # Default to first model if no default set
-
-        # Add models with their metadata
-        for index, model in enumerate(selected_models):
-            # Create a more concise display text
-            provider = model['provider']
-            name = model['name']
-            
-            # Format provider name to be more concise
-            provider_display = {
-                'google': 'Google',
-                'openai': 'OpenAI',
-                'anthropic': 'Anthropic',
-                'ollama': 'Ollama',
-                'groq': 'Groq',
-                'deepseek': 'Deepseek',
-                'together': 'Together',
-                'openrouter': 'OpenRouter',
-                'custom_openai': 'Custom'
-            }.get(provider, provider)
-            
-            # Create shorter display text for combobox
-            display_text = f"{name[:30]}... ({provider_display})" if len(name) > 30 else f"{name} ({provider_display})"
-            
-            # Full text for tooltip
-            full_text = f"{name}\nProvider: {provider_display}"
-            
-            self.model_selector.addItem(display_text, model)
-            # Set tooltip for the current index
-            self.model_selector.setItemData(index, full_text, Qt.ItemDataRole.ToolTipRole)
-            
-            # If this is the default model, store its index
-            if default_model_id and model['id'] == default_model_id:
-                default_index = index
-
-        self.model_selector.setEnabled(True)
-
-        # Set the default model as current
-        self.model_selector.setCurrentIndex(default_index)
-
-        # Configure size policy to expand horizontally
-        self.model_selector.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.model_selector.setMaxVisibleItems(10)  # Show max 10 items in dropdown
-
-    def showEvent(self, event):
-        """Called when the window becomes visible."""
-        super().showEvent(event)
-        # Update model selector and chunk titles when window is shown
-        self.update_model_selector()
-        self.update_chunk_titles()
-
-    def get_selected_model(self) -> str:
-        """Get the currently selected model ID."""
-        current_index = self.model_selector.currentIndex()
-        if current_index >= 0:
-            model_info = self.model_selector.itemData(current_index)
-            if model_info:
-                return model_info['id']
-        return None
-
-    def _handle_mode_change(self, button):
-        """Handle mode change between Chat and Compose."""
-        is_compose = button == self.compose_mode
-        # Show/hide action elements based on mode
-        if is_compose:
-            self.insert_method.show()
-            self.accept_button.show()
-            self.export_button.show()
-        else:
-            self.insert_method.hide()
-            self.accept_button.hide()
-            self.export_button.hide()
-
     def keyPressEvent(self, event):
         """Handle global key events for the window."""
         if event.key() == Qt.Key.Key_Escape:
@@ -1338,7 +925,7 @@ class DasiWindow(QWidget):
     def _handle_reset_session(self):
         """Handle reset session button click."""
         # Store current selected text
-        current_selected_text = self.selected_text
+        current_selected_text = self.input_panel.selected_text
         
         # Generate new session ID
         self.session_id = str(uuid.uuid4())
@@ -1348,14 +935,31 @@ class DasiWindow(QWidget):
         # Reset UI but preserve selected text
         self.reset_context()
         if current_selected_text:
-            self.set_selected_text(current_selected_text)
+            self.input_panel.set_selected_text(current_selected_text)
             
-        self.input_field.clear()
+        self.input_panel.clear_input()
         self.response_preview.clear()
         self.right_panel.hide()
         self.setFixedWidth(340)  # Input-only mode width
         # Hide reset button since history is now cleared
         self.reset_session_button.hide()
+
+    def showEvent(self, event):
+        """Called when the window becomes visible."""
+        super().showEvent(event)
+        # Update chunk titles when window is shown
+        self.input_panel.update_chunk_titles()
+
+    def hideEvent(self, event):
+        """Handle hide event to clean up resources."""
+        # Stop any running animations
+        if hasattr(self, 'loading_animation') and self.loading_animation:
+            if isinstance(self.loading_animation, QMovie):
+                self.loading_animation.stop()
+            elif hasattr(self, 'dot_timer') and self.dot_timer.isActive():
+                self.dot_timer.stop()
+        
+        super().hideEvent(event)
 
     def setup_loading_animation(self):
         """Set up the loading animation widget."""
@@ -1532,15 +1136,4 @@ class DasiWindow(QWidget):
             current_index = info_messages.index(current_text) if current_text in info_messages else -1
             next_index = (current_index + 1) % len(info_messages)
             self.loading_info_label.setText(info_messages[next_index])
-
-    def hideEvent(self, event):
-        """Handle hide event to clean up resources."""
-        # Stop any running animations
-        if hasattr(self, 'loading_animation') and self.loading_animation:
-            if isinstance(self.loading_animation, QMovie):
-                self.loading_animation.stop()
-            elif hasattr(self, 'dot_timer') and self.dot_timer.isActive():
-                self.dot_timer.stop()
-        
-        super().hideEvent(event)
 
