@@ -1,11 +1,8 @@
-from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QTextEdit,
-                             QFrame, QLabel, QPushButton, QHBoxLayout, QProgressBar,
-                             QGridLayout, QComboBox, QSizePolicy, QRadioButton, QButtonGroup,
-                             QCompleter, QListView, QLineEdit, QFileDialog, QMessageBox)
-from PyQt6.QtCore import (Qt, QPoint, QThread, QObject, QSize, 
-                          QStringListModel, QModelIndex, QAbstractListModel, QEvent, pyqtSignal, QTimer)
-from PyQt6.QtGui import QFont, QClipboard, QIcon, QPixmap, QTextCursor, QMovie
-from typing import Callable, Optional, Tuple, List
+from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout,
+                             QFrame, QLabel, QPushButton, QHBoxLayout, QFileDialog, QMessageBox)
+from PyQt6.QtCore import (Qt, QThread, pyqtSignal)
+from PyQt6.QtGui import QFont, QClipboard, QPixmap
+from typing import Callable,  List
 import sys
 import os
 import logging
@@ -25,6 +22,7 @@ from llm_handler import LLMHandler
 # Import components
 from .components.input_panel import InputPanel
 from .components.web_search import WebSearchPanel
+from .components.preview_panel import PreviewPanel
 
 
 class DasiWindow(QWidget):
@@ -162,84 +160,29 @@ class DasiWindow(QWidget):
         # Set a fixed width for the right panel to ensure consistency
         right_panel.setFixedWidth(360)  # Increased from 330px to 360px
 
-        # Response preview (hidden by default)
-        self.response_preview = QTextEdit()
-        self.response_preview.setReadOnly(True)  # Start as read-only
-        self.response_preview.setFixedWidth(340)  # Increased from 320px to 340px
-        self.response_preview.setStyleSheet("""
-            QTextEdit {
-                background-color: #363636;
-                border: none;
-                border-radius: 5px;
-                padding: 5px;
-                selection-background-color: #4a4a4a;
-                font-size: 12px;
-                color: #ffffff;
-                font-family: "Helvetica", sans-serif;
-            }
-            QTextEdit[editable="true"] {
-                background-color: #404040;
-                border: 1px solid #505050;
-            }
-            QTextEdit[editable="true"]:focus {
-                border: 1px solid #606060;
-            }
-        """)
-        self.response_preview.hide()
-
-        # Web search loading panel (hidden by default)
-        self.web_search_panel = WebSearchPanel()
-        self.web_search_panel.search_stopped.connect(self._handle_stop)
-        self.web_search_panel.hide()
-
-        # Action buttons (hidden by default)
-        self.action_frame = QFrame()
-        self.action_layout = QVBoxLayout()  # Vertical layout for combo box above buttons
-        self.action_layout.setContentsMargins(5, 0, 5, 5)
-
         # Create stop button (hidden by default)
         self.stop_button = QPushButton("Stop")
         self.stop_button.setObjectName("stopButton")
         self.stop_button.clicked.connect(self._handle_stop)
         self.stop_button.hide()
 
-        # Create insertion method selector
-        self.insert_method = QComboBox()
-        self.insert_method.setObjectName("insertMethod")
-        self.insert_method.addItem("⚡ Copy/Paste", "paste")
-        self.insert_method.addItem("⌨ Type Text", "type")
-        self.insert_method.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Create preview panel
+        self.preview_panel = PreviewPanel()
+        self.preview_panel.accept_clicked.connect(self._handle_accept)
+        self.preview_panel.export_clicked.connect(self._handle_export)
+        
+        # Ensure the preview panel has enough height for dropdown expansion
+        self.preview_panel.setMinimumHeight(200)
 
-        # Create accept/reject buttons
-        self.accept_button = QPushButton("Accept")
-        self.export_button = QPushButton("Export")
-
-        # Add stop button to layout but don't show it yet
-        self.action_layout.addWidget(self.stop_button)
-
-        # Configure accept/export buttons
-        self.accept_button = QPushButton("Accept")
-        self.accept_button.clicked.connect(self._handle_accept)
-        self.export_button = QPushButton("Export")
-        self.export_button.clicked.connect(self._handle_export)
-
-        # Create button layout
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(5)
-        button_layout.addWidget(self.accept_button)
-        button_layout.addWidget(self.export_button)
-
-        # Add widgets to action layout vertically
-        self.action_layout.addWidget(self.insert_method)
-        self.action_layout.addLayout(button_layout)
-        self.action_frame.setLayout(self.action_layout)
-        self.action_frame.hide()
+        # Web search loading panel (hidden by default)
+        self.web_search_panel = WebSearchPanel()
+        self.web_search_panel.search_stopped.connect(self._handle_stop)
+        self.web_search_panel.hide()
 
         # Add elements to right panel
-        right_layout.addWidget(self.response_preview, 1)
+        right_layout.addWidget(self.preview_panel, 1)
         right_layout.addWidget(self.web_search_panel, 1)
-        right_layout.addWidget(self.action_frame)
+        right_layout.addWidget(self.stop_button)  # Move stop button to bottom
         right_panel.setLayout(right_layout)
         right_panel.hide()
         self.right_panel = right_panel
@@ -336,20 +279,6 @@ class DasiWindow(QWidget):
                 background-color: #565656;
                 color: #ffffff;
             }
-            QTextEdit {
-                background-color: #363636;
-                border: none;
-                border-radius: 5px;
-                padding: 5px;
-                selection-background-color: #4a4a4a;
-                font-size: 12px;
-                color: #ffffff;
-                font-family: "Helvetica", sans-serif;
-            }
-            QTextEdit::selection {
-                background-color: #4a4a4a;
-                color: #ffffff;
-            }
             QPushButton {
                 background-color: #4a4a4a;
                 border: none;
@@ -367,48 +296,6 @@ class DasiWindow(QWidget):
             }
             #stopButton:hover {
                 background-color: #ff6666;
-            }
-            #insertMethod {
-                background-color: #363636;
-                border: 1px solid #4a4a4a;
-                border-radius: 3px;
-                padding: 5px 8px;
-                color: #cccccc;
-                min-height: 28px;
-                font-size: 11px;
-            }
-            #insertMethod::drop-down {
-                border: none;
-                width: 20px;
-                padding-right: 8px;
-            }
-            #insertMethod::down-arrow {
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 4px solid #888;
-                margin-right: 4px;
-            }
-            #insertMethod:hover {
-                background-color: #404040;
-                border-color: #5a5a5a;
-                color: white;
-            }
-            #insertMethod QAbstractItemView {
-                background-color: #363636;
-                border: 1px solid #4a4a4a;
-                color: #cccccc;
-                selection-background-color: #4a4a4a;
-                selection-color: white;
-                outline: none;
-            }
-            #insertMethod QAbstractItemView::item {
-                padding: 5px 8px;
-                min-height: 24px;
-            }
-            #insertMethod QAbstractItemView::item:hover {
-                background-color: #404040;
-                color: white;
             }
             QProgressBar {
                 border: none;
@@ -444,18 +331,17 @@ class DasiWindow(QWidget):
             # Check if this is a web search query
             self.is_web_search = "#web" in query.lower()
 
-            # Show stop button
+            # Show stop button at bottom
             if not self.is_web_search:
                 self.stop_button.show()
-                
-            self.insert_method.hide()
-            self.accept_button.hide()
-            self.export_button.hide()
+            
+            # Hide preview panel actions
+            self.preview_panel.show_actions(False)
             
             # Show web search panel for web searches
             if self.is_web_search:
                 # Hide the response preview and show the web search panel
-                self.response_preview.hide()
+                self.preview_panel.show_preview(False)
                 search_term = query.replace("#web", "").strip()
                 self.web_search_panel.start(search_term)
                 self.right_panel.show()
@@ -502,9 +388,8 @@ class DasiWindow(QWidget):
         self.web_search_panel.stop()
         
         # Hide panels and collapse UI
-        self.response_preview.hide()
+        self.preview_panel.show_preview(False)
         self.right_panel.hide()
-        self.action_frame.hide()  # Hide action buttons
         self.setFixedWidth(340)   # Reset to input-only width
         
         # Reset web search flag
@@ -605,13 +490,9 @@ class DasiWindow(QWidget):
         """Handle mode change between Chat and Compose."""
         # Show/hide action elements based on mode
         if is_compose:
-            self.insert_method.show()
-            self.accept_button.show()
-            self.export_button.show()
+            self.preview_panel.show_actions(True)
         else:
-            self.insert_method.hide()
-            self.accept_button.hide()
-            self.export_button.hide()
+            self.preview_panel.show_actions(False)
 
     def _handle_error(self, error_msg: str):
         """Handle query error."""
@@ -626,13 +507,11 @@ class DasiWindow(QWidget):
         self.input_panel.enable_input(True)
 
         # Show error in preview
-        self.response_preview.setText(f"Error: {error_msg}")
-        self.response_preview.show()
-
-        # Show export button only
-        self.action_frame.show()
-        self.accept_button.hide()
-        self.export_button.show()
+        self.preview_panel.set_response(f"Error: {error_msg}")
+        self.preview_panel.show_preview(True)
+        self.preview_panel.show_actions(True)
+        self.preview_panel.accept_button.hide()  # Hide accept button for errors
+        self.right_panel.show()
 
         # Adjust window size
         self.setFixedHeight(250)
@@ -659,16 +538,8 @@ class DasiWindow(QWidget):
             
             if self.input_panel.is_compose_mode():
                 # Make response preview editable in compose mode
-                self.response_preview.setReadOnly(False)
-                self.response_preview.setProperty("editable", True)
-                self.response_preview.style().unpolish(self.response_preview)
-                self.response_preview.style().polish(self.response_preview)
-                # Add a hint that it's editable
-                self.response_preview.setPlaceholderText("You can edit this response before accepting...")
-                
-                self.insert_method.show()
-                self.accept_button.show()
-                self.export_button.show()
+                self.preview_panel.set_editable(True)
+                self.preview_panel.show_actions(True)
             return
 
         # Store the response
@@ -682,148 +553,123 @@ class DasiWindow(QWidget):
                 self.web_search_panel.stop()
 
         # Show response preview (as read-only during streaming)
-        self.response_preview.setReadOnly(True)
-        self.response_preview.setProperty("editable", False)
-        self.response_preview.style().unpolish(self.response_preview)
-        self.response_preview.style().polish(self.response_preview)
-        self.response_preview.setText(response)
-        
-        # Auto-scroll to bottom
-        scrollbar = self.response_preview.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
-        
-        self.response_preview.show()
+        self.preview_panel.set_response(response)
+        self.preview_panel.set_editable(False)
+        self.preview_panel.show_preview(True)
         self.right_panel.show()
 
-        # During streaming, only show stop button
-        self.action_frame.show()
-        self.insert_method.hide()
-        self.accept_button.hide()
-        self.export_button.hide()
+        # During streaming, only show stop button at bottom
+        self.preview_panel.show_actions(False)
         self.stop_button.show()
 
         # Adjust window size - keep consistent with web search width
         self.setFixedWidth(680)  # Increased from 650px to 680px to accommodate the wider right panel
 
-    def _handle_accept(self):
+    def _handle_accept(self, method: str, response: str):
         """Accept the generated response."""
-        response = self.response_preview.toPlainText()
-        if response:
-            self.hide()
-            self.input_panel.clear_input()
-            self.reset_context()
-            # Clear clipboard selection
-            clipboard = QApplication.clipboard()
-            clipboard.clear(QClipboard.Mode.Selection)
+        self.hide()
+        self.input_panel.clear_input()
+        self.reset_context()
+        # Clear clipboard selection
+        clipboard = QApplication.clipboard()
+        clipboard.clear(QClipboard.Mode.Selection)
 
-            # Get selected insertion method
-            method = self.insert_method.currentData()
+        # Format query with method and response
+        query = f"!{method}:{response}"
 
-            # Format query with method and response
-            # Remove any leading colon that might be in the response
-            if response.startswith(':'):
-                response = response[1:].lstrip()
-                
-            query = f"!{method}:{response}"
+        # Process the response with selected method
+        self.process_query(query)
 
-            # Process the response with selected method
-            self.process_query(query)
-
-            # Reset response preview to read-only state
-            self.response_preview.setReadOnly(True)
-            self.response_preview.setProperty("editable", False)
-            self.response_preview.style().unpolish(self.response_preview)
-            self.response_preview.style().polish(self.response_preview)
+        # Reset response preview to read-only state
+        self.preview_panel.set_editable(False)
 
         self.right_panel.hide()
 
         # Reset window size
         self.setFixedWidth(340)  # Input-only mode width
 
-    def _handle_export(self):
+    def _handle_export(self, response: str):
         """Export the generated response to a markdown file."""
-        response = self.response_preview.toPlainText()
-        if response:
-            # Show loading state in the export button
-            original_text = self.export_button.text()
-            self.export_button.setText("Cancel")
+        # Show loading state in the export button
+        original_text = self.preview_panel.export_button.text()
+        self.preview_panel.export_button.setText("Cancel")
+        
+        # Create a worker thread for filename suggestion
+        class FilenameWorker(QThread):
+            finished = pyqtSignal(str)
+            error = pyqtSignal(str)
             
-            # Create a worker thread for filename suggestion
-            class FilenameWorker(QThread):
-                finished = pyqtSignal(str)
-                error = pyqtSignal(str)
-                
-                def __init__(self, content, session_id):
-                    super().__init__()
-                    self.content = content
-                    self.session_id = session_id
-                    self.is_stopped = False
-                
-                def run(self):
-                    try:
-                        if not self.is_stopped:
-                            llm_handler = LLMHandler()
-                            filename = llm_handler.suggest_filename(
-                                content=self.content,
-                                session_id=self.session_id
-                            )
-                            self.finished.emit(filename)
-                    except Exception as e:
-                        self.error.emit(str(e))
-                
-                def stop(self):
-                    self.is_stopped = True
+            def __init__(self, content, session_id):
+                super().__init__()
+                self.content = content
+                self.session_id = session_id
+                self.is_stopped = False
             
-            # Create and configure the worker
-            self.filename_worker = FilenameWorker(response, self.session_id)
-            
-            def handle_filename_ready(suggested_filename):
-                # Restore button state
-                self.export_button.setText(original_text)
-                self.export_button.setEnabled(True)
-                # Restore the original click handler
-                self.export_button.clicked.disconnect()
-                self.export_button.clicked.connect(self._handle_export)
-                
+            def run(self):
                 try:
-                    # Get the default export path from settings
-                    default_path = self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents"))
-                    
-                    # Combine default path with suggested filename
-                    default_filepath = os.path.join(default_path, suggested_filename)
-                    
-                    # Open file dialog with suggested name and default path
-                    filename, _ = QFileDialog.getSaveFileName(
-                        self,
-                        "Save Response",
-                        default_filepath,
-                        "Markdown Files (*.md);;All Files (*)"
-                    )
-                    
-                    if filename:  # Only save if user didn't cancel
-                        # Write response to file
-                        with open(filename, "w") as f:
-                            f.write(response)
-                
+                    if not self.is_stopped:
+                        llm_handler = LLMHandler()
+                        filename = llm_handler.suggest_filename(
+                            content=self.content,
+                            session_id=self.session_id
+                        )
+                        self.finished.emit(filename)
                 except Exception as e:
-                    logging.error(f"Error during export: {str(e)}", exc_info=True)
-                    self._handle_export_error(response)
+                    self.error.emit(str(e))
             
-            def handle_filename_error(error):
-                logging.error(f"Error getting filename suggestion: {error}")
+            def stop(self):
+                self.is_stopped = True
+        
+        # Create and configure the worker
+        self.filename_worker = FilenameWorker(response, self.session_id)
+        
+        def handle_filename_ready(suggested_filename):
+            # Restore button state
+            self.preview_panel.export_button.setText(original_text)
+            self.preview_panel.export_button.setEnabled(True)
+            # Restore the original click handler
+            self.preview_panel.export_button.clicked.disconnect()
+            self.preview_panel.export_button.clicked.connect(self.preview_panel._handle_export)
+            
+            try:
+                # Get the default export path from settings
+                default_path = self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents"))
+                
+                # Combine default path with suggested filename
+                default_filepath = os.path.join(default_path, suggested_filename)
+                
+                # Open file dialog with suggested name and default path
+                filename, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Save Response",
+                    default_filepath,
+                    "Markdown Files (*.md);;All Files (*)"
+                )
+                
+                if filename:  # Only save if user didn't cancel
+                    # Write response to file
+                    with open(filename, "w") as f:
+                        f.write(response)
+            
+            except Exception as e:
+                logging.error(f"Error during export: {str(e)}", exc_info=True)
                 self._handle_export_error(response)
-            
-            # Connect signals
-            self.filename_worker.finished.connect(handle_filename_ready)
-            self.filename_worker.error.connect(handle_filename_error)
-            
-            # Update export button to allow cancellation
-            self.export_button.clicked.disconnect()
-            self.export_button.clicked.connect(self._cancel_export)
-            
-            # Start the worker
-            self.filename_worker.start()
-    
+        
+        def handle_filename_error(error):
+            logging.error(f"Error getting filename suggestion: {error}")
+            self._handle_export_error(response)
+        
+        # Connect signals
+        self.filename_worker.finished.connect(handle_filename_ready)
+        self.filename_worker.error.connect(handle_filename_error)
+        
+        # Update export button to allow cancellation
+        self.preview_panel.export_button.clicked.disconnect()
+        self.preview_panel.export_button.clicked.connect(self._cancel_export)
+        
+        # Start the worker
+        self.filename_worker.start()
+
     def _cancel_export(self):
         """Cancel the export operation."""
         if hasattr(self, 'filename_worker') and self.filename_worker.isRunning():
@@ -831,18 +677,18 @@ class DasiWindow(QWidget):
             self.filename_worker.wait()
             
             # Restore export button
-            self.export_button.setText("Export")
-            self.export_button.clicked.disconnect()
-            self.export_button.clicked.connect(self._handle_export)
-    
+            self.preview_panel.export_button.setText("Export")
+            self.preview_panel.export_button.clicked.disconnect()
+            self.preview_panel.export_button.clicked.connect(self.preview_panel._handle_export)
+
     def _handle_export_error(self, response: str):
         """Handle export errors by falling back to timestamp-based filename."""
         try:
             # Restore button state
-            self.export_button.setText("Export")
-            self.export_button.clicked.disconnect()
-            self.export_button.clicked.connect(self._handle_export)
-            self.export_button.setEnabled(True)
+            self.preview_panel.export_button.setText("Export")
+            self.preview_panel.export_button.clicked.disconnect()
+            self.preview_panel.export_button.clicked.connect(self.preview_panel._handle_export)
+            self.preview_panel.export_button.setEnabled(True)
             
             # Use timestamp for filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -895,7 +741,7 @@ class DasiWindow(QWidget):
             self.input_panel.set_selected_text(current_selected_text)
             
         self.input_panel.clear_input()
-        self.response_preview.clear()
+        self.preview_panel.clear()
         self.right_panel.hide()
         self.setFixedWidth(340)  # Input-only mode width
         # Hide reset button since history is now cleared
