@@ -1,7 +1,44 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
-                             QPushButton, QComboBox, QSizePolicy, QFrame)
+                             QPushButton, QComboBox, QSizePolicy, QFrame,
+                             QProxyStyle, QStyle, QStyledItemDelegate)
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QTextCursor
+from PyQt6.QtGui import QTextCursor, QColor, QPen, QPainterPath, QPainter
+
+# ComboBoxStyle for proper arrow display - copied from input_panel.py
+class ComboBoxStyle(QProxyStyle):
+    """Custom style to draw a text arrow for combo boxes."""
+    def __init__(self, style=None):
+        super().__init__(style)
+        self.arrow_color = QColor("#e67e22")  # Orange color for arrow
+        
+    def drawPrimitive(self, element, option, painter, widget=None):
+        if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown and isinstance(widget, QComboBox):
+            # Draw a custom arrow
+            rect = option.rect
+            painter.save()
+            
+            # Set up the arrow color
+            painter.setPen(QPen(self.arrow_color, 1.5))
+            
+            # Draw a triangle instead of text arrow for more modern look
+            # Calculate the triangle points
+            width = 9
+            height = 6
+            x = rect.center().x() - width // 2
+            y = rect.center().y() - height // 2
+            
+            path = QPainterPath()
+            path.moveTo(x, y)
+            path.lineTo(x + width, y)
+            path.lineTo(x + width // 2, y + height)
+            path.lineTo(x, y)
+            
+            # Fill the triangle
+            painter.fillPath(path, self.arrow_color)
+            
+            painter.restore()
+            return
+        super().drawPrimitive(element, option, painter, widget)
 
 class PreviewPanel(QWidget):
     """Preview panel component for the Dasi window."""
@@ -19,12 +56,12 @@ class PreviewPanel(QWidget):
         # Main layout
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(5)
+        layout.setSpacing(3)  # Reduced spacing from 5px to 3px
         
         # Response preview
         self.response_preview = QTextEdit()
         self.response_preview.setReadOnly(True)  # Start as read-only
-        self.response_preview.setFixedWidth(340)
+        self.response_preview.setFixedWidth(330)  # Reduced from 340px to 330px
         self.response_preview.setStyleSheet("""
             QTextEdit {
                 background-color: #1e1e1e;
@@ -48,66 +85,85 @@ class PreviewPanel(QWidget):
         
         # Action frame for buttons and selector
         self.action_frame = QFrame()
+        self.action_frame.setFixedWidth(330)  # Match width with response preview
+        self.action_frame.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)  # Only take minimum vertical space
         self.action_layout = QVBoxLayout()
-        self.action_layout.setContentsMargins(5, 0, 5, 5)
-        self.action_layout.setSpacing(8)  # Increased spacing between elements
+        self.action_layout.setContentsMargins(2, 0, 2, 0)  # Removed bottom margin completely
+        self.action_layout.setSpacing(4)  # Further reduced spacing between elements
         
-        # Create insertion method selector
+        # Create insertion method selector with improved styling
         self.insert_method = QComboBox()
         self.insert_method.setObjectName("insertMethod")
         self.insert_method.addItem("⚡ Copy/Paste", "paste")
         self.insert_method.addItem("⌨ Type Text", "type")
         self.insert_method.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.insert_method.setMinimumHeight(32)  # Ensure minimum height
+        self.insert_method.setMinimumHeight(30)  # Reduced height from 36px to 30px
         
-        # Apply specific styles to make dropdown more visible
+        # Set custom style for modern arrow
+        self.insert_method.setStyle(ComboBoxStyle())
+        
+        # Apply improved styling matching the ChunkDropdown
         self.insert_method.setStyleSheet("""
             QComboBox {
-                background-color: #363636;
-                border: 1px solid #4a4a4a;
-                border-radius: 3px;
-                padding: 5px 8px;
-                color: #cccccc;
-                min-height: 32px;
-                font-size: 11px;
+                background-color: #2a2a2a;
+                border: 1px solid #3b3b3b;
+                border-radius: 4px;
+                padding: 5px 10px;
+                color: #e0e0e0;
+                font-size: 12px;
+            }
+            QComboBox:hover {
+                border-color: #e67e22;
+                background-color: #323232;
+            }
+            QComboBox:focus {
+                border: 1px solid #e67e22;
             }
             QComboBox::drop-down {
                 border: none;
-                width: 20px;
-                padding-right: 8px;
-            }
-            QComboBox::down-arrow {
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid #aaa;
-                margin-right: 5px;
+                width: 16px;
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                padding-right: 6px;
             }
             QComboBox QAbstractItemView {
-                background-color: #363636;
-                border: 1px solid #4a4a4a;
-                color: #cccccc;
-                selection-background-color: #4a4a4a;
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 4px;
+                color: #e0e0e0;
+                selection-background-color: #e67e22;
                 selection-color: white;
-                padding: 5px;
+                outline: none;
             }
             QComboBox QAbstractItemView::item {
-                min-height: 24px;
-                padding: 5px;
+                padding: 6px;
+                border-radius: 3px;
+                min-height: 20px;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #2e2e2e;
+                border-left: 2px solid #e67e22;
             }
         """)
+        
+        # Set delegate for consistent item height
+        self.insert_method.setItemDelegate(QStyledItemDelegate())
         
         # Create accept/export buttons
         self.accept_button = QPushButton("Accept")
         self.export_button = QPushButton("Export")
         
-        # Configure buttons
+        # Configure buttons with slightly smaller width
+        self.accept_button.setMinimumWidth(80)
+        self.export_button.setMinimumWidth(80)
         self.accept_button.clicked.connect(self._handle_accept)
         self.export_button.clicked.connect(self._handle_export)
         
         # Create button layout
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(5)
+        button_layout.setSpacing(4)  # Reduced spacing between buttons
+        button_layout.setContentsMargins(0, 0, 0, 0)  # No margins for button layout
         button_layout.addWidget(self.accept_button)
         button_layout.addWidget(self.export_button)
         
@@ -119,9 +175,10 @@ class PreviewPanel(QWidget):
         
         # Add widgets to main layout
         layout.addWidget(self.response_preview, 1)
-        layout.addWidget(self.action_frame)
+        layout.addWidget(self.action_frame, 0)  # Use 0 stretch factor to minimize height
         
         self.setLayout(layout)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)  # Make entire panel take minimum required height
     
     def set_response(self, response: str):
         """Set the response text in the preview."""
