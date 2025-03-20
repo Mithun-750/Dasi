@@ -14,7 +14,7 @@ Take a step back and think step-by-step about how to achieve the best possible r
 * Select the appropriate problem-solving framework based on the task type
 * Incorporate any special references from the user's request (maintaining @-prefixed notations)
 * Format the prompt to guide the AI agent through a systematic approach
-* Include specific instructions about preserving special references and user details
+* Preserve all references in the format @path or @url (like @web, @some_file, @some_docs, @https:some_url) exactly as written. Do not modify these special references as they are used by the system.
 
 # OUTPUT INSTRUCTIONS
 
@@ -24,7 +24,7 @@ Take a step back and think step-by-step about how to achieve the best possible r
 
 * Begin the prompt with clear instructions about the AI's role in addressing the specific programming task
 
-* Preserve all references in the format @path or @url (like @web, @some_file, @some_docs, @https:some_url) exactly as written. Do not modify these special references as they are used by the system.
+* Preserve the user input as much as possible
 
 * Pay careful attention to ALL details provided by the user. Do not omit or overlook any specifications, requirements, constraints, or preferences mentioned in the original request.
 
