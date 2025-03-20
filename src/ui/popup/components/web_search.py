@@ -124,17 +124,17 @@ class WebSearchPanel(QWidget):
         # Style the container
         self.setStyleSheet("""
             #loadingContainer {
-                background-color: rgba(30, 30, 46, 40);
-                border-radius: 10px;
-                border: 1px solid rgba(58, 63, 75, 60);
+                background-color: #1e1e1e;
+                border-radius: 8px;
+                border: 1px solid #333333;
             }
             #loadingProgressBar {
                 border: none;
-                background-color: rgba(45, 45, 61, 80);
+                background-color: #2a2a2a;
                 height: 4px;
             }
             #loadingProgressBar::chunk {
-                background-color: rgba(74, 158, 255, 180);
+                background-color: #e67e22;
             }
         """)
         

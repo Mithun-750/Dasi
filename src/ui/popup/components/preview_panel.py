@@ -27,21 +27,21 @@ class PreviewPanel(QWidget):
         self.response_preview.setFixedWidth(340)
         self.response_preview.setStyleSheet("""
             QTextEdit {
-                background-color: #363636;
-                border: none;
-                border-radius: 5px;
-                padding: 5px;
+                background-color: #1e1e1e;
+                border: 1px solid #333333;
+                border-radius: 8px;
+                padding: 8px;
                 selection-background-color: #4a4a4a;
                 font-size: 12px;
                 color: #ffffff;
                 font-family: "Helvetica", sans-serif;
             }
             QTextEdit[editable="true"] {
-                background-color: #404040;
-                border: 1px solid #505050;
+                background-color: #262626;
+                border: 1px solid #444444;
             }
             QTextEdit[editable="true"]:focus {
-                border: 1px solid #606060;
+                border: 1px solid #e67e22;
             }
         """)
         self.response_preview.hide()
