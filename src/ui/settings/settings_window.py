@@ -158,6 +158,14 @@ class SettingsWindow(QMainWindow):
             root_assets_dir = os.path.join(project_root, "assets")
             logging.info(f"Running in development, using assets at: {ui_assets_dir}")
 
+        # Set window icon for taskbar
+        icon_path = os.path.join(root_assets_dir, "Dasi.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+            logging.info(f"Set window icon from: {icon_path}")
+        else:
+            logging.warning(f"Window icon not found at {icon_path}")
+
         # Create central widget and main layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
