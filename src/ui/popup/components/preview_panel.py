@@ -211,6 +211,12 @@ class PreviewPanel(QWidget):
                 self.preview_stack.setCurrentWidget(self.response_preview)
                 if current_text:
                     self.response_preview.setText(current_text)
+                # Make text editable when switching to compose mode
+                self.response_preview.setReadOnly(False)
+                self.response_preview.setProperty("editable", True)
+                self.response_preview.style().unpolish(self.response_preview)
+                self.response_preview.style().polish(self.response_preview)
+                self.response_preview.setPlaceholderText("You can edit this response before accepting...")
         
         self.is_chat_mode = is_chat_mode
     
