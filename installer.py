@@ -25,6 +25,7 @@ import platform
 import subprocess
 import shutil
 import logging
+import glob
 
 def detect_shell():
     """Detect the current shell being used."""
@@ -222,6 +223,132 @@ def initialize_prompt_chunks():
         shutil.copy2(src_file, target_file)
         logging.info(f"Initialized prompt chunk: {file_name}")
 
+def clean_os_cache():
+    """Clean OS-level cache files related to Dasi."""
+    system = platform.system()
+    print("Cleaning OS-level cache files...")
+    
+    # Clean Python __pycache__ directories
+    for cache_dir in glob.glob("**/__pycache__", recursive=True):
+        if os.path.exists(cache_dir):
+            shutil.rmtree(cache_dir)
+            print(f"Removed Python cache: {cache_dir}")
+    
+    # Clean .pyc files
+    for pyc_file in glob.glob("**/*.pyc", recursive=True):
+        if os.path.exists(pyc_file):
+            os.remove(pyc_file)
+            print(f"Removed compiled Python file: {pyc_file}")
+    
+    # Qt-specific cache files
+    app_name = "dasi"  # Our application name
+    
+    # Clean Qt configuration files
+    qt_config_paths = []
+    if system == "Linux" or system == "Darwin":
+        # Qt keeps settings in Trolltech.conf
+        trolltech_paths = [
+            os.path.join(os.path.expanduser("~"), ".config", "Trolltech.conf"),
+            os.path.join(os.path.expanduser("~"), ".config", "QtProject"),
+            os.path.join("/etc", "xdg", "Trolltech.conf"),
+            os.path.join("/etc", "xdg", "QtProject")
+        ]
+        qt_config_paths.extend(trolltech_paths)
+    
+    # Check each Qt config file
+    for config_path in qt_config_paths:
+        if os.path.isfile(config_path):
+            try:
+                # For Trolltech.conf files, we could edit them to remove app-specific sections
+                # But safer to just inform the user
+                print(f"Note: Qt configuration file found at {config_path}")
+                print("  This file may contain cached settings for Dasi.")
+            except Exception as e:
+                print(f"Could not process Qt config file {config_path}: {e}")
+        elif os.path.isdir(config_path):
+            try:
+                # Look for app-specific settings in Qt directories
+                app_configs = glob.glob(os.path.join(config_path, f"*{app_name}*"))
+                for app_config in app_configs:
+                    if os.path.isdir(app_config):
+                        shutil.rmtree(app_config)
+                    else:
+                        os.remove(app_config)
+                    print(f"Removed Qt config: {app_config}")
+            except Exception as e:
+                print(f"Could not process Qt config directory {config_path}: {e}")
+    
+    # System-specific cache locations
+    if system == "Darwin":  # macOS
+        cache_paths = [
+            os.path.join(os.path.expanduser("~"), "Library", "Caches", "dasi"),
+            os.path.join(os.path.expanduser("~"), "Library", "Logs", "dasi"),
+            # macOS Qt-specific cache
+            os.path.join(os.path.expanduser("~"), "Library", "Caches", "QtWebEngine"),
+            os.path.join(os.path.expanduser("~"), "Library", "Application Support", "QtProject"),
+            os.path.join(os.path.expanduser("~"), "Library", "Preferences", f"com.{app_name}.plist")
+        ]
+        for path in cache_paths:
+            if os.path.exists(path):
+                if os.path.isdir(path):
+                    shutil.rmtree(path)
+                else:
+                    os.remove(path)
+                print(f"Removed macOS cache: {path}")
+    
+    elif system == "Linux":
+        cache_paths = [
+            os.path.join(os.path.expanduser("~"), ".cache", "dasi"),
+            # Linux Qt-specific cache
+            os.path.join(os.path.expanduser("~"), ".cache", "QtWebEngine"),
+            os.path.join(os.path.expanduser("~"), ".local", "share", "data", app_name),
+            os.path.join(os.path.expanduser("~"), ".local", "share", app_name)
+        ]
+        for path in cache_paths:
+            if os.path.exists(path):
+                if os.path.isdir(path):
+                    shutil.rmtree(path)
+                else:
+                    os.remove(path)
+                print(f"Removed Linux cache: {path}")
+    
+    elif system == "Windows":
+        # Windows temp files for the application
+        temp_dir = os.environ.get("TEMP", "")
+        if temp_dir:
+            for temp_file in glob.glob(os.path.join(temp_dir, "dasi*")):
+                try:
+                    if os.path.isdir(temp_file):
+                        shutil.rmtree(temp_file)
+                    else:
+                        os.remove(temp_file)
+                    print(f"Removed Windows temp file: {temp_file}")
+                except Exception as e:
+                    print(f"Could not remove {temp_file}: {e}")
+        
+        # Windows Qt cache in AppData folders
+        appdata_paths = []
+        if os.environ.get("APPDATA"):
+            appdata_paths.append(os.path.join(os.environ.get("APPDATA"), app_name))
+            appdata_paths.append(os.path.join(os.environ.get("APPDATA"), "QtProject"))
+        
+        if os.environ.get("LOCALAPPDATA"):
+            appdata_paths.append(os.path.join(os.environ.get("LOCALAPPDATA"), app_name))
+            appdata_paths.append(os.path.join(os.environ.get("LOCALAPPDATA"), "QtProject"))
+        
+        for path in appdata_paths:
+            if os.path.exists(path):
+                try:
+                    if os.path.isdir(path):
+                        shutil.rmtree(path)
+                    else:
+                        os.remove(path)
+                    print(f"Removed Windows AppData cache: {path}")
+                except Exception as e:
+                    print(f"Could not remove {path}: {e}")
+    
+    print("Cache cleaning completed.")
+
 def install():
     create_virtualenv()
     install_dependencies()
@@ -267,6 +394,11 @@ def uninstall():
             print("Removed configuration directory at", config_dir)
         else:
             print("Configuration directory preserved at", config_dir)
+    
+    # Clean OS-level cache files
+    response = input("Do you want to clean OS-level cache files? [y/N]: ").strip().lower()
+    if response == 'y' or response == 'yes':
+        clean_os_cache()
         
     # Remove build artifacts
     for folder in ["build", "dist"]:
