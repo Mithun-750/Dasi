@@ -27,6 +27,7 @@ import sys
 import os
 from PyQt6.QtWidgets import QApplication
 import logging
+from PyQt6.QtCore import QDir
 
 
 class SearchableComboBox(QComboBox):
@@ -39,6 +40,18 @@ class SearchableComboBox(QComboBox):
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Search keys...")
         self.search_edit.setProperty("class", "search-input")
+        self.search_edit.setStyleSheet("""
+            QLineEdit {
+                background-color: #2a2a2a;
+                border: 1px solid #333333;
+                border-radius: 4px;
+                padding: 6px;
+                color: white;
+            }
+            QLineEdit:focus {
+                border: 1px solid #e67e22;
+            }
+        """)
 
         # Create and setup the popup frame
         self.popup = QFrame(self)
@@ -77,11 +90,12 @@ class SearchableComboBox(QComboBox):
                 color: #e0e0e0;
             }
             QListWidget::item:selected {
-                background-color: #3b82f6;
+                background-color: #e67e22;
                 color: white;
             }
             QListWidget::item:hover:!selected {
-                background-color: #333333;
+                background-color: #2e2e2e;
+                border-left: 2px solid #e67e22;
             }
         """)
         self.scroll.setWidget(self.list_widget)
@@ -233,6 +247,18 @@ class GeneralTab(QWidget):
         main_layout.setSpacing(12)
         main_layout.setContentsMargins(16, 16, 16, 16)  # Adjusted right padding
 
+        # Get the checkmark path based on running mode
+        if getattr(sys, 'frozen', False):
+            # Running as bundled PyInstaller app
+            base_path = sys._MEIPASS
+            checkmark_path = os.path.join(base_path, "assets", "icons", "checkmark.svg")
+            logging.info(f"Using frozen app checkmark at: {checkmark_path}")
+        else:
+            # Running in development
+            app_dir = QDir.currentPath()
+            checkmark_path = f"{app_dir}/src/ui/assets/icons/checkmark.svg"
+            logging.info(f"Using development checkmark at: {checkmark_path}")
+
         # Create a scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -293,7 +319,27 @@ class GeneralTab(QWidget):
         self.temp_slider.setRange(0, 100)  # 0.0 to 1.0 with 100 steps
         self.temp_slider.setValue(int(self.settings.get('general', 'temperature', default=0.7) * 100))
         self.temp_slider.setMinimumWidth(150)
-        self.temp_slider.setStyleSheet("background-color: transparent;")
+        self.temp_slider.setStyleSheet("""
+            QSlider {
+                background-color: transparent;
+            }
+            QSlider::groove:horizontal {
+                height: 4px;
+                background-color: #333333;
+                border-radius: 2px;
+            }
+            QSlider::handle:horizontal {
+                background-color: #e67e22;
+                border: none;
+                width: 16px;
+                margin: -6px 0;
+                border-radius: 8px;
+            }
+            QSlider::sub-page:horizontal {
+                background-color: #e67e22;
+                border-radius: 2px;
+            }
+        """)
         
         # Keep the spin box for precise control but make it smaller
         self.temperature = QDoubleSpinBox()
@@ -301,6 +347,26 @@ class GeneralTab(QWidget):
         self.temperature.setSingleStep(0.1)
         self.temperature.setValue(self.settings.get('general', 'temperature', default=0.7))
         self.temperature.setFixedWidth(70)
+        self.temperature.setStyleSheet("""
+            QDoubleSpinBox {
+                background-color: #2a2a2a;
+                border: 1px solid #333333;
+                border-radius: 4px;
+                padding: 3px;
+                color: white;
+            }
+            QDoubleSpinBox:focus {
+                border: 1px solid #e67e22;
+            }
+            QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+                background-color: #333333;
+                width: 16px;
+                border: none;
+            }
+            QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
+                background-color: #e67e22;
+            }
+        """)
         
         # Connect signals for syncing slider and spin box
         self.temp_slider.valueChanged.connect(self._sync_temp_from_slider)
@@ -337,6 +403,48 @@ class GeneralTab(QWidget):
         self.shift_checkbox = QCheckBox("Shift")
         self.super_checkbox = QCheckBox("Super")
         self.fn_checkbox = QCheckBox("Fn")
+        
+        # Apply consistent checkbox styling
+        checkbox_style = f"""
+            QCheckBox {{
+                color: #e0e0e0;
+                font-size: 12px;
+                spacing: 5px;
+                outline: none;
+                border: none;
+            }}
+            QCheckBox:focus, QCheckBox:hover {{
+                outline: none;
+                border: none;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1px solid #444444;
+                border-radius: 3px;
+                background-color: #2a2a2a;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: #2d2d2d;
+                border: 1px solid #e67e22;
+                image: url("{checkmark_path}");
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: #e67e22;
+                background-color: #333333;
+            }}
+            QCheckBox:hover {{
+                color: #ffffff;
+                outline: none;
+                border: none;
+            }}
+        """
+        
+        self.ctrl_checkbox.setStyleSheet(checkbox_style)
+        self.alt_checkbox.setStyleSheet(checkbox_style)
+        self.shift_checkbox.setStyleSheet(checkbox_style)
+        self.super_checkbox.setStyleSheet(checkbox_style)
+        self.fn_checkbox.setStyleSheet(checkbox_style)
 
         # Key selector
         self.key_selector = SearchableComboBox()
@@ -383,6 +491,7 @@ class GeneralTab(QWidget):
         )
 
         self.startup_checkbox = QCheckBox("Start Dasi on system startup")
+        self.startup_checkbox.setStyleSheet(checkbox_style)
         
         # Load current startup setting
         self.startup_checkbox.setChecked(self.settings.get('general', 'start_on_boot', default=False))
@@ -409,6 +518,18 @@ class GeneralTab(QWidget):
 
         self.export_path = QLineEdit()
         self.export_path.setPlaceholderText("Default: ~/Documents")
+        self.export_path.setStyleSheet("""
+            QLineEdit {
+                background-color: #2a2a2a;
+                border: 1px solid #333333;
+                border-radius: 4px;
+                padding: 6px;
+                color: white;
+            }
+            QLineEdit:focus {
+                border: 1px solid #e67e22;
+            }
+        """)
         
         # Load current export path setting
         current_path = self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents"))
@@ -418,6 +539,20 @@ class GeneralTab(QWidget):
         self.export_path.textChanged.connect(self._on_any_change)
         
         browse_button = QPushButton("Browse")
+        browse_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+            }
+            QPushButton:hover {
+                background-color: #333333;
+                border-left: 2px solid #e67e22;
+                color: white;
+            }
+        """)
         browse_button.clicked.connect(self._browse_export_path)
 
         path_layout.addWidget(self.export_path)
@@ -443,15 +578,54 @@ class GeneralTab(QWidget):
 
         # Add Cancel button
         cancel_button = QPushButton("Cancel")
+        cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #333333;
+                color: white;
+            }
+        """)
         cancel_button.clicked.connect(self._cancel_changes)
 
         # Add Reset button
         reset_button = QPushButton("Reset")
+        reset_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #333333;
+                color: white;
+            }
+        """)
         reset_button.clicked.connect(self._reset_changes)
 
         # Add Save & Apply button
         save_all_button = QPushButton("Save & Apply")
         save_all_button.setProperty("class", "primary")
+        save_all_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e67e22;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #f39c12;
+            }
+        """)
         save_all_button.clicked.connect(self._apply_all_settings)
 
         button_layout.addWidget(cancel_button)
@@ -586,9 +760,19 @@ class GeneralTab(QWidget):
             # Style the buttons
             for button in msg_box.buttons():
                 if msg_box.buttonRole(button) == QMessageBox.ButtonRole.YesRole:
-                    button.setProperty("class", "primary")
-                    button.style().unpolish(button)
-                    button.style().polish(button)
+                    button.setStyleSheet("""
+                        QPushButton {
+                            background-color: #e67e22;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            padding: 6px 12px;
+                            font-weight: bold;
+                        }
+                        QPushButton:hover {
+                            background-color: #f39c12;
+                        }
+                    """)
 
             response = msg_box.exec()
 

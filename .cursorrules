@@ -12,6 +12,25 @@ Dasi is a powerful desktop copilot application that provides inline LLM support 
   - `backend/`: Backend services and utilities
   - `ui/assets/`: Contains stylesheets, themes, and icons for the UI
 
+## Theme Colors
+
+- **Primary Theme Color**: #e67e22 (Orange)
+- **Primary Hover**: #d35400 (Darker orange)
+- **Primary Pressed**: #a04000 (Very dark orange)
+- **Danger/Alert Color**: #dc2626 (Red)
+- **Background Colors**:
+  - Main background: #1a1a1a (Very dark gray)
+  - Card/widget background: #222222 (Dark gray)
+  - Input field background: #2a2a2a (Medium dark gray)
+- **Border Colors**:
+  - Default border: #333333 (Medium gray)
+  - Hover border: #444444 (Light gray)
+  - Focus border: #e67e22 (Orange - same as primary)
+- **Text Colors**:
+  - Primary text: #e0e0e0 (Light gray/off-white)
+  - Secondary text: #aaaaaa (Medium gray)
+  - Disabled text: #666666 (Dark gray)
+
 ## Code Style Guidelines
 
 - **Python Conventions**:
@@ -77,10 +96,11 @@ Dasi is a powerful desktop copilot application that provides inline LLM support 
   - Use proper spacing (8px) and consistent styling
 
 - **Dropdown Menus**:
-  - Use the ComboBoxStyle class for consistent dropdown arrow styling
+  - Use the ComboBoxStyle class for consistent dropdown arrow styling in orange (#e67e22)
   - Implement proper padding (10px 12px) and border radius (6px)
-  - Use consistent colors: #2a2a2a background with #3b3b3b borders
-  - Include hover and focused states with appropriate styling
+  - Use consistent colors: #222222 background with #333333 borders
+  - Use orange (#e67e22) borders for hover and focus states
+  - Implement orange highlighting for selected items
 
 - **Spinboxes**:
   - Style spinboxes consistently with padding (10px 12px)
@@ -88,9 +108,9 @@ Dasi is a powerful desktop copilot application that provides inline LLM support 
   - Use border radius (6px) matching other form controls
 
 - **Buttons**:
-  - Primary actions: Use "primary" class (blue styling)
-  - Danger actions: Use "danger" class (red styling) 
-  - Secondary actions: Use default styling
+  - Primary actions: Use "primary" class (orange styling - #e67e22)
+  - Danger actions: Use "danger" class (red styling - #dc2626) 
+  - Secondary actions: Use default styling (gray with orange hover borders)
   - Apply consistent button spacing (8px between buttons)
   - Follow appropriate button ordering conventions (Cancel/Reset, then Save/Apply)
 

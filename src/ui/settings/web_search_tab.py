@@ -1,4 +1,5 @@
 import os
+import sys
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -15,10 +16,13 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QStyledItemDelegate,
     QProxyStyle,
-    QStyle
+    QStyle,
+    QListWidget,
+    QListWidgetItem,
+    QSizePolicy
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import QIcon, QPainter, QPainterPath, QColor
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize, QDir, QPoint, QRect, QPropertyAnimation, QEasingCurve, QEvent
+from PyQt6.QtGui import QIcon, QPainter, QPainterPath, QColor, QPen
 from .settings_manager import Settings
 from .general_tab import SectionFrame  # Import SectionFrame from general_tab
 import logging
@@ -26,44 +30,226 @@ import logging
 
 # Custom style to draw a text arrow for combo boxes
 class ComboBoxStyle(QProxyStyle):
+    """Custom style to draw a text arrow for combo boxes."""
     def __init__(self, style=None):
         super().__init__(style)
+        self.arrow_color = QColor("#e67e22")  # Orange color for arrow
         
     def drawPrimitive(self, element, option, painter, widget=None):
         if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown and isinstance(widget, QComboBox):
-            # Draw a cleaner triangle arrow matching the modern UI
+            # Draw a custom arrow
             rect = option.rect
             painter.save()
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             
-            # Define the arrow shape as a triangle
-            center_x = rect.center().x()
-            center_y = rect.center().y()
-            # Slightly smaller, more refined triangle size
-            arrow_size = 8
+            # Set up the arrow color
+            painter.setPen(QPen(self.arrow_color, 1.5))
             
-            # Create triangle points
-            points = [
-                (center_x - arrow_size//2, center_y - arrow_size//4),
-                (center_x + arrow_size//2, center_y - arrow_size//4),
-                (center_x, center_y + arrow_size//2)
-            ]
+            # Draw a triangle instead of text arrow for more modern look
+            # Calculate the triangle points
+            width = 9
+            height = 6
+            x = rect.center().x() - width // 2
+            y = rect.center().y() - height // 2
             
-            # Draw the arrow with slightly lighter color for better visibility
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor('#aaaaaa'))
-            
-            # Draw the triangle
             path = QPainterPath()
-            path.moveTo(points[0][0], points[0][1])
-            path.lineTo(points[1][0], points[1][1])
-            path.lineTo(points[2][0], points[2][1])
-            path.closeSubpath()
-            painter.drawPath(path)
+            path.moveTo(x, y)
+            path.lineTo(x + width, y)
+            path.lineTo(x + width // 2, y + height)
+            path.lineTo(x, y)
+            
+            # Fill the triangle
+            painter.fillPath(path, self.arrow_color)
             
             painter.restore()
             return
         super().drawPrimitive(element, option, painter, widget)
+
+
+# Custom ComboBox with animated popup
+class CustomComboBox(QComboBox):
+    """ComboBox with custom popup and animation."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+        # Apply custom arrow
+        self.setStyle(ComboBoxStyle())
+        
+        # Create popup frame
+        self.popup_frame = QFrame(self.window())
+        self.popup_frame.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.popup_frame.setProperty("class", "popup-frame")
+        
+        # Create shadow effect
+        self.popup_frame.setStyleSheet("""
+            QFrame.popup-frame {
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                padding: 4px;
+            }
+        """)
+        
+        # Create scroll area for better handling of many items
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setStyleSheet("background-color: transparent;")
+        
+        # Create list widget for items
+        self.list_widget = QListWidget()
+        self.list_widget.setProperty("class", "popup-list")
+        self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
+        self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list_widget.setStyleSheet("""
+            QListWidget {
+                background-color: transparent;
+                border: none;
+                outline: none;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-radius: 4px;
+                color: #e0e0e0;
+                margin: 2px;
+            }
+            QListWidget::item:selected {
+                background-color: #e67e22;
+                color: white;
+            }
+            QListWidget::item:hover:!selected {
+                background-color: #2e2e2e;
+                border-left: 2px solid #e67e22;
+            }
+        """)
+        
+        # Set up the popup layout
+        self.scroll_area.setWidget(self.list_widget)
+        self.popup_layout = QVBoxLayout(self.popup_frame)
+        self.popup_layout.setContentsMargins(0, 0, 0, 0)
+        self.popup_layout.addWidget(self.scroll_area)
+        
+        # Connect list widget signals
+        self.list_widget.itemClicked.connect(self._handle_item_selected)
+        
+        # Add animation
+        self.animation = QPropertyAnimation(self.popup_frame, b"geometry")
+        self.animation.setEasingCurve(QEasingCurve.Type.OutQuint)
+        self.animation.setDuration(180)  # Animation duration in milliseconds
+        
+        # Remember if popup is visible
+        self.popup_visible = False
+        
+        # Set fixed item height to make calculations easier
+        self.item_height = 32
+        
+        # Set max height in items
+        self.max_visible_items = 10
+        
+    def showPopup(self):
+        """Show custom popup instead of standard dropdown."""
+        if self.count() == 0 or not self.isEnabled():
+            return
+            
+        # Calculate popup position and size
+        popup_width = max(self.width(), 260)  # Minimum width for better readability
+        
+        # Calculate height based on number of items (limited by max_visible_items)
+        items_height = min(self.count(), self.max_visible_items) * self.item_height
+        popup_height = items_height + 8  # Add padding
+        
+        # Get global position for the popup
+        pos = self.mapToGlobal(QPoint(0, self.height()))
+        
+        # Clear and populate list widget
+        self.list_widget.clear()
+        for i in range(self.count()):
+            item = QListWidgetItem(self.itemText(i))
+            # Store item data for later retrieval
+            if self.itemData(i) is not None:
+                item.setData(Qt.ItemDataRole.UserRole, self.itemData(i))
+            self.list_widget.addItem(item)
+        
+        # Set the current item
+        if self.currentIndex() >= 0:
+            self.list_widget.setCurrentRow(self.currentIndex())
+        
+        # Set initial and final geometry for animation
+        start_rect = QRect(pos.x(), pos.y(), popup_width, 0)
+        end_rect = QRect(pos.x(), pos.y(), popup_width, popup_height)
+        
+        # Set up animation
+        self.animation.setStartValue(start_rect)
+        self.animation.setEndValue(end_rect)
+        
+        # Show popup
+        self.popup_frame.setGeometry(start_rect)
+        self.popup_frame.show()
+        self.animation.start()
+        
+        # Set popup visible flag
+        self.popup_visible = True
+        
+        # Install event filter to handle mouse events outside the popup
+        self.window().installEventFilter(self)
+    
+    def hidePopup(self):
+        """Hide the custom popup."""
+        if not self.popup_visible:
+            return
+            
+        # Set up closing animation
+        current_rect = self.popup_frame.geometry()
+        start_rect = current_rect
+        end_rect = QRect(current_rect.x(), current_rect.y(), current_rect.width(), 0)
+        
+        self.animation.setStartValue(start_rect)
+        self.animation.setEndValue(end_rect)
+        
+        # Connect animation finished signal to hide the popup
+        self.animation.finished.connect(self._finish_hiding)
+        
+        # Start the closing animation
+        self.animation.start()
+        
+        # Remove event filter
+        self.window().removeEventFilter(self)
+        
+        # Set popup visible flag
+        self.popup_visible = False
+    
+    def _finish_hiding(self):
+        """Hide the popup frame and disconnect signal after animation."""
+        self.popup_frame.hide()
+        try:
+            self.animation.finished.disconnect(self._finish_hiding)
+        except:
+            # Signal might already be disconnected
+            pass
+    
+    def _handle_item_selected(self, item):
+        """Handle item selection from the list."""
+        index = self.list_widget.row(item)
+        self.setCurrentIndex(index)
+        self.hidePopup()
+        self.activated.emit(index)
+        
+    def eventFilter(self, obj, event):
+        """Handle events for checking if clicked outside the popup."""
+        if event.type() == QEvent.Type.MouseButtonPress and self.popup_visible:
+            # Check if the click is outside both the combo box and the popup
+            pos = event.globalPosition().toPoint()
+            if not self.popup_frame.geometry().contains(pos) and not self.geometry().contains(self.mapFromGlobal(pos)):
+                self.hidePopup()
+                return True
+        return super().eventFilter(obj, event)
+    
+    def wheelEvent(self, event):
+        """Override wheel event to prevent scroll changing the selection when popup is not visible."""
+        if not self.popup_visible:
+            event.ignore()
 
 
 class WebSearchTab(QWidget):
@@ -77,6 +263,7 @@ class WebSearchTab(QWidget):
         self.settings = settings
         self.original_values = {}
         self.has_unsaved_changes = False
+        self.checkmark_path = None  # Initialize the checkmark path
         self.init_ui()
         self.save_original_values()
         
@@ -129,6 +316,18 @@ class WebSearchTab(QWidget):
         main_layout.setSpacing(12)
         main_layout.setContentsMargins(16, 16, 16, 16)  # Adjusted right margin from 0 to 16
         
+        # Get the checkmark path based on running mode
+        if getattr(sys, 'frozen', False):
+            # Running as bundled PyInstaller app
+            base_path = sys._MEIPASS
+            self.checkmark_path = os.path.join(base_path, "assets", "icons", "checkmark.svg")
+            logging.info(f"Using frozen app checkmark at: {self.checkmark_path}")
+        else:
+            # Running in development
+            app_dir = QDir.currentPath()
+            self.checkmark_path = f"{app_dir}/src/ui/assets/icons/checkmark.svg"
+            logging.info(f"Using development checkmark at: {self.checkmark_path}")
+            
         # Create a scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -181,7 +380,7 @@ class WebSearchTab(QWidget):
         provider_label = QLabel("Default Search Provider")
         provider_label.setProperty("class", "setting-label")
         
-        self.default_provider = QComboBox()
+        self.default_provider = CustomComboBox()
         # Updated modern UI styling that matches the global stylesheet
         self.default_provider.setStyleSheet("""
             QComboBox {
@@ -194,11 +393,11 @@ class WebSearchTab(QWidget):
                 font-size: 13px;
             }
             QComboBox:hover {
-                border: 1px solid #444444;
+                border: 1px solid #e67e22;
                 background-color: #2a2a2a;
             }
             QComboBox:focus {
-                border: 1px solid #3b82f6;
+                border: 1px solid #e67e22;
             }
             QComboBox::drop-down {
                 subcontrol-origin: padding;
@@ -209,25 +408,34 @@ class WebSearchTab(QWidget):
                 border-bottom-right-radius: 6px;
                 background-color: transparent;
             }
-            QComboBox QAbstractItemView {
-                background-color: #222222;
-                border: 1px solid #333333;
-                border-radius: 6px;
-                selection-background-color: #3b82f6;
-                selection-color: white;
-                padding: 8px;
-            }
-            QComboBox QAbstractItemView::item {
-                padding: 8px;
-                min-height: 24px;
-            }
-            QComboBox QAbstractItemView::item:hover {
+            
+            /* Custom scrollbar styling for list widgets */
+            QScrollBar:vertical {
                 background-color: #2a2a2a;
+                width: 8px;
+                margin: 0px;
+            }
+            
+            QScrollBar::handle:vertical {
+                background-color: #555555;
+                min-height: 20px;
+                border-radius: 4px;
+            }
+            
+            QScrollBar::handle:vertical:hover {
+                background-color: #e67e22;
+            }
+            
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
+                background: none;
             }
         """)
-        
-        # Apply custom style for the arrow
-        self.default_provider.setStyle(ComboBoxStyle())
         
         # Add search providers
         self.default_provider.addItem("Google Serper", "google_serper")
@@ -304,6 +512,45 @@ class WebSearchTab(QWidget):
         # Include citations checkbox - exactly matching api_keys_tab.py styling
         self.include_citations = QCheckBox("Include citations in responses")
         self.include_citations.setChecked(self.settings.get('web_search', 'include_citations', default=True))
+        
+        # Apply consistent checkbox styling
+        checkbox_style = f"""
+            QCheckBox {{
+                color: #e0e0e0;
+                font-size: 12px;
+                spacing: 5px;
+                outline: none;
+                border: none;
+            }}
+            QCheckBox:focus, QCheckBox:hover {{
+                outline: none;
+                border: none;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1px solid #444444;
+                border-radius: 3px;
+                background-color: #2a2a2a;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: #2d2d2d;
+                border: 1px solid #e67e22;
+                image: url("{self.checkmark_path}");
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: #e67e22;
+                background-color: #333333;
+            }}
+            QCheckBox:hover {{
+                color: #ffffff;
+                outline: none;
+                border: none;
+            }}
+        """
+        
+        self.scrape_content.setStyleSheet(checkbox_style)
+        self.include_citations.setStyleSheet(checkbox_style)
         
         options_layout.addWidget(self.scrape_content)
         options_layout.addWidget(self.include_citations)

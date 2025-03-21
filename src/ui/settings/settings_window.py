@@ -41,6 +41,29 @@ class SidebarButton(QPushButton):
             
         # Set minimum height for better touch targets
         self.setMinimumHeight(48)
+        
+        # Add custom styling with more subtle professional effects
+        self.setStyleSheet("""
+            QPushButton {
+                text-align: left;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                margin: 2px 8px;
+                color: #e0e0e0;
+                background-color: transparent;
+            }
+            QPushButton:hover {
+                background-color: #2e2e2e;
+                border-left: 2px solid #e67e22;
+                color: white;
+            }
+            QPushButton:checked {
+                background-color: #e67e22;
+                color: white;
+                font-weight: medium;
+            }
+        """)
 
 
 class ActionButton(QPushButton):
@@ -58,6 +81,19 @@ class ActionButton(QPushButton):
         self.setStyleSheet("""
             QPushButton { 
                 text-align: center;
+                background-color: #e67e22;
+                color: white;
+                font-weight: bold;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #f39c12;
+            }
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #999999;
             }
         """)
         
@@ -136,6 +172,14 @@ class SettingsWindow(QMainWindow):
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setSpacing(8)
         sidebar_layout.setContentsMargins(0, 20, 0, 20)
+        
+        # Apply sidebar styling
+        sidebar.setStyleSheet("""
+            QFrame.sidebar {
+                background-color: #1a1a1a;
+                border-right: 1px solid #333333;
+            }
+        """)
 
         # Add modern logo and header at the top of sidebar
         header_container = QWidget()
@@ -165,7 +209,7 @@ class SettingsWindow(QMainWindow):
         else:
             # Fallback text if logo can't be found
             logo_image.setText("D")
-            logo_image.setStyleSheet("font-size: 22px; font-weight: bold; color: white;")
+            logo_image.setStyleSheet("font-size: 22px; font-weight: bold; color: #e67e22;")
             logo_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
             logging.warning(f"Logo file not found at {logo_path}")
             
@@ -206,7 +250,7 @@ class SettingsWindow(QMainWindow):
                 font-family: 'Segoe UI', Arial, sans-serif;
                 font-weight: 400;
                 font-size: 10px;
-                color: #a0a0a0;
+                color: #f8c291;
                 letter-spacing: 2px;
                 text-transform: uppercase;
                 padding: 0px;
@@ -312,10 +356,22 @@ class SettingsWindow(QMainWindow):
             # Update button to show Stop Dasi
             self.start_dasi_btn.setText("Stop Dasi")
             self.start_dasi_btn.setEnabled(True)
-            self.start_dasi_btn.setProperty("class", "danger")
+            # Use the same theme for consistency, with slightly darker shade
+            self.start_dasi_btn.setStyleSheet("""
+                QPushButton { 
+                    text-align: center;
+                    background-color: #d35400;
+                    color: white;
+                    font-weight: bold;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #e67e22;
+                }
+            """)
             self.start_dasi_btn.setIcon(QIcon(self.stop_icon_path))
-            self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
-            self.start_dasi_btn.style().polish(self.start_dasi_btn)
             
             # Connect to stop_dasi
             try:
@@ -337,10 +393,22 @@ class SettingsWindow(QMainWindow):
             # Update button to show Stop Dasi
             self.start_dasi_btn.setText("Stop Dasi")
             self.start_dasi_btn.setEnabled(True)
-            self.start_dasi_btn.setProperty("class", "danger")
+            # Use the same theme for consistency, with slightly darker shade
+            self.start_dasi_btn.setStyleSheet("""
+                QPushButton { 
+                    text-align: center;
+                    background-color: #d35400;
+                    color: white;
+                    font-weight: bold;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #e67e22;
+                }
+            """)
             self.start_dasi_btn.setIcon(QIcon(self.stop_icon_path))
-            self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
-            self.start_dasi_btn.style().polish(self.start_dasi_btn)
             
             # Connect to stop_dasi
             try:
@@ -360,10 +428,22 @@ class SettingsWindow(QMainWindow):
             if self.dasi_instance and self.hotkey_listener and self.hotkey_listener.is_running():
                 self.start_dasi_btn.setText("Stop Dasi")
                 self.start_dasi_btn.setEnabled(True)
-                self.start_dasi_btn.setProperty("class", "danger")
+                # Use the same theme for consistency, with slightly darker shade
+                self.start_dasi_btn.setStyleSheet("""
+                    QPushButton { 
+                        text-align: center;
+                        background-color: #d35400;
+                        color: white;
+                        font-weight: bold;
+                        border: none;
+                        border-radius: 4px;
+                        padding: 8px 16px;
+                    }
+                    QPushButton:hover {
+                        background-color: #e67e22;
+                    }
+                """)
                 self.start_dasi_btn.setIcon(QIcon(self.stop_icon_path))
-                self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
-                self.start_dasi_btn.style().polish(self.start_dasi_btn)
                 
                 # Ensure the button is connected to stop_dasi
                 try:
@@ -384,10 +464,22 @@ class SettingsWindow(QMainWindow):
                 
                 self.start_dasi_btn.setText("Stop Dasi")
                 self.start_dasi_btn.setEnabled(True)
-                self.start_dasi_btn.setProperty("class", "danger")
+                # Use the same theme for consistency, with slightly darker shade
+                self.start_dasi_btn.setStyleSheet("""
+                    QPushButton { 
+                        text-align: center;
+                        background-color: #d35400;
+                        color: white;
+                        font-weight: bold;
+                        border: none;
+                        border-radius: 4px;
+                        padding: 8px 16px;
+                    }
+                    QPushButton:hover {
+                        background-color: #e67e22;
+                    }
+                """)
                 self.start_dasi_btn.setIcon(QIcon(self.stop_icon_path))
-                self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
-                self.start_dasi_btn.style().polish(self.start_dasi_btn)
                 
                 # Ensure the button is connected to stop_dasi
                 try:
@@ -400,10 +492,27 @@ class SettingsWindow(QMainWindow):
                 has_models = bool(self.settings.get_selected_models())
                 self.start_dasi_btn.setEnabled(has_models)
                 self.start_dasi_btn.setText("Start Dasi" if has_models else "Select Models First")
-                self.start_dasi_btn.setProperty("class", "danger")  # Keep the same color as Stop button
+                
+                # Set back to orange theme style
+                self.start_dasi_btn.setStyleSheet("""
+                    QPushButton { 
+                        text-align: center;
+                        background-color: #e67e22;
+                        color: white;
+                        font-weight: bold;
+                        border: none;
+                        border-radius: 4px;
+                        padding: 8px 16px;
+                    }
+                    QPushButton:hover {
+                        background-color: #f39c12;
+                    }
+                    QPushButton:disabled {
+                        background-color: #555555;
+                        color: #999999;
+                    }
+                """)
                 self.start_dasi_btn.setIcon(QIcon(self.play_icon_path))
-                self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
-                self.start_dasi_btn.style().polish(self.start_dasi_btn)
                 
                 # Ensure the button is connected to start_dasi
                 try:
@@ -465,10 +574,22 @@ class SettingsWindow(QMainWindow):
                 
                 # Update button to show Stop Dasi
                 self.start_dasi_btn.setText("Stop Dasi")
-                self.start_dasi_btn.setProperty("class", "danger")
+                # Use the same theme for consistency, with slightly darker shade
+                self.start_dasi_btn.setStyleSheet("""
+                    QPushButton { 
+                        text-align: center;
+                        background-color: #d35400;
+                        color: white;
+                        font-weight: bold;
+                        border: none;
+                        border-radius: 4px;
+                        padding: 8px 16px;
+                    }
+                    QPushButton:hover {
+                        background-color: #e67e22;
+                    }
+                """)
                 self.start_dasi_btn.setIcon(QIcon(self.stop_icon_path))
-                self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
-                self.start_dasi_btn.style().polish(self.start_dasi_btn)
                 try:
                     self.start_dasi_btn.clicked.disconnect()
                 except:
@@ -509,10 +630,27 @@ class SettingsWindow(QMainWindow):
             has_models = bool(self.settings.get_selected_models())
             self.start_dasi_btn.setText("Start Dasi" if has_models else "Select Models First")
             self.start_dasi_btn.setEnabled(has_models)
-            self.start_dasi_btn.setProperty("class", "danger")  # Keep the "danger" class
+            
+            # Set back to orange theme style
+            self.start_dasi_btn.setStyleSheet("""
+                QPushButton { 
+                    text-align: center;
+                    background-color: #e67e22;
+                    color: white;
+                    font-weight: bold;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #f39c12;
+                }
+                QPushButton:disabled {
+                    background-color: #555555;
+                    color: #999999;
+                }
+            """)
             self.start_dasi_btn.setIcon(QIcon(self.play_icon_path))
-            self.start_dasi_btn.style().unpolish(self.start_dasi_btn)
-            self.start_dasi_btn.style().polish(self.start_dasi_btn)
             try:
                 self.start_dasi_btn.clicked.disconnect()
             except:

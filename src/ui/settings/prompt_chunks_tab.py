@@ -34,7 +34,7 @@ class ChunkCard(QFrame):
             }
             #chunkCard:hover {
                 background-color: #2a2a2a;
-                border: 1px solid #444444;
+                border: 1px solid #e67e22;
             }
             QLabel {
                 color: #ffffff;
@@ -83,20 +83,29 @@ class CreateCard(ChunkCard):
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))  # Set cursor to pointer
         self.setStyleSheet("""
             #createCard {
-                background-color: #375a7f;
-                border: 1px solid #2c3e50;
+                background-color: #e67e22;
+                border: 1px solid #d35400;
                 border-radius: 8px;
                 padding: 12px;
                 margin: 4px;
             }
             #createCard:hover {
-                background-color: #4682b4;
-                border: 1px solid #2c3e50;
+                background-color: #f39c12;
+                border: 1px solid #e67e22;
             }
             QLabel {
                 color: #ffffff;
             }
         """)
+        
+        # Override the content label style to ensure white text
+        for i in range(self.layout().count()):
+            widget = self.layout().itemAt(i).widget()
+            if isinstance(widget, QLabel):
+                if i == 0:  # Title label
+                    widget.setStyleSheet("font-size: 14px; font-weight: 600; color: #ffffff;")
+                else:  # Content label
+                    widget.setStyleSheet("color: #ffffff; font-size: 12px; padding-bottom: 4px;")
 
 
 class ChunkEditor(QWidget):
@@ -175,6 +184,9 @@ class ChunkEditor(QWidget):
                 font-size: 13px;
                 color: #e0e0e0;
             }
+            QTextEdit:focus {
+                border: 1px solid #e67e22;
+            }
         """)
         layout.addWidget(self.editor)
 
@@ -195,7 +207,7 @@ class ChunkEditor(QWidget):
                 padding: 8px 16px;
             }
             QPushButton:hover {
-                color: white;
+                color: #e67e22;
             }
         """)
         back_button.clicked.connect(self.on_back)
@@ -205,7 +217,7 @@ class ChunkEditor(QWidget):
         save_button.setProperty("class", "primary")
         save_button.setStyleSheet("""
             QPushButton {
-                background-color: #1e3a8a;
+                background-color: #e67e22;
                 border: none;
                 border-radius: 4px;
                 padding: 8px 16px;
@@ -213,7 +225,7 @@ class ChunkEditor(QWidget):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #1e40af;
+                background-color: #f39c12;
             }
         """)
         save_button.clicked.connect(self.save_changes)
@@ -298,6 +310,9 @@ class PromptChunksTab(QWidget):
                 font-size: 13px;
                 color: white;
             }
+            QLineEdit:focus {
+                border: 1px solid #e67e22;
+            }
         """)
         self.search_input.textChanged.connect(self.filter_chunks)
 
@@ -325,6 +340,9 @@ class PromptChunksTab(QWidget):
                 background-color: #404040;
                 min-height: 20px;
                 border-radius: 5px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #e67e22;
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
                 border: none;

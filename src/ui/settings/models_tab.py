@@ -19,9 +19,10 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QStyleOption,
     QStyle,
+    QProxyStyle,
 )
 from PyQt6.QtCore import Qt, QEvent, QThread, pyqtSignal, QObject, QRectF
-from PyQt6.QtGui import QPalette, QPainter, QPainterPath, QColor, QFont, QFontMetrics
+from PyQt6.QtGui import QPalette, QPainter, QPainterPath, QColor, QFont, QFontMetrics, QPen
 from .settings_manager import Settings
 from .general_tab import SectionFrame
 
@@ -32,9 +33,9 @@ class RoundLabel(QLabel):
     def __init__(self, text, parent=None, radius=12):
         super().__init__(text, parent)
         self.radius = radius
-        # Set colors for the label - match the original styling
-        self.bg_color = QColor(76, 175, 80, 25)  # Light green background with ~10% opacity
-        self.text_color = QColor(76, 175, 80)  # Green text (#4caf50)
+        # Set colors for the label - using orange theme
+        self.bg_color = QColor(230, 126, 34, 25)  # Light orange background with ~10% opacity
+        self.text_color = QColor(230, 126, 34)  # Orange text (#e67e22)
         # Set fixed height for consistent look
         self.setFixedHeight(24)
         # Set content margins to create padding
@@ -84,10 +85,10 @@ class RoundButton(QPushButton):
         self.radius = radius
         self.hover = False
         # Store colors as QColor objects
-        self.border_color = QColor(220, 38, 38, 76)  # ~30% opacity
-        self.hover_border_color = QColor(220, 38, 38, 102)  # ~40% opacity
-        self.hover_bg_color = QColor(220, 38, 38, 25)  # ~10% opacity
-        self.text_color = QColor(239, 68, 68)  # #ef4444
+        self.border_color = QColor(230, 126, 34, 76)  # ~30% opacity
+        self.hover_border_color = QColor(230, 126, 34, 102)  # ~40% opacity
+        self.hover_bg_color = QColor(230, 126, 34, 25)  # ~10% opacity
+        self.text_color = QColor(230, 126, 34)  # #e67e22
         
     def enterEvent(self, event):
         self.hover = True
@@ -459,16 +460,85 @@ class ModelFetchWorker(QThread):
             self.error.emit(str(e))
 
 
+class ComboBoxStyle(QProxyStyle):
+    """Custom style to draw a text arrow for combo boxes."""
+    def __init__(self, style=None):
+        super().__init__(style)
+        self.arrow_color = QColor("#e67e22")  # Orange color for arrow
+        
+    def drawPrimitive(self, element, option, painter, widget=None):
+        if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown and isinstance(widget, QComboBox):
+            # Draw a custom arrow
+            rect = option.rect
+            painter.save()
+            
+            # Set up the arrow color
+            painter.setPen(QPen(self.arrow_color, 1.5))
+            
+            # Draw a triangle instead of text arrow for more modern look
+            # Calculate the triangle points
+            width = 9
+            height = 6
+            x = rect.center().x() - width // 2
+            y = rect.center().y() - height // 2
+            
+            path = QPainterPath()
+            path.moveTo(x, y)
+            path.lineTo(x + width, y)
+            path.lineTo(x + width // 2, y + height)
+            path.lineTo(x, y)
+            
+            # Fill the triangle
+            painter.fillPath(path, self.arrow_color)
+            
+            painter.restore()
+            return
+        super().drawPrimitive(element, option, painter, widget)
+
+
 class SearchableComboBox(QComboBox):
     """Custom ComboBox with search functionality."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        # Apply custom arrow style
+        self.setStyle(ComboBoxStyle())
+        
+        # Apply orange-themed style
+        self.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #2a2a2a;
+                border-radius: 6px;
+                background-color: #222222;
+                padding: 4px 8px;
+                min-height: 18px;
+            }
+            QComboBox:hover, QComboBox:focus {
+                border: 1px solid #e67e22;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 24px;
+            }
+        """)
+        
         # Create search line edit
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Search models...")
         self.search_edit.setProperty("class", "search-input")
+        self.search_edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #333333;
+                border-radius: 6px;
+                padding: 6px 10px;
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+            }
+            QLineEdit:focus {
+                border: 1px solid #e67e22;
+            }
+        """)
 
         # Create and setup the popup frame
         self.popup = QFrame(self)
@@ -507,11 +577,12 @@ class SearchableComboBox(QComboBox):
                 color: #e0e0e0;
             }
             QListWidget::item:selected {
-                background-color: #3b82f6;
+                background-color: #e67e22;
                 color: white;
             }
             QListWidget::item:hover:!selected {
                 background-color: #333333;
+                border-left: 2px solid #e67e22;
             }
         """)
         self.scroll.setWidget(self.list_widget)
@@ -626,7 +697,7 @@ class ModelsTab(QWidget):
             }
             QPushButton:hover {
                 background-color: #333333;
-                border: 1px solid #444444;
+                border: 1px solid #e67e22;
             }
             QPushButton:pressed {
                 background-color: #444444;
@@ -638,6 +709,22 @@ class ModelsTab(QWidget):
         # Add button with modern styling
         add_button = QPushButton("Add Model")
         add_button.setProperty("class", "primary")
+        add_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e67e22;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #d35400;
+            }
+            QPushButton:pressed {
+                background-color: #a04000;
+            }
+        """)
         add_button.clicked.connect(self.add_model)
 
         selection_layout.addWidget(self.model_dropdown)
@@ -662,7 +749,7 @@ class ModelsTab(QWidget):
                 background-color: #333333;
             }
             QProgressBar::chunk {
-                background-color: #3b82f6;
+                background-color: #e67e22;
             }
         """)
         self.progress_bar.hide()
@@ -989,8 +1076,8 @@ class ModelsTab(QWidget):
             font-size: 12px;
             border-radius: 12px;
             background-color: transparent;
-            border: 1px solid rgba(59, 130, 246, 0.3);
-            color: #60a5fa;
+            border: 1px solid rgba(230, 126, 34, 0.3);
+            color: #e67e22;
         """)
         default_btn.setVisible(False)
         default_btn.clicked.connect(lambda: self.set_default_model(model_info['id']))
@@ -1000,17 +1087,17 @@ class ModelsTab(QWidget):
             padding: 4px 12px;
             font-size: 12px;
             border-radius: 12px;
-            background-color: rgba(59, 130, 246, 0.1);
-            border: 1px solid rgba(59, 130, 246, 0.4);
-            color: #60a5fa;
+            background-color: rgba(230, 126, 34, 0.1);
+            border: 1px solid rgba(230, 126, 34, 0.4);
+            color: #e67e22;
         """)
         default_btn.leaveEvent = lambda e: default_btn.setStyleSheet("""
             padding: 4px 12px;
             font-size: 12px;
             border-radius: 12px;
             background-color: transparent;
-            border: 1px solid rgba(59, 130, 246, 0.3);
-            color: #60a5fa;
+            border: 1px solid rgba(230, 126, 34, 0.3);
+            color: #e67e22;
         """)
 
         # Remove button with modern styling - now using RoundButton with custom painting
@@ -1019,7 +1106,7 @@ class ModelsTab(QWidget):
         remove_btn.setVisible(False)
         remove_btn.clicked.connect(lambda: self.remove_model(model_info['id']))
         
-        # Add buttons to actions layout
+        # Add content to actions layout
         actions_layout.addWidget(default_label)
         actions_layout.addWidget(default_btn)
         actions_layout.addWidget(remove_btn)
