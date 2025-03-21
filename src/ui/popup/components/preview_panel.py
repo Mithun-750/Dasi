@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
                              QPushButton, QComboBox, QSizePolicy, QFrame,
-                             QProxyStyle, QStyle, QStyledItemDelegate, QStackedWidget)
-from PyQt6.QtCore import Qt, pyqtSignal
+                             QProxyStyle, QStyle, QStyledItemDelegate, QStackedWidget, QCheckBox)
+from PyQt6.QtCore import Qt, pyqtSignal, QDir
 from PyQt6.QtGui import QTextCursor, QColor, QPen, QPainterPath, QPainter
 
 from .markdown_renderer import MarkdownRenderer
@@ -56,6 +56,10 @@ class PreviewPanel(QWidget):
     
     def _setup_ui(self):
         """Set up the UI components."""
+        # Get the application directory for asset paths
+        app_dir = QDir.currentPath()
+        checkmark_path = f"{app_dir}/src/ui/assets/icons/checkmark.svg"
+        
         # Main layout
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -105,6 +109,11 @@ class PreviewPanel(QWidget):
         self.action_layout = QVBoxLayout()
         self.action_layout.setContentsMargins(2, 0, 2, 0)  # Removed bottom margin completely
         self.action_layout.setSpacing(4)  # Further reduced spacing between elements
+        
+        # Top row with selector and edit checkbox
+        top_row = QHBoxLayout()
+        top_row.setSpacing(4)
+        top_row.setContentsMargins(0, 0, 0, 0)
         
         # Create insertion method selector with improved styling
         self.insert_method = QComboBox()
@@ -165,6 +174,49 @@ class PreviewPanel(QWidget):
         # Set delegate for consistent item height
         self.insert_method.setItemDelegate(QStyledItemDelegate())
         
+        # Add edit checkbox
+        self.edit_checkbox = QCheckBox("Edit")
+        self.edit_checkbox.setChecked(True)  # Default to editable in compose mode
+        self.edit_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: #e0e0e0;
+                font-size: 12px;
+                spacing: 5px;
+                outline: none;
+                border: none;
+            }}
+            QCheckBox:focus, QCheckBox:hover {{
+                outline: none;
+                border: none;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1px solid #444444;
+                border-radius: 3px;
+                background-color: #2a2a2a;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: #2d2d2d;
+                border: 1px solid #ff9f30;
+                image: url("{checkmark_path}");
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: #ff9f30;
+                background-color: #333333;
+            }}
+            QCheckBox:hover {{
+                color: #ffffff;
+                outline: none;
+                border: none;
+            }}
+        """)
+        self.edit_checkbox.stateChanged.connect(self._toggle_edit_mode)
+        
+        # Add widgets to top row
+        top_row.addWidget(self.insert_method, 1)  # Give the combo box more space
+        top_row.addWidget(self.edit_checkbox, 0)  # Give the checkbox less space
+        
         # Create accept/export buttons
         self.accept_button = QPushButton("Accept")
         self.export_button = QPushButton("Export")
@@ -183,7 +235,7 @@ class PreviewPanel(QWidget):
         button_layout.addWidget(self.export_button)
         
         # Add widgets to action layout
-        self.action_layout.addWidget(self.insert_method)
+        self.action_layout.addLayout(top_row)
         self.action_layout.addLayout(button_layout)
         self.action_frame.setLayout(self.action_layout)
         self.action_frame.hide()
@@ -195,6 +247,21 @@ class PreviewPanel(QWidget):
         self.setLayout(layout)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)  # Make entire panel take minimum required height
     
+    def _toggle_edit_mode(self):
+        """Toggle between editable text and markdown preview."""
+        if not self.is_chat_mode:  # Only applies in compose mode
+            if self.edit_checkbox.isChecked():
+                # Switch to editable text mode
+                current_text = self.markdown_preview.get_plain_text() if self.preview_stack.currentWidget() == self.markdown_preview else self.response_preview.toPlainText()
+                self.preview_stack.setCurrentWidget(self.response_preview)
+                self.response_preview.setText(current_text)
+                self.set_editable(True)
+            else:
+                # Switch to markdown preview mode
+                current_text = self.response_preview.toPlainText()
+                self.preview_stack.setCurrentWidget(self.markdown_preview)
+                self.markdown_preview.set_markdown(current_text)
+                
     def set_chat_mode(self, is_chat_mode: bool):
         """Set whether the panel is in chat mode (markdown) or compose mode (plain text)."""
         # If mode is changing, transfer content between widgets
@@ -205,18 +272,28 @@ class PreviewPanel(QWidget):
                 self.preview_stack.setCurrentWidget(self.markdown_preview)
                 if current_text:
                     self.markdown_preview.set_markdown(current_text)
+                # Hide edit checkbox in chat mode
+                self.edit_checkbox.setVisible(False)
             else:
                 # Transferring from markdown to text
                 current_text = self.markdown_preview.get_plain_text()
-                self.preview_stack.setCurrentWidget(self.response_preview)
-                if current_text:
-                    self.response_preview.setText(current_text)
-                # Make text editable when switching to compose mode
-                self.response_preview.setReadOnly(False)
-                self.response_preview.setProperty("editable", True)
-                self.response_preview.style().unpolish(self.response_preview)
-                self.response_preview.style().polish(self.response_preview)
-                self.response_preview.setPlaceholderText("You can edit this response before accepting...")
+                # Check if edit mode is enabled
+                if self.edit_checkbox.isChecked():
+                    self.preview_stack.setCurrentWidget(self.response_preview)
+                    if current_text:
+                        self.response_preview.setText(current_text)
+                    # Make text editable when switching to compose mode with edit enabled
+                    self.response_preview.setReadOnly(False)
+                    self.response_preview.setProperty("editable", True)
+                    self.response_preview.style().unpolish(self.response_preview)
+                    self.response_preview.style().polish(self.response_preview)
+                    self.response_preview.setPlaceholderText("You can edit this response before accepting...")
+                else:
+                    # Keep markdown view but update content
+                    if current_text:
+                        self.markdown_preview.set_markdown(current_text)
+                # Show edit checkbox in compose mode
+                self.edit_checkbox.setVisible(True)
         
         self.is_chat_mode = is_chat_mode
     
@@ -254,6 +331,9 @@ class PreviewPanel(QWidget):
                 self.response_preview.style().unpolish(self.response_preview)
                 self.response_preview.style().polish(self.response_preview)
                 self.response_preview.setPlaceholderText("You can edit this response before accepting...")
+                # Update checkbox state
+                self.edit_checkbox.setVisible(True)
+                self.edit_checkbox.setChecked(True)
         else:
             # Normal text mode
             self.response_preview.setReadOnly(not editable)
@@ -263,10 +343,17 @@ class PreviewPanel(QWidget):
             
             if editable:
                 self.response_preview.setPlaceholderText("You can edit this response before accepting...")
+                
+            # Update checkbox state but block signals to prevent recursive calls
+            self.edit_checkbox.blockSignals(True)
+            self.edit_checkbox.setChecked(editable)
+            self.edit_checkbox.blockSignals(False)
     
     def show_actions(self, show: bool):
         """Show or hide the action frame."""
         self.action_frame.setVisible(show)
+        # Update edit checkbox visibility based on mode
+        self.edit_checkbox.setVisible(show and not self.is_chat_mode)
     
     def show_preview(self, show: bool):
         """Show or hide the response preview."""
