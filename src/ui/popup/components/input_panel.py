@@ -569,10 +569,20 @@ class InputPanel(QWidget):
         if obj is self.input_field and event.type() == QEvent.Type.KeyPress:
             key_event = event
 
-            # Show dropdown on @ key
+            # Show dropdown on @ key only when properly spaced
             if key_event.text() == '@':
-                self.chunk_dropdown.update_items(self.chunk_titles)
-                self.chunk_dropdown.show()
+                # Get the text and cursor position
+                cursor = self.input_field.textCursor()
+                text = self.input_field.toPlainText()
+                pos = cursor.position()
+                
+                # Check if @ is at the beginning or has a space before it
+                is_start_or_after_space = pos == 0 or (pos > 0 and text[pos-1] in [' ', '\n', '\t'])
+                
+                if is_start_or_after_space:
+                    self.chunk_dropdown.update_items(self.chunk_titles)
+                    self.chunk_dropdown.show()
+                
                 return False  # Let the @ be typed
 
             # Handle submit when dropdown is not visible

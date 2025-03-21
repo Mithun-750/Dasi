@@ -191,11 +191,11 @@ class ChunkDropdown(QFrame):
             
             # Set fixed width and height
             width = max(300, self.parent().width() // 2)
-            height = min(350, (self.list_widget.count() * 36) + 60)  # Extra height for search box
+            height = min(250, (self.list_widget.count() * 36) + 60)  # Reduced from 350 to 250
             self.setFixedSize(width, height)
 
     def sizeHint(self):
         """Calculate proper size for the dropdown."""
         width = max(300, self.parent().width() // 2 if self.parent() else 300)
-        height = min(350, (self.list_widget.count() * 36) + 60)  # Extra height for search box
+        height = min(250, (self.list_widget.count() * 36) + 60)  # Reduced from 350 to 250
         return QSize(width, height) 
