@@ -1,8 +1,10 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
                              QPushButton, QComboBox, QSizePolicy, QFrame,
-                             QProxyStyle, QStyle, QStyledItemDelegate)
+                             QProxyStyle, QStyle, QStyledItemDelegate, QStackedWidget)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QTextCursor, QColor, QPen, QPainterPath, QPainter
+
+from .markdown_renderer import MarkdownRenderer
 
 # ComboBoxStyle for proper arrow display - copied from input_panel.py
 class ComboBoxStyle(QProxyStyle):
@@ -49,6 +51,7 @@ class PreviewPanel(QWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.is_chat_mode = False  # Default to compose mode
         self._setup_ui()
     
     def _setup_ui(self):
@@ -58,10 +61,15 @@ class PreviewPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(3)  # Reduced spacing from 5px to 3px
         
-        # Response preview
+        # Create a stacked widget to hold both preview types
+        self.preview_stack = QStackedWidget()
+        self.preview_stack.setFixedWidth(330)  # Keep fixed width for consistent UI
+        self.preview_stack.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+        
+        # Plain text preview (for compose mode)
         self.response_preview = QTextEdit()
         self.response_preview.setReadOnly(True)  # Start as read-only
-        self.response_preview.setFixedWidth(330)  # Reduced from 340px to 330px
+        self.response_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.response_preview.setStyleSheet("""
             QTextEdit {
                 background-color: #1e1e1e;
@@ -72,6 +80,7 @@ class PreviewPanel(QWidget):
                 font-size: 12px;
                 color: #ffffff;
                 font-family: "Helvetica", sans-serif;
+                min-height: 0px;
             }
             QTextEdit[editable="true"] {
                 background-color: #262626;
@@ -81,7 +90,13 @@ class PreviewPanel(QWidget):
                 border: 1px solid #e67e22;
             }
         """)
-        self.response_preview.hide()
+        
+        # Markdown preview (for chat mode)
+        self.markdown_preview = MarkdownRenderer()
+        
+        # Add both widgets to the stack
+        self.preview_stack.addWidget(self.response_preview)  # Index 0: Plain text
+        self.preview_stack.addWidget(self.markdown_preview)  # Index 1: Markdown
         
         # Action frame for buttons and selector
         self.action_frame = QFrame()
@@ -174,30 +189,74 @@ class PreviewPanel(QWidget):
         self.action_frame.hide()
         
         # Add widgets to main layout
-        layout.addWidget(self.response_preview, 1)
+        layout.addWidget(self.preview_stack, 1)
         layout.addWidget(self.action_frame, 0)  # Use 0 stretch factor to minimize height
         
         self.setLayout(layout)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)  # Make entire panel take minimum required height
     
+    def set_chat_mode(self, is_chat_mode: bool):
+        """Set whether the panel is in chat mode (markdown) or compose mode (plain text)."""
+        # If mode is changing, transfer content between widgets
+        if self.is_chat_mode != is_chat_mode:
+            if is_chat_mode:
+                # Transferring from text to markdown
+                current_text = self.response_preview.toPlainText()
+                self.preview_stack.setCurrentWidget(self.markdown_preview)
+                if current_text:
+                    self.markdown_preview.set_markdown(current_text)
+            else:
+                # Transferring from markdown to text
+                current_text = self.markdown_preview.get_plain_text()
+                self.preview_stack.setCurrentWidget(self.response_preview)
+                if current_text:
+                    self.response_preview.setText(current_text)
+        
+        self.is_chat_mode = is_chat_mode
+    
     def set_response(self, response: str):
         """Set the response text in the preview."""
+        if not response:
+            return
+            
+        # Update both widgets to keep content in sync
         self.response_preview.setText(response)
-        self.response_preview.show()
+        self.markdown_preview.set_markdown(response)
         
-        # Auto-scroll to bottom
-        scrollbar = self.response_preview.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
+        # Show the stack widget
+        self.preview_stack.show()
+        
+        # Auto-scroll to bottom if in text mode
+        if not self.is_chat_mode:
+            scrollbar = self.response_preview.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
     
     def set_editable(self, editable: bool):
         """Set whether the response preview is editable."""
-        self.response_preview.setReadOnly(not editable)
-        self.response_preview.setProperty("editable", editable)
-        self.response_preview.style().unpolish(self.response_preview)
-        self.response_preview.style().polish(self.response_preview)
-        
-        if editable:
-            self.response_preview.setPlaceholderText("You can edit this response before accepting...")
+        if self.is_chat_mode:
+            # Markdown view is never editable, so switch to text mode if editing is required
+            if editable:
+                # Get the current markdown text
+                md_text = self.markdown_preview.get_plain_text()
+                # Switch to text mode and set the content
+                self.is_chat_mode = False
+                self.preview_stack.setCurrentWidget(self.response_preview)
+                self.response_preview.setText(md_text)
+                # Make it editable
+                self.response_preview.setReadOnly(False)
+                self.response_preview.setProperty("editable", True)
+                self.response_preview.style().unpolish(self.response_preview)
+                self.response_preview.style().polish(self.response_preview)
+                self.response_preview.setPlaceholderText("You can edit this response before accepting...")
+        else:
+            # Normal text mode
+            self.response_preview.setReadOnly(not editable)
+            self.response_preview.setProperty("editable", editable)
+            self.response_preview.style().unpolish(self.response_preview)
+            self.response_preview.style().polish(self.response_preview)
+            
+            if editable:
+                self.response_preview.setPlaceholderText("You can edit this response before accepting...")
     
     def show_actions(self, show: bool):
         """Show or hide the action frame."""
@@ -205,15 +264,22 @@ class PreviewPanel(QWidget):
     
     def show_preview(self, show: bool):
         """Show or hide the response preview."""
-        self.response_preview.setVisible(show)
+        self.preview_stack.setVisible(show)
     
     def clear(self):
         """Clear the response preview."""
         self.response_preview.clear()
+        self.markdown_preview.clear()
+        self.show_actions(False)  # Hide actions when clearing
     
     def _handle_accept(self):
         """Handle accept button click."""
-        response = self.response_preview.toPlainText()
+        # Get response from the appropriate widget
+        if self.is_chat_mode:
+            response = self.markdown_preview.get_plain_text()
+        else:
+            response = self.response_preview.toPlainText()
+            
         if response:
             # Remove any leading colon that might be in the response
             if response.startswith(':'):
@@ -227,6 +293,21 @@ class PreviewPanel(QWidget):
     
     def _handle_export(self):
         """Handle export button click."""
-        response = self.response_preview.toPlainText()
+        # Get response from the appropriate widget
+        if self.is_chat_mode:
+            response = self.markdown_preview.get_plain_text()
+        else:
+            response = self.response_preview.toPlainText()
+            
         if response:
-            self.export_clicked.emit(response) 
+            self.export_clicked.emit(response)
+    
+    def hide(self):
+        """Override hide to ensure both preview widgets are hidden."""
+        self.preview_stack.hide()
+        super().hide()
+    
+    def show(self):
+        """Override show to ensure the appropriate widget is shown."""
+        self.preview_stack.show()
+        super().show() 

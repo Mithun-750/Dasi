@@ -513,8 +513,10 @@ class DasiWindow(QWidget):
         """Handle mode change between Chat and Compose."""
         # Show/hide action elements based on mode
         if is_compose:
+            self.preview_panel.set_chat_mode(False)  # Use plain text for compose mode
             self.preview_panel.show_actions(True)
         else:
+            self.preview_panel.set_chat_mode(True)  # Use markdown for chat mode
             self.preview_panel.show_actions(False)
 
     def _handle_error(self, error_msg: str):
@@ -563,6 +565,9 @@ class DasiWindow(QWidget):
                 # Make response preview editable in compose mode
                 self.preview_panel.set_editable(True)
                 self.preview_panel.show_actions(True)
+            else:
+                # For chat mode, ensure we're using markdown renderer
+                self.preview_panel.set_chat_mode(True)
             return
 
         # Store the response
