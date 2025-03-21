@@ -2,11 +2,22 @@ import os
 import qdarktheme
 from PyQt6.QtCore import QFile, QTextStream
 from PyQt6.QtWidgets import QApplication
+import sys
+import logging
 
 
 def load_stylesheet():
     """Load the custom stylesheet from the QSS file."""
-    style_file = os.path.join(os.path.dirname(__file__), 'style.qss')
+    # Handle PyInstaller frozen vs development path differences
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller frozen app
+        base_path = sys._MEIPASS
+        style_file = os.path.join(base_path, 'assets', 'style.qss')
+        logging.info(f"Looking for stylesheet at (frozen): {style_file}")
+    else:
+        # Running in development
+        style_file = os.path.join(os.path.dirname(__file__), 'style.qss')
+        logging.info(f"Looking for stylesheet at (dev): {style_file}")
     
     if os.path.exists(style_file):
         file = QFile(style_file)
@@ -14,7 +25,10 @@ def load_stylesheet():
         stream = QTextStream(file)
         stylesheet = stream.readAll()
         file.close()
+        logging.info("Stylesheet loaded successfully")
         return stylesheet
+    else:
+        logging.warning(f"Stylesheet file not found at: {style_file}")
     return ""
 
 

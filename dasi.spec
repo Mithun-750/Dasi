@@ -8,6 +8,16 @@ a = Analysis(
     binaries=[],
     datas=[
         ('src/assets', 'assets'),  # Include assets directory
+        ('src/ui/assets', 'assets'),  # Include UI assets directory with style.qss
+        ('src/ui/assets/style.qss', 'assets'),  # Explicitly include style.qss
+        ('src/ui/assets/icons', 'assets/icons'),  # Explicitly include icons
+        # Explicitly include PNG icons (preferred for PyInstaller)
+        ('src/ui/assets/icons/eye.png', 'assets/icons'),
+        ('src/ui/assets/icons/eye_off.png', 'assets/icons'),
+        # Include SVG icons as fallback
+        ('src/ui/assets/icons/eye.svg', 'assets/icons'),
+        ('src/ui/assets/icons/eye_off.svg', 'assets/icons'),
+        ('src/ui/assets/icons/checkmark.svg', 'assets/icons'),
     ],
     hiddenimports=[
         'langchain_google_genai',

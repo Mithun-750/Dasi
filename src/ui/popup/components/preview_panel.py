@@ -4,6 +4,9 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
                              QScrollArea, QListWidget, QListWidgetItem)
 from PyQt6.QtCore import Qt, pyqtSignal, QDir, QEvent, QSize, QPoint, QRect, QEasingCurve, QPropertyAnimation
 from PyQt6.QtGui import QTextCursor, QColor, QPen, QPainterPath, QPainter, QCursor
+import sys
+import os
+import logging
 
 from .markdown_renderer import MarkdownRenderer
 
@@ -243,9 +246,17 @@ class PreviewPanel(QWidget):
     
     def _setup_ui(self):
         """Set up the UI components."""
-        # Get the application directory for asset paths
-        app_dir = QDir.currentPath()
-        checkmark_path = f"{app_dir}/src/ui/assets/icons/checkmark.svg"
+        # Get the checkmark path based on running mode
+        if getattr(sys, 'frozen', False):
+            # Running as bundled PyInstaller app
+            base_path = sys._MEIPASS
+            checkmark_path = os.path.join(base_path, "assets", "icons", "checkmark.svg")
+            logging.info(f"Using frozen app checkmark at: {checkmark_path}")
+        else:
+            # Running in development
+            app_dir = QDir.currentPath()
+            checkmark_path = f"{app_dir}/src/ui/assets/icons/checkmark.svg"
+            logging.info(f"Using development checkmark at: {checkmark_path}")
         
         # Main layout
         layout = QVBoxLayout()

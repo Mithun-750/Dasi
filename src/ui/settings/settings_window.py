@@ -106,12 +106,21 @@ class SettingsWindow(QMainWindow):
         self.setWindowTitle("Dasi Settings")
         self.setMinimumSize(900, 600)
 
-        # Get assets directory paths
-        # UI assets dir (for icons)
-        ui_assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
-        # Project root assets dir (for app logo)
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))  # src/ directory
-        root_assets_dir = os.path.join(project_root, "assets")
+        # Get assets directory paths based on whether we're running as a bundled app
+        if getattr(sys, 'frozen', False):
+            # If we're running as a bundled app
+            base_path = sys._MEIPASS
+            ui_assets_dir = os.path.join(base_path, "assets")
+            root_assets_dir = os.path.join(base_path, "assets")
+            logging.info(f"Running bundled app, using assets at: {ui_assets_dir}")
+        else:
+            # If we're running in development
+            # UI assets dir (for icons)
+            ui_assets_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
+            # Project root assets dir (for app logo)
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))  # src/ directory
+            root_assets_dir = os.path.join(project_root, "assets")
+            logging.info(f"Running in development, using assets at: {ui_assets_dir}")
 
         # Create central widget and main layout
         central_widget = QWidget()

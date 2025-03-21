@@ -10,6 +10,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QIcon
 import os
+import sys
+import logging
 
 
 class APICategory:
@@ -90,10 +92,36 @@ def create_section(title):
 
 def toggle_key_visibility(input_field, toggle_button):
     """Toggle API key visibility."""
-    # Get the paths to the eye icons
-    icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
-    eye_icon_path = os.path.join(icons_dir, "eye.svg")
-    eye_off_icon_path = os.path.join(icons_dir, "eye_off.svg")
+    # Get the paths to the eye icons - handle both development and frozen app
+    if getattr(sys, 'frozen', False):
+        # Running as bundled PyInstaller app
+        base_path = sys._MEIPASS
+        
+        # Try both PNG and SVG formats (prefer PNG first, which seems to work better with PyInstaller)
+        eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.png")
+        eye_off_icon_path = os.path.join(base_path, "assets", "icons", "eye_off.png")
+        
+        # If PNG doesn't exist, try SVG
+        if not os.path.exists(eye_icon_path):
+            eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.svg")
+            eye_off_icon_path = os.path.join(base_path, "assets", "icons", "eye_off.svg")
+    else:
+        # Running in development
+        icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
+        # Prefer PNG in development mode too for consistency
+        eye_icon_path = os.path.join(icons_dir, "eye.png")
+        eye_off_icon_path = os.path.join(icons_dir, "eye_off.png")
+        
+        # If PNG doesn't exist, try SVG
+        if not os.path.exists(eye_icon_path):
+            eye_icon_path = os.path.join(icons_dir, "eye.svg")
+            eye_off_icon_path = os.path.join(icons_dir, "eye_off.svg")
+    
+    # Log errors if icons not found
+    if not os.path.exists(eye_icon_path):
+        logging.error(f"Eye icon not found at: {eye_icon_path}")
+    if not os.path.exists(eye_off_icon_path):
+        logging.error(f"Eye-off icon not found at: {eye_off_icon_path}")
     
     if input_field.echoMode() == QLineEdit.EchoMode.Password:
         input_field.setEchoMode(QLineEdit.EchoMode.Normal)
@@ -101,6 +129,48 @@ def toggle_key_visibility(input_field, toggle_button):
     else:
         input_field.setEchoMode(QLineEdit.EchoMode.Password)
         toggle_button.setIcon(QIcon(eye_icon_path))
+
+
+def create_field_row(label_text, placeholder_text, is_password=False, toggle_icon=None):
+    """Create a row with label and input field, optionally with password toggle"""
+    row_widget = QWidget()
+    row_widget.setProperty("class", "field-row")
+    row_layout = QHBoxLayout(row_widget)
+    row_layout.setContentsMargins(0, 0, 0, 0)
+    row_layout.setSpacing(8)
+    
+    # Label
+    label = QLabel(label_text)
+    label.setFixedWidth(100)
+    label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+    
+    # Input field
+    input_field = QLineEdit()
+    input_field.setPlaceholderText(placeholder_text)
+    if is_password:
+        input_field.setEchoMode(QLineEdit.EchoMode.Password)
+    
+    # Add label and input to layout
+    row_layout.addWidget(label)
+    row_layout.addWidget(input_field, 1)  # Give input field stretch
+    
+    # If this is a password field with toggle, add toggle button
+    if is_password and toggle_icon:
+        # Create toggle button
+        toggle_button = QPushButton()
+        toggle_button.setFixedSize(38, 38)
+        toggle_button.setProperty("class", "icon-button")
+        toggle_button.setIcon(QIcon(toggle_icon))
+        toggle_button.setIconSize(QSize(20, 20))
+        
+        # Add to layout
+        row_layout.addWidget(toggle_button)
+        
+        # Return with toggle button
+        return row_widget, input_field, toggle_button
+    
+    # Return without toggle button
+    return row_widget, input_field
 
 
 def show_status(label, message, is_error=False):
@@ -223,9 +293,23 @@ class APIKeySection(QWidget):
             }
         """)
         
-        # Set the SVG icon
-        icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
-        eye_icon_path = os.path.join(icons_dir, "eye.svg")
+        # Set the icon (try PNG first, then SVG)
+        if getattr(sys, 'frozen', False):
+            # Running in frozen mode
+            base_path = sys._MEIPASS
+            eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.png")
+            if not os.path.exists(eye_icon_path):
+                eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.svg")
+        else:
+            # Running in development mode
+            icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
+            eye_icon_path = os.path.join(icons_dir, "eye.png")
+            if not os.path.exists(eye_icon_path):
+                eye_icon_path = os.path.join(icons_dir, "eye.svg")
+        
+        if not os.path.exists(eye_icon_path):
+            logging.error(f"Eye icon not found at: {eye_icon_path}")
+            
         toggle_button.setIcon(QIcon(eye_icon_path))
         toggle_button.setIconSize(QSize(20, 20))
         
@@ -328,9 +412,19 @@ class APIKeySection(QWidget):
 
     def save_api_key(self, provider, input_field, status_label):
         """Save the API key."""
-        # Get the path to the eye icon
-        eye_icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 
-                                    "assets", "icons", "eye.svg")
+        # Get the path to the eye icon - try PNG first, then SVG
+        if getattr(sys, 'frozen', False):
+            # Running in frozen mode
+            base_path = sys._MEIPASS
+            eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.png")
+            if not os.path.exists(eye_icon_path):
+                eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.svg")
+        else:
+            # Running in development mode
+            icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
+            eye_icon_path = os.path.join(icons_dir, "eye.png")
+            if not os.path.exists(eye_icon_path):
+                eye_icon_path = os.path.join(icons_dir, "eye.svg")
         
         api_key = input_field.text().strip()
 
