@@ -1,8 +1,9 @@
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QLineEdit, 
-                             QListView, QWidget, QTextEdit)
+                             QListWidget, QListWidgetItem, QWidget, QTextEdit,
+                             QScrollArea, QStyledItemDelegate)
 from PyQt6.QtCore import (Qt, QPoint, pyqtSignal, QSize, 
-                          QStringListModel)
-from PyQt6.QtGui import QFont
+                          QStringListModel, QEvent)
+from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath
 from typing import List
 
 
@@ -14,132 +15,153 @@ class ChunkDropdown(QFrame):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         
+        # Set frame style with modern look
+        self.setProperty("class", "card")
+        self.setStyleSheet("""
+            QFrame.card {
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 6px;
+            }
+        """)
+        
         # Create layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        layout.setSpacing(8)
         
-        # Create search box
+        # Create search box with improved styling
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("Search chunks...")
+        self.search_box.setProperty("class", "search-input")
         self.search_box.textChanged.connect(self._filter_items)
         self.search_box.setStyleSheet("""
-            QLineEdit {
-                background-color: #363636;
-                border: 1px solid #404040;
+            QLineEdit.search-input {
+                background-color: #2a2a2a;
+                border: 1px solid #3b3b3b;
                 border-radius: 4px;
-                padding: 6px 8px;
-                color: white;
-                font-size: 12px;
-                selection-background-color: #2b5c99;
+                padding: 8px;
+                color: #e0e0e0;
+                font-size: 13px;
             }
-            QLineEdit:focus {
-                border: 1px solid #4a9eff;
-                background-color: #404040;
+            QLineEdit.search-input:focus {
+                border: 1px solid #e67e22;
+                background-color: #323232;
             }
         """)
         layout.addWidget(self.search_box)
         
-        # Create list view
-        self.list_view = QListView()
-        self.list_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.list_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.list_view.clicked.connect(self._handle_click)
-        self.list_view.activated.connect(self._handle_click)
+        # Create scroll area for list
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setStyleSheet("background-color: transparent;")
         
-        # Setup model
-        self.model = QStringListModel()
-        self.list_view.setModel(self.model)
-        self.all_items = []  # Store all items for filtering
-        
-        # Style the list view
-        self.list_view.setStyleSheet("""
-            QListView {
+        # Create list widget for items
+        self.list_widget = QListWidget()
+        self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
+        self.list_widget.setStyleSheet("""
+            QListWidget {
                 background-color: transparent;
                 border: none;
                 outline: none;
-                padding: 4px 0px;
             }
-            QListView::item {
-                padding: 6px 8px;
+            QListWidget::item {
+                padding: 8px;
                 border-radius: 4px;
-                color: white;
-                margin: 2px 0px;
+                margin: 2px;
+                color: #e0e0e0;
             }
-            QListView::item:selected {
-                background-color: #2b5c99;
+            QListWidget::item:selected {
+                background-color: #e67e22;
                 color: white;
             }
-            QListView::item:hover:!selected {
-                background-color: #404040;
+            QListWidget::item:hover:!selected {
+                background-color: #2e2e2e;
+                border-left: 2px solid #e67e22;
             }
             QScrollBar:vertical {
-                border: none;
-                background: #363636;
+                background-color: #2a2a2a;
                 width: 8px;
                 margin: 0px;
             }
             QScrollBar::handle:vertical {
-                background: #505050;
+                background-color: #555555;
                 min-height: 20px;
                 border-radius: 4px;
             }
             QScrollBar::handle:vertical:hover {
-                background: #606060;
+                background-color: #e67e22;
             }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-            QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical {
-                border: none;
-                background: none;
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
                 height: 0px;
             }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
                 background: none;
             }
         """)
         
-        layout.addWidget(self.list_view)
+        # Set item delegate for custom item height
+        self.list_widget.setItemDelegate(QStyledItemDelegate())
         
-        # Set frame style
-        self.setStyleSheet("""
-            ChunkDropdown {
-                background-color: #2b2b2b;
-                border: 1px solid #3f3f3f;
-                border-radius: 6px;
-            }
-        """)
+        # Connect signals
+        self.list_widget.itemClicked.connect(self._handle_item_selected)
+        self.list_widget.itemActivated.connect(self._handle_item_selected)
+        
+        # Setup scroll area
+        self.scroll.setWidget(self.list_widget)
+        layout.addWidget(self.scroll)
+        
+        # Store all items for filtering
+        self.all_items = []
 
     def update_items(self, items: List[str]):
         """Update the list of available items."""
         self.all_items = items
-        self.model.setStringList(items)
-        if self.model.rowCount() > 0:
-            self.list_view.setCurrentIndex(self.model.index(0, 0))
+        self.list_widget.clear()
+        
+        # Add items to list widget
+        for item in items:
+            list_item = QListWidgetItem(item)
+            self.list_widget.addItem(list_item)
+            
+        # Select first item if available
+        if self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+            
+        # Clear search box and focus
         self.search_box.clear()
         self.search_box.setFocus()
 
-    def _filter_items(self):
+    def _filter_items(self, text):
         """Filter items based on search text."""
-        search_text = self.search_box.text().lower()
-        filtered_items = [item for item in self.all_items if search_text in item.lower()]
-        self.model.setStringList(filtered_items)
-        if self.model.rowCount() > 0:
-            self.list_view.setCurrentIndex(self.model.index(0, 0))
+        self.list_widget.clear()
+        search_text = text.lower()
+        
+        for item in self.all_items:
+            if search_text in item.lower():
+                list_item = QListWidgetItem(item)
+                self.list_widget.addItem(list_item)
+                
+        # Select first item in filtered list
+        if self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
 
-    def _handle_click(self, index):
-        """Handle item click or activation."""
-        if index.isValid():
-            text = self.model.data(index, Qt.ItemDataRole.DisplayRole)
-            self.itemSelected.emit(text)
+    def _handle_item_selected(self, item):
+        """Handle item selection."""
+        if item:
+            self.itemSelected.emit(item.text())
             self.hide()
 
     def keyPressEvent(self, event):
         """Handle key events."""
         if event.key() == Qt.Key.Key_Return and not event.modifiers():
-            current = self.list_view.currentIndex()
-            if current.isValid():
-                text = self.model.data(current, Qt.ItemDataRole.DisplayRole)
-                self.itemSelected.emit(text)
+            current = self.list_widget.currentItem()
+            if current:
+                self.itemSelected.emit(current.text())
                 self.hide()
                 event.accept()
                 return
@@ -148,13 +170,13 @@ class ChunkDropdown(QFrame):
             event.accept()
             return
         elif event.key() == Qt.Key.Key_Up:
-            current_row = max(0, self.list_view.currentIndex().row() - 1)
-            self.list_view.setCurrentIndex(self.model.index(current_row, 0))
+            current_row = max(0, self.list_widget.currentRow() - 1)
+            self.list_widget.setCurrentRow(current_row)
             event.accept()
             return
         elif event.key() == Qt.Key.Key_Down:
-            current_row = min(self.model.rowCount() - 1, self.list_view.currentIndex().row() + 1)
-            self.list_view.setCurrentIndex(self.model.index(current_row, 0))
+            current_row = min(self.list_widget.count() - 1, self.list_widget.currentRow() + 1)
+            self.list_widget.setCurrentRow(current_row)
             event.accept()
             return
         super().keyPressEvent(event)
@@ -166,9 +188,14 @@ class ChunkDropdown(QFrame):
             cursor_rect = self.parent().cursorRect()
             global_pos = self.parent().mapToGlobal(cursor_rect.bottomLeft())
             self.move(global_pos + QPoint(0, 5))
+            
+            # Set fixed width and height
+            width = max(300, self.parent().width() // 2)
+            height = min(250, (self.list_widget.count() * 36) + 60)  # Reduced from 350 to 250
+            self.setFixedSize(width, height)
 
     def sizeHint(self):
         """Calculate proper size for the dropdown."""
         width = max(300, self.parent().width() // 2 if self.parent() else 300)
-        height = min(400, (self.model.rowCount() * 30) + 50)  # Extra height for search box
+        height = min(250, (self.list_widget.count() * 36) + 60)  # Reduced from 350 to 250
         return QSize(width, height) 

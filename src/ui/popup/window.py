@@ -71,6 +71,7 @@ class DasiWindow(QWidget):
         # Main frame with border radius
         self.main_frame = QFrame()
         self.main_frame.setObjectName("mainFrame")
+        self.main_frame.setProperty("class", "card")
         frame_layout = QVBoxLayout()
         frame_layout.setContentsMargins(0, 0, 0, 0)
         frame_layout.setSpacing(0)
@@ -79,7 +80,7 @@ class DasiWindow(QWidget):
         header = QFrame()
         header.setObjectName("header")
         header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(12, 8, 12, 8)
+        header_layout.setContentsMargins(10, 8, 10, 8)
         header_layout.setSpacing(8)
 
         # Add logo
@@ -117,20 +118,24 @@ class DasiWindow(QWidget):
         # Title with custom font
         title = QLabel("Dasi")
         title.setObjectName("titleLabel")
-        title.setFont(QFont("Arial", 13, QFont.Weight.Bold))
+        title.setProperty("class", "header-title")
 
         # Add reset session button before close button
         self.reset_session_button = QPushButton("Reset Session")
         self.reset_session_button.setObjectName("resetSessionButton")
+        self.reset_session_button.setProperty("class", "header-button")
         self.reset_session_button.clicked.connect(self._handle_reset_session)
         self.reset_session_button.setFixedWidth(100)
+        self.reset_session_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.reset_session_button.hide()  # Hide by default
 
         # Add close button
         close_button = QPushButton("×")
         close_button.setObjectName("closeButton")
+        close_button.setProperty("class", "header-button")
         close_button.clicked.connect(self._handle_escape)
         close_button.setFixedSize(24, 24)
+        close_button.setCursor(Qt.CursorShape.PointingHandCursor)
 
         header_layout.addWidget(logo_label)
         header_layout.addWidget(title)
@@ -141,8 +146,8 @@ class DasiWindow(QWidget):
 
         # Content area with horizontal layout
         content_layout = QHBoxLayout()
-        content_layout.setContentsMargins(5, 5, 5, 5)
-        content_layout.setSpacing(10)
+        content_layout.setContentsMargins(12, 12, 12, 12)
+        content_layout.setSpacing(12)
 
         # Left side - Input area (now using InputPanel component)
         self.input_panel = InputPanel()
@@ -152,9 +157,10 @@ class DasiWindow(QWidget):
         # Right side - Preview and buttons
         right_panel = QFrame()
         right_panel.setObjectName("rightPanel")
+        right_panel.setProperty("class", "transparent-container")
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(5)
+        right_layout.setSpacing(8)
         self.right_layout = right_layout  # Store reference to the layout
         
         # Set a fixed width for the right panel to ensure consistency
@@ -163,6 +169,8 @@ class DasiWindow(QWidget):
         # Create stop button (hidden by default)
         self.stop_button = QPushButton("Stop")
         self.stop_button.setObjectName("stopButton")
+        self.stop_button.setProperty("class", "danger")
+        self.stop_button.setStyleSheet("margin: 8px 0;")
         self.stop_button.clicked.connect(self._handle_stop)
         self.stop_button.hide()
 
@@ -203,19 +211,23 @@ class DasiWindow(QWidget):
         self.setStyleSheet("""
             QWidget {
                 background: transparent;
-                color: #ffffff;
+                color: #e0e0e0;
+            }
+            .card {
+                background-color: #1e1e1e;
+                border-radius: 8px;
+                border: 1px solid #333333;
             }
             #mainFrame {
-                background-color: #2b2b2b;
-                border-radius: 10px;
-                border: 1px solid #3f3f3f;
+                background-color: #1e1e1e;
+                border-radius: 8px;
+                border: 1px solid #333333;
             }
             #header {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                          stop:0 #363636, stop:1 #2b2b2b);
-                border-top-left-radius: 10px;
-                border-top-right-radius: 10px;
-                border-bottom: 1px solid #404040;
+                background-color: #222222;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                border-bottom: 1px solid #333333;
             }
             #logoLabel {
                 min-width: 20px;
@@ -223,15 +235,20 @@ class DasiWindow(QWidget):
                 min-height: 20px;
                 max-height: 20px;
             }
-            #titleLabel {
+            .header-title, #titleLabel {
                 color: #ffffff;
-                font-size: 13px;
-                font-weight: bold;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-weight: 600;
+                font-size: 15px;
+                letter-spacing: 0.5px;
+            }
+            .header-button {
+                border-radius: 4px;
+                border: none;
             }
             #closeButton {
                 background-color: transparent;
                 color: #888888;
-                border: none;
                 font-size: 20px;
                 font-weight: bold;
                 padding: 0;
@@ -240,16 +257,16 @@ class DasiWindow(QWidget):
                 max-width: 24px;
                 min-height: 24px;
                 max-height: 24px;
+                border-radius: 12px;
+                text-align: center;
+                line-height: 20px;
             }
             #closeButton:hover {
                 color: #ffffff;
-                background-color: #ff4444;
-                border-radius: 12px;
             }
             #rightPanel {
-                background-color: #323232;
-                border-radius: 5px;
-                padding: 5px;
+                background-color: transparent;
+                padding: 0;
             }
             #contextFrame {
                 background: transparent;
@@ -257,12 +274,12 @@ class DasiWindow(QWidget):
             #contextLabel {
                 color: #888888;
                 font-size: 11px;
-                padding: 4px 6px;
-                background-color: #323232;
-                border-radius: 3px;
+                padding: 6px 8px;
+                background-color: #222222;
+                border-radius: 4px;
             }
             #ignoreButton {
-                background-color: #464646;
+                background-color: #333333;
                 color: #999999;
                 border: none;
                 border-radius: 8px;
@@ -276,52 +293,55 @@ class DasiWindow(QWidget):
                 max-height: 16px;
             }
             #ignoreButton:hover {
-                background-color: #565656;
+                background-color: #444444;
                 color: #ffffff;
             }
             QPushButton {
-                background-color: #4a4a4a;
+                background-color: #2a2a2a;
                 border: none;
-                border-radius: 3px;
-                padding: 5px 15px;
+                border-radius: 6px;
+                padding: 6px 12px;
                 color: white;
                 min-width: 80px;
             }
             QPushButton:hover {
-                background-color: #5a5a5a;
+                background-color: #3a3a3a;
             }
-            #stopButton {
-                background-color: #ff4444;
-                min-width: 60px;
+            QPushButton.primary {
+                background-color: #2b5c99;
             }
-            #stopButton:hover {
-                background-color: #ff6666;
+            QPushButton.primary:hover {
+                background-color: #366bB3;
+            }
+            QPushButton.danger, #stopButton {
+                background-color: #99322b;
+            }
+            QPushButton.danger:hover, #stopButton:hover {
+                background-color: #b33e36;
+            }
+            #resetSessionButton {
+                background-color: rgba(42, 42, 42, 0.5);
+                color: #cccccc;
+                font-size: 11px;
+                padding: 5px 10px;
+                margin-right: 6px;
+                font-weight: 500;
+                letter-spacing: 0.3px;
+                border: 1px solid rgba(80, 80, 80, 0.3);
+            }
+            #resetSessionButton:hover {
+                background-color: #e67e22;
+                color: white;
+                border: 1px solid #e67e22;
             }
             QProgressBar {
                 border: none;
-                background-color: #363636;
+                background-color: #2a2a2a;
+                border-radius: 1px;
+                height: 2px;
             }
             QProgressBar::chunk {
-                background-color: #4a9eff;
-            }
-            #contextLabel {
-                color: #888888;
-                font-size: 11px;
-                padding: 2px 5px;
-                background-color: #323232;
-                border-radius: 3px;
-            }
-            #resetSessionButton {
-                background-color: #404040;
-                border: none;
-                border-radius: 3px;
-                padding: 5px 10px;
-                color: #cccccc;
-                font-size: 11px;
-            }
-            #resetSessionButton:hover {
-                background-color: #505050;
-                color: white;
+                background-color: #2b5c99;
             }
         """)
 
@@ -493,8 +513,10 @@ class DasiWindow(QWidget):
         """Handle mode change between Chat and Compose."""
         # Show/hide action elements based on mode
         if is_compose:
+            self.preview_panel.set_chat_mode(False)  # Use plain text for compose mode
             self.preview_panel.show_actions(True)
         else:
+            self.preview_panel.set_chat_mode(True)  # Use markdown for chat mode
             self.preview_panel.show_actions(False)
 
     def _handle_error(self, error_msg: str):
@@ -543,6 +565,9 @@ class DasiWindow(QWidget):
                 # Make response preview editable in compose mode
                 self.preview_panel.set_editable(True)
                 self.preview_panel.show_actions(True)
+            else:
+                # For chat mode, ensure we're using markdown renderer
+                self.preview_panel.set_chat_mode(True)
             return
 
         # Store the response

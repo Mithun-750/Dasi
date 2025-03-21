@@ -1,8 +1,10 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTextEdit, QFrame, QLabel, 
                              QPushButton, QHBoxLayout, QProgressBar, QGridLayout, 
-                             QComboBox, QSizePolicy, QRadioButton, QButtonGroup)
-from PyQt6.QtCore import Qt, pyqtSignal, QStringListModel, QEvent
-from PyQt6.QtGui import QFont
+                             QComboBox, QSizePolicy, QRadioButton, QButtonGroup,
+                             QScrollArea, QListWidget, QListWidgetItem, QStyledItemDelegate,
+                             QLineEdit, QProxyStyle, QStyle, QStackedWidget)
+from PyQt6.QtCore import Qt, pyqtSignal, QStringListModel, QEvent, QSize, QPoint, QRect, QEasingCurve, QPropertyAnimation
+from PyQt6.QtGui import QFont, QCursor, QColor, QPainter, QPen, QPainterPath
 from typing import Callable, Optional, Dict, Any
 from pathlib import Path
 import logging
@@ -11,6 +13,230 @@ import re
 from ...settings import Settings
 from ...components.chunk_dropdown import ChunkDropdown
 from ...components.mention_highlighter import MentionHighlighter
+
+
+# ComboBoxStyle for proper arrow display
+class ComboBoxStyle(QProxyStyle):
+    """Custom style to draw a text arrow for combo boxes."""
+    def __init__(self, style=None):
+        super().__init__(style)
+        self.arrow_color = QColor("#e67e22")  # Orange color for arrow
+        
+    def drawPrimitive(self, element, option, painter, widget=None):
+        if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown and isinstance(widget, QComboBox):
+            # Draw a custom arrow
+            rect = option.rect
+            painter.save()
+            
+            # Set up the arrow color
+            painter.setPen(QPen(self.arrow_color, 1.5))
+            
+            # Draw a triangle instead of text arrow for more modern look
+            # Calculate the triangle points
+            width = 9
+            height = 6
+            x = rect.center().x() - width // 2
+            y = rect.center().y() - height // 2
+            
+            path = QPainterPath()
+            path.moveTo(x, y)
+            path.lineTo(x + width, y)
+            path.lineTo(x + width // 2, y + height)
+            path.lineTo(x, y)
+            
+            # Fill the triangle
+            painter.fillPath(path, self.arrow_color)
+            
+            painter.restore()
+            return
+        super().drawPrimitive(element, option, painter, widget)
+
+
+# Custom ComboBox with animated popup
+class CustomComboBox(QComboBox):
+    """ComboBox with custom popup and animation."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+        # Apply custom arrow
+        self.setStyle(ComboBoxStyle())
+        
+        # Create popup frame
+        self.popup_frame = QFrame(self.window())
+        self.popup_frame.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.popup_frame.setProperty("class", "popup-frame")
+        
+        # Create shadow effect
+        self.popup_frame.setStyleSheet("""
+            QFrame.popup-frame {
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                padding: 4px;
+            }
+        """)
+        
+        # Create scroll area for better handling of many items
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setStyleSheet("background-color: transparent;")
+        
+        # Create list widget for items
+        self.list_widget = QListWidget()
+        self.list_widget.setProperty("class", "popup-list")
+        self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
+        self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list_widget.setStyleSheet("""
+            QListWidget {
+                background-color: transparent;
+                border: none;
+                outline: none;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-radius: 4px;
+                color: #e0e0e0;
+                margin: 2px;
+            }
+            QListWidget::item:selected {
+                background-color: #e67e22;
+                color: white;
+            }
+            QListWidget::item:hover:!selected {
+                background-color: #2e2e2e;
+                border-left: 2px solid #e67e22;
+            }
+        """)
+        
+        # Set up the popup layout
+        self.scroll_area.setWidget(self.list_widget)
+        self.popup_layout = QVBoxLayout(self.popup_frame)
+        self.popup_layout.setContentsMargins(0, 0, 0, 0)
+        self.popup_layout.addWidget(self.scroll_area)
+        
+        # Connect list widget signals
+        self.list_widget.itemClicked.connect(self._handle_item_selected)
+        
+        # Add animation
+        self.animation = QPropertyAnimation(self.popup_frame, b"geometry")
+        self.animation.setEasingCurve(QEasingCurve.Type.OutQuint)
+        self.animation.setDuration(180)  # Animation duration in milliseconds
+        
+        # Remember if popup is visible
+        self.popup_visible = False
+        
+        # Set fixed item height to make calculations easier
+        self.item_height = 32
+        
+        # Set max height in items
+        self.max_visible_items = 10
+        
+    def showPopup(self):
+        """Show custom popup instead of standard dropdown."""
+        if self.count() == 0 or not self.isEnabled():
+            return
+            
+        # Calculate popup position and size
+        popup_width = max(self.width(), 260)  # Minimum width for better readability
+        
+        # Calculate height based on number of items (limited by max_visible_items)
+        items_height = min(self.count(), self.max_visible_items) * self.item_height
+        popup_height = items_height + 8  # Add padding
+        
+        # Get global position for the popup
+        pos = self.mapToGlobal(QPoint(0, self.height()))
+        
+        # Clear and populate list widget
+        self.list_widget.clear()
+        for i in range(self.count()):
+            item = QListWidgetItem(self.itemText(i))
+            # Store item data for later retrieval
+            if self.itemData(i) is not None:
+                item.setData(Qt.ItemDataRole.UserRole, self.itemData(i))
+            self.list_widget.addItem(item)
+        
+        # Set the current item
+        if self.currentIndex() >= 0:
+            self.list_widget.setCurrentRow(self.currentIndex())
+        
+        # Set initial and final geometry for animation
+        start_rect = QRect(pos.x(), pos.y(), popup_width, 0)
+        end_rect = QRect(pos.x(), pos.y(), popup_width, popup_height)
+        
+        # Set up animation
+        self.animation.setStartValue(start_rect)
+        self.animation.setEndValue(end_rect)
+        
+        # Show popup
+        self.popup_frame.setGeometry(start_rect)
+        self.popup_frame.show()
+        self.animation.start()
+        
+        # Set popup visible flag
+        self.popup_visible = True
+        
+        # Install event filter to handle mouse events outside the popup
+        self.window().installEventFilter(self)
+    
+    def hidePopup(self):
+        """Hide the custom popup."""
+        if not self.popup_visible:
+            return
+            
+        # Set up closing animation
+        current_rect = self.popup_frame.geometry()
+        start_rect = current_rect
+        end_rect = QRect(current_rect.x(), current_rect.y(), current_rect.width(), 0)
+        
+        self.animation.setStartValue(start_rect)
+        self.animation.setEndValue(end_rect)
+        
+        # Connect animation finished signal to hide the popup
+        self.animation.finished.connect(self._finish_hiding)
+        
+        # Start the closing animation
+        self.animation.start()
+        
+        # Remove event filter
+        self.window().removeEventFilter(self)
+        
+        # Set popup visible flag
+        self.popup_visible = False
+    
+    def _finish_hiding(self):
+        """Hide the popup frame and disconnect signal after animation."""
+        self.popup_frame.hide()
+        try:
+            self.animation.finished.disconnect(self._finish_hiding)
+        except:
+            # Signal might already be disconnected
+            pass
+    
+    def _handle_item_selected(self, item):
+        """Handle item selection from the list."""
+        index = self.list_widget.row(item)
+        self.setCurrentIndex(index)
+        self.hidePopup()
+        self.activated.emit(index)
+        
+    def eventFilter(self, obj, event):
+        """Handle events for checking if clicked outside the popup."""
+        if event.type() == QEvent.Type.MouseButtonPress and self.popup_visible:
+            # Check if the click is outside both the combo box and the popup
+            pos = event.globalPosition().toPoint()
+            if not self.popup_frame.geometry().contains(pos) and not self.geometry().contains(self.mapFromGlobal(pos)):
+                self.hidePopup()
+                return True
+        return super().eventFilter(obj, event)
+    
+    def wheelEvent(self, event):
+        """Override wheel event to prevent scroll changing the selection when popup is not visible."""
+        if not self.popup_visible:
+            event.ignore()
 
 
 class InputPanel(QWidget):
@@ -51,18 +277,22 @@ class InputPanel(QWidget):
         # Main layout
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(5)
+        layout.setSpacing(6)
         
         # Context area with label and ignore button
-        context_frame = QFrame()
-        context_frame.setObjectName("contextFrame")
+        self.context_frame = QFrame()
+        self.context_frame.setObjectName("contextFrame")
         context_layout = QVBoxLayout()
-        context_layout.setContentsMargins(3, 3, 3, 3)
+        context_layout.setContentsMargins(0, 0, 0, 0)
         context_layout.setSpacing(0)
-        context_frame.setLayout(context_layout)
+        self.context_frame.setLayout(context_layout)
+        
+        # Set size policy to collapse when empty
+        self.context_frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
         # Create container for the context area
         container = QWidget()
+        container.setProperty("class", "transparent-container")
         grid = QGridLayout(container)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(0)
@@ -89,7 +319,10 @@ class InputPanel(QWidget):
         self.context_label.stackUnder(self.ignore_button)
 
         context_layout.addWidget(container)
-        layout.addWidget(context_frame)
+        layout.addWidget(self.context_frame)
+        
+        # Hide the context frame initially
+        self.context_frame.hide()
 
         # Override show/hide to handle button visibility and position
         def show_context():
@@ -107,160 +340,220 @@ class InputPanel(QWidget):
 
         # Input field
         self.input_field = QTextEdit()
+        self.input_field.setObjectName("inputField")
+        self.input_field.setProperty("class", "input-field")
         self.input_field.setPlaceholderText("Type your query... (Use #web to search the internet)")
         self.input_field.setMinimumHeight(80)
         
         # Set up key bindings
         self.input_field.installEventFilter(self)
 
-        # Create control bar for mode and model selection
-        control_bar = QFrame()
-        control_bar.setObjectName("controlBar")
-        control_bar.setStyleSheet("""
-            #controlBar {
-                background-color: #363636;
-                border-radius: 4px;
-                padding: 4px;
-            }
-        """)
-        control_layout = QVBoxLayout(control_bar)
-        control_layout.setContentsMargins(8, 4, 8, 4)
-        control_layout.setSpacing(8)
-
-        # Create mode selector container
-        mode_container = QFrame()
+        # Create mode selector container - using segmented button style
+        mode_container = QWidget()
         mode_container.setObjectName("modeContainer")
+        mode_container.setProperty("class", "mode-container")
         mode_layout = QHBoxLayout(mode_container)
         mode_layout.setContentsMargins(0, 0, 0, 0)
         mode_layout.setSpacing(0)
 
-        # Create radio buttons
-        self.mode_group = QButtonGroup()
-        self.chat_mode = QRadioButton("Chat")
-        self.compose_mode = QRadioButton("Compose")
-        self.chat_mode.setChecked(True)  # Default to chat mode
+        # Create modern mode selector with custom buttons
+        self.chat_button = QPushButton("Chat")
+        self.compose_button = QPushButton("Compose")
         
-        # Style radio buttons
-        radio_style = """
-            QRadioButton {
-                color: #cccccc;
-                font-size: 12px;
-                padding: 6px 12px;
-                border-radius: 3px;
-                background-color: transparent;
-                border: none;
-                text-align: center;
-            }
-            QRadioButton:hover {
-                background-color: #404040;
-            }
-            QRadioButton:checked {
-                color: white;
-                background-color: #2b5c99;
-            }
-            QRadioButton::indicator {
-                width: 0px;
-                height: 0px;
-            }
-        """
-        self.chat_mode.setStyleSheet(radio_style)
-        self.compose_mode.setStyleSheet(radio_style)
+        # Style buttons and set initial state
+        self.chat_button.setProperty("class", "segment-button active")
+        self.compose_button.setProperty("class", "segment-button")
+        self.chat_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.compose_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         
-        # Set size policies to make buttons expand horizontally
-        self.chat_mode.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.compose_mode.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Set fixed height for consistent look
+        self.chat_button.setFixedHeight(32)
+        self.compose_button.setFixedHeight(32)
         
-        # Add to button group
-        self.mode_group.addButton(self.chat_mode)
-        self.mode_group.addButton(self.compose_mode)
+        # Add buttons to layout
+        mode_layout.addWidget(self.chat_button)
+        mode_layout.addWidget(self.compose_button)
         
-        # Connect mode change signal
-        self.mode_group.buttonClicked.connect(self._handle_mode_change)
-        
-        mode_layout.addWidget(self.chat_mode)
-        mode_layout.addWidget(self.compose_mode)
+        # Connect button signals
+        self.chat_button.clicked.connect(lambda: self._handle_mode_button_click(self.chat_button))
+        self.compose_button.clicked.connect(lambda: self._handle_mode_button_click(self.compose_button))
 
         # Create model selector container
         model_container = QWidget()
+        model_container.setProperty("class", "transparent-container")
         model_layout = QHBoxLayout(model_container)
         model_layout.setContentsMargins(0, 0, 0, 0)
         model_layout.setSpacing(8)
 
-        self.model_selector = QComboBox()
-        self.model_selector.setStyleSheet("""
-            QComboBox {
-                background-color: #2b2b2b;
-                border: 1px solid #404040;
-                border-radius: 3px;
-                padding: 5px 8px;
-                font-size: 12px;
-                color: #cccccc;
-            }
-            QComboBox:hover {
-                border-color: #4a4a4a;
-                background-color: #323232;
-            }
-            QComboBox::drop-down {
-                border: none;
-                padding-right: 8px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 4px solid #888;
-                margin-right: 4px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #2b2b2b;
-                border: 1px solid #404040;
-                selection-background-color: #2b5c99;
-                selection-color: white;
-                padding: 4px;
-            }
-            QComboBox QAbstractItemView::item {
-                padding: 6px 8px;
-                min-height: 24px;
-            }
-            QComboBox QAbstractItemView::item:hover {
-                background-color: #363636;
-            }
-            QComboBox::item {
-                color: #cccccc;
-            }
-            QComboBox::drop-down:button {
-                border: none;
-            }
-        """)
+        # Create a custom ComboBox with animated popup
+        self.model_selector = CustomComboBox()
+        self.model_selector.setProperty("class", "combo-box")
         self.update_model_selector()
 
         model_layout.addWidget(self.model_selector)
 
-        # Add all elements to control bar vertically
-        control_layout.addWidget(mode_container)
-        control_layout.addWidget(model_container)
-
         # Loading progress bar
         self.progress_bar = QProgressBar()
+        self.progress_bar.setObjectName("progressBar")
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setFixedHeight(2)
         self.progress_bar.hide()
 
         layout.addWidget(self.input_field, 1)
-        layout.addWidget(control_bar)
+        layout.addWidget(mode_container)
+        layout.addWidget(model_container)
         layout.addWidget(self.progress_bar)
         self.setLayout(layout)
+        
+        # Apply styling
+        self.setStyleSheet("""
+            QWidget.transparent-container {
+                background-color: transparent;
+            }
+            
+            #contextLabel {
+                color: #888888;
+                font-size: 11px;
+                padding: 4px 6px;
+                background-color: #222222;
+                border-radius: 4px;
+            }
+            
+            #ignoreButton {
+                background-color: #333333;
+                color: #999999;
+                border: none;
+                border-radius: 8px;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 0;
+                margin: 0;
+                min-width: 16px;
+                max-width: 16px;
+                min-height: 16px;
+                max-height: 16px;
+            }
+            
+            #ignoreButton:hover {
+                background-color: #444444;
+                color: #ffffff;
+            }
+            
+            .input-field, #inputField {
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                color: #e0e0e0;
+                padding: 6px;
+                selection-background-color: #3b82f6;
+                selection-color: white;
+            }
+            
+            .mode-container {
+                background-color: #222222;
+                border-radius: 6px;
+                padding: 2px;
+            }
+            
+            .segment-button {
+                color: #cccccc;
+                font-size: 12px;
+                font-weight: medium;
+                padding: 6px 12px;
+                border-radius: 4px;
+                background-color: transparent;
+                border: none;
+                text-align: center;
+            }
+            
+            .segment-button:hover {
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+            }
+            
+            .segment-button.active {
+                color: white;
+                background-color: #e67e22;
+                font-weight: bold;
+            }
+            
+            .combo-box {
+                background-color: #2a2a2a;
+                border: 1px solid #3b3b3b;
+                border-radius: 4px;
+                padding: 6px 8px;
+                color: #e0e0e0;
+                min-height: 18px;
+            }
+            
+            .combo-box:hover {
+                border-color: #e67e22;
+                background-color: #323232;
+            }
+            
+            .combo-box:focus {
+                border: 1px solid #e67e22;
+            }
+            
+            .combo-box::drop-down {
+                border: none;
+                width: 20px;
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                padding-right: 8px;
+            }
+            
+            /* Custom scrollbar styling for list widgets */
+            QScrollBar:vertical {
+                background-color: #2a2a2a;
+                width: 8px;
+                margin: 0px;
+            }
+            
+            QScrollBar::handle:vertical {
+                background-color: #555555;
+                min-height: 20px;
+                border-radius: 4px;
+            }
+            
+            QScrollBar::handle:vertical:hover {
+                background-color: #e67e22;
+            }
+            
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
+                background: none;
+            }
+            
+            #progressBar {
+                border: none;
+                background-color: #2a2a2a;
+                border-radius: 1px;
+                height: 2px;
+            }
+            
+            #progressBar::chunk {
+                background-color: #e67e22;
+            }
+        """)
     
     def reset_context(self):
         """Reset all context including selected text."""
         self.selected_text = None
         self.context_label.hide()
         self.ignore_button.hide()
+        self.context_frame.hide()  # Also hide the frame
 
     def set_selected_text(self, text: str):
         """Set the selected text and update UI."""
         self.selected_text = text
         if text:
+            self.context_frame.show()  # Show frame when there's text
             self.context_label.setText(f"Selected Text: {text[:100]}..." if len(
                 text) > 100 else f"Selected Text: {text}")
             self.context_label.show()
@@ -268,6 +561,7 @@ class InputPanel(QWidget):
         else:
             self.context_label.hide()
             self.ignore_button.hide()
+            self.context_frame.hide()  # Hide frame when empty
             self.selected_text = None
     
     def eventFilter(self, obj, event):
@@ -275,10 +569,20 @@ class InputPanel(QWidget):
         if obj is self.input_field and event.type() == QEvent.Type.KeyPress:
             key_event = event
 
-            # Show dropdown on @ key
+            # Show dropdown on @ key only when properly spaced
             if key_event.text() == '@':
-                self.chunk_dropdown.update_items(self.chunk_titles)
-                self.chunk_dropdown.show()
+                # Get the text and cursor position
+                cursor = self.input_field.textCursor()
+                text = self.input_field.toPlainText()
+                pos = cursor.position()
+                
+                # Check if @ is at the beginning or has a space before it
+                is_start_or_after_space = pos == 0 or (pos > 0 and text[pos-1] in [' ', '\n', '\t'])
+                
+                if is_start_or_after_space:
+                    self.chunk_dropdown.update_items(self.chunk_titles)
+                    self.chunk_dropdown.show()
+                
                 return False  # Let the @ be typed
 
             # Handle submit when dropdown is not visible
@@ -404,7 +708,6 @@ class InputPanel(QWidget):
 
         # Configure size policy to expand horizontally
         self.model_selector.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.model_selector.setMaxVisibleItems(10)  # Show max 10 items in dropdown
     
     def get_selected_model(self):
         """Get the currently selected model ID."""
@@ -415,9 +718,28 @@ class InputPanel(QWidget):
                 return model_info
         return None
     
+    def _handle_mode_button_click(self, clicked_button):
+        """Handle mode change between Chat and Compose buttons."""
+        # Update button states
+        is_compose = clicked_button == self.compose_button
+        
+        # Update visual states
+        self.chat_button.setProperty("class", "segment-button")
+        self.compose_button.setProperty("class", "segment-button")
+        clicked_button.setProperty("class", "segment-button active")
+        
+        # Refresh style
+        self.chat_button.style().unpolish(self.chat_button)
+        self.chat_button.style().polish(self.chat_button)
+        self.compose_button.style().unpolish(self.compose_button)
+        self.compose_button.style().polish(self.compose_button)
+        
+        # Emit signal to inform parent
+        self.mode_changed.emit(is_compose)
+    
     def is_compose_mode(self):
         """Check if compose mode is active."""
-        return self.compose_mode.isChecked()
+        return self.compose_button.property("class") == "segment-button active"
     
     def enable_input(self, enabled=True):
         """Enable or disable the input field."""
@@ -438,12 +760,6 @@ class InputPanel(QWidget):
     def clear_input(self):
         """Clear the input field."""
         self.input_field.clear()
-    
-    def _handle_mode_change(self, button):
-        """Handle mode change between Chat and Compose."""
-        is_compose = button == self.compose_mode
-        # Emit signal to inform parent
-        self.mode_changed.emit(is_compose)
     
     def _handle_submit(self):
         """Handle submit action."""
@@ -492,6 +808,6 @@ class InputPanel(QWidget):
             context['selected_text'] = self.selected_text
             
         # Add mode to context
-        context['mode'] = 'compose' if self.compose_mode.isChecked() else 'chat'
+        context['mode'] = 'compose' if self.compose_button.property("class") == "segment-button active" else 'chat'
         
         return context 

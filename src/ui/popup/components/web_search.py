@@ -29,47 +29,55 @@ class WebSearchPanel(QWidget):
         self.setObjectName("loadingContainer")
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(15)
+        layout.setContentsMargins(20, 10, 20, 20)  # Reduced top margin from 20px to 10px
+        layout.setSpacing(8)  # Reduced spacing further from 12px to 8px
         
-        # Set minimum width for the loading container to prevent text cutoff
-        self.setMinimumWidth(300)
-        self.setMaximumWidth(340)
+        # Set width for the loading container to prevent text cutoff
+        self.setFixedWidth(330)  # Match the width of preview panel
         
         # Create the loading animation label
         self.loading_animation_label = QLabel()
         self.loading_animation_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.loading_animation_label.setMinimumSize(140, 140)
-        self.loading_animation_label.setMaximumSize(180, 180)
+        self.loading_animation_label.setFixedSize(120, 120)  # Reduced size for better proportion
+        
+        # Create animation container for better alignment
+        animation_container = QWidget()
+        animation_layout = QVBoxLayout(animation_container)
+        animation_layout.setContentsMargins(0, 0, 0, 0)  # Removed top margin completely
+        animation_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        animation_layout.addWidget(self.loading_animation_label)
         
         # Setup loading animation
         self._setup_loading_animation()
+        
+        # Set fixed height for animation container to ensure full visibility
+        animation_container.setMinimumHeight(120)  # Reduced from 130px to 120px to match animation size
         
         # Create a label for the search message
         self.loading_text_label = QLabel("Searching the web for information...")
         self.loading_text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.loading_text_label.setStyleSheet("""
-            font-size: 15px; 
-            color: #f0f0f0; 
-            margin-top: 10px;
+            font-size: 14px; 
+            color: #e0e0e0; 
+            margin-top: 8px;
             font-weight: 500;
             letter-spacing: 0.3px;
         """)
         self.loading_text_label.setWordWrap(True)
-        self.loading_text_label.setMinimumWidth(300)
+        self.loading_text_label.setFixedWidth(290)  # Fixed width with some margin for wrapping
         
         # Create a label for additional information
         self.loading_info_label = QLabel("This may take a moment as we gather relevant information from the web.")
         self.loading_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.loading_info_label.setStyleSheet("""
-            font-size: 13px; 
+            font-size: 12px; 
             color: #b0b0b0; 
             margin-top: 5px;
             font-style: italic;
             letter-spacing: 0.2px;
         """)
         self.loading_info_label.setWordWrap(True)
-        self.loading_info_label.setMinimumWidth(300)
+        self.loading_info_label.setFixedWidth(290)  # Fixed width with some margin for wrapping
         
         # Create a progress bar for the loading container
         self.loading_progress_bar = QProgressBar()
@@ -81,28 +89,30 @@ class WebSearchPanel(QWidget):
         # Create a container for the progress bar to ensure proper margins
         progress_container = QWidget()
         progress_layout = QVBoxLayout(progress_container)
-        progress_layout.setContentsMargins(0, 10, 0, 10)
+        progress_layout.setContentsMargins(0, 8, 0, 8)  # Reduced margins
         progress_layout.addWidget(self.loading_progress_bar)
         
-        # Add a stop button directly in the loading container
+        # Add a stop button directly in the loading container with modern styling
         self.loading_stop_button = QPushButton("Stop Search")
         self.loading_stop_button.setObjectName("loadingStopButton")
         self.loading_stop_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.loading_stop_button.setFixedWidth(140)  # Set fixed width for better appearance
+        self.loading_stop_button.setMinimumHeight(30)  # Match height with other buttons
         self.loading_stop_button.setStyleSheet("""
             #loadingStopButton {
-                background-color: #e74c3c;
+                background-color: #99322b;
                 color: white;
                 border: none;
                 border-radius: 4px;
-                padding: 5px 20px;
-                font-size: 13px;
+                padding: 5px 15px;
+                font-size: 12px;
                 font-weight: 600;
             }
             #loadingStopButton:hover {
-                background-color: #ff6666;
+                background-color: #b33e36;
             }
             #loadingStopButton:pressed {
-                background-color: #c0392b;
+                background-color: #7d2922;
             }
         """)
         self.loading_stop_button.clicked.connect(self._handle_stop)
@@ -110,34 +120,34 @@ class WebSearchPanel(QWidget):
         # Create a container for the button to center it
         button_container = QWidget()
         button_layout = QHBoxLayout(button_container)
-        button_layout.setContentsMargins(0, 10, 0, 0)
+        button_layout.setContentsMargins(0, 0, 0, 0)  # No margins
         button_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         button_layout.addWidget(self.loading_stop_button)
         
         # Add widgets to the layout
-        layout.addWidget(self.loading_animation_label)
+        layout.addWidget(animation_container)
         layout.addWidget(self.loading_text_label)
         layout.addWidget(self.loading_info_label)
         layout.addWidget(progress_container)
         layout.addWidget(button_container)
         
-        # Style the container
+        # Style the container to match other components
         self.setStyleSheet("""
             #loadingContainer {
-                background-color: rgba(30, 30, 46, 40);
-                border-radius: 10px;
-                border: 1px solid rgba(58, 63, 75, 60);
+                background-color: #1e1e1e;
+                border-radius: 8px;
+                border: 1px solid #333333;
             }
             #loadingProgressBar {
                 border: none;
-                background-color: rgba(45, 45, 61, 80);
+                background-color: #2a2a2a;
                 height: 4px;
             }
             #loadingProgressBar::chunk {
-                background-color: rgba(74, 158, 255, 180);
+                background-color: #e67e22;
             }
         """)
-        
+    
     def _setup_loading_animation(self):
         """Set up the loading animation - either GIF or text-based."""
         # Get the absolute path to the assets directory
@@ -163,13 +173,20 @@ class WebSearchPanel(QWidget):
         # If a GIF is found, use it, otherwise use text-based animation
         if gif_path:
             self.loading_animation = QMovie(gif_path)
-            self.loading_animation.setScaledSize(QSize(140, 140))
+            self.loading_animation.setScaledSize(QSize(120, 120))  # Reduced size to match the label
             self.loading_animation_label.setMovie(self.loading_animation)
             logging.info(f"Using GIF animation from {gif_path}")
         else:
-            # Create a text-based animation as fallback
+            # Create a text-based animation as fallback with improved styling
             self.loading_animation_label.setText("Searching")
-            self.loading_animation_label.setStyleSheet("font-size: 18px; color: #cccccc; font-weight: bold;")
+            self.loading_animation_label.setStyleSheet("""
+                font-size: 18px;
+                color: #e67e22;
+                font-weight: bold;
+                background-color: #2a2a2a;
+                border-radius: 60px;
+                border: 2px solid #333;
+            """)
             self.dot_timer = QTimer(self)
             self.dot_timer.timeout.connect(self._update_loading_text)
             logging.warning("Loading GIF not found, using text-based animation")

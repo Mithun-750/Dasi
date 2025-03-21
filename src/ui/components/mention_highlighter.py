@@ -12,9 +12,6 @@ class MentionHighlighter(QSyntaxHighlighter):
         self.mention_format.setBackground(QColor("#2b5c99"))  # Blue background
         self.mention_format.setForeground(QColor("#ffffff"))  # White text
         
-        self.invalid_mention_format = QTextCharFormat()
-        self.invalid_mention_format.setForeground(QColor("#888888"))  # Gray text for invalid mentions
-        
         self.chunks_dir = chunks_dir
         self.available_chunks = set()
         self.update_available_chunks()
@@ -35,8 +32,7 @@ class MentionHighlighter(QSyntaxHighlighter):
             length = match.end() - start
             mention = text[start+1:start+length].lower()  # Remove @ and convert to lowercase
             
-            # Apply appropriate format based on whether the chunk exists
+            # Only highlight if the chunk exists
             if mention in self.available_chunks:
                 self.setFormat(start, length, self.mention_format)
-            else:
-                self.setFormat(start, length, self.invalid_mention_format) 
+            # No formatting for invalid mentions - they'll use the default text color 
