@@ -242,6 +242,7 @@ class PreviewPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.is_chat_mode = False  # Default to compose mode
+        self._user_edit_preference = True  # Track user's edit mode preference
         self._setup_ui()
     
     def _setup_ui(self):
@@ -425,12 +426,16 @@ class PreviewPanel(QWidget):
     def _toggle_edit_mode(self):
         """Toggle between editable text and markdown preview."""
         if not self.is_chat_mode:  # Only applies in compose mode
+            # Update user preference
+            self._user_edit_preference = self.edit_checkbox.isChecked()
+            
             if self.edit_checkbox.isChecked():
                 # Switch to editable text mode
                 current_text = self.markdown_preview.get_plain_text() if self.preview_stack.currentWidget() == self.markdown_preview else self.response_preview.toPlainText()
                 self.preview_stack.setCurrentWidget(self.response_preview)
                 self.response_preview.setText(current_text)
-                self.set_editable(True)
+                # Apply edit mode but don't update checkbox (it's already checked by the user)
+                self.set_editable(True, update_checkbox=False)
             else:
                 # Switch to markdown preview mode
                 current_text = self.response_preview.toPlainText()
@@ -452,12 +457,18 @@ class PreviewPanel(QWidget):
             else:
                 # Transferring from markdown to text
                 current_text = self.markdown_preview.get_plain_text()
-                # Check if edit mode is enabled
-                if self.edit_checkbox.isChecked():
+                
+                # Apply the user's stored edit preference 
+                self.edit_checkbox.blockSignals(True)
+                self.edit_checkbox.setChecked(self._user_edit_preference)
+                self.edit_checkbox.blockSignals(False)
+                
+                # Show the appropriate view based on user preference
+                if self._user_edit_preference:
                     self.preview_stack.setCurrentWidget(self.response_preview)
                     if current_text:
                         self.response_preview.setText(current_text)
-                    # Make text editable when switching to compose mode with edit enabled
+                    # Make text editable
                     self.response_preview.setReadOnly(False)
                     self.response_preview.setProperty("editable", True)
                     self.response_preview.style().unpolish(self.response_preview)
@@ -467,6 +478,7 @@ class PreviewPanel(QWidget):
                     # Keep markdown view but update content
                     if current_text:
                         self.markdown_preview.set_markdown(current_text)
+                
                 # Show edit checkbox in compose mode
                 self.edit_checkbox.setVisible(True)
         
@@ -484,13 +496,21 @@ class PreviewPanel(QWidget):
         # Show the stack widget
         self.preview_stack.show()
         
+        # Synchronize UI with user preference
+        self._sync_ui_with_preference()
+        
         # Auto-scroll to bottom if in text mode
-        if not self.is_chat_mode:
+        if not self.is_chat_mode and self.preview_stack.currentWidget() == self.response_preview:
             scrollbar = self.response_preview.verticalScrollBar()
             scrollbar.setValue(scrollbar.maximum())
     
-    def set_editable(self, editable: bool):
-        """Set whether the response preview is editable."""
+    def set_editable(self, editable: bool, update_checkbox: bool = True):
+        """Set whether the response preview is editable.
+        
+        Args:
+            editable: Whether the response should be editable
+            update_checkbox: Whether to update the checkbox state (default: True)
+        """
         if self.is_chat_mode:
             # Markdown view is never editable, so switch to text mode if editing is required
             if editable:
@@ -507,8 +527,9 @@ class PreviewPanel(QWidget):
                 self.response_preview.style().polish(self.response_preview)
                 self.response_preview.setPlaceholderText("You can edit this response before accepting...")
                 # Update checkbox state
-                self.edit_checkbox.setVisible(True)
-                self.edit_checkbox.setChecked(True)
+                if update_checkbox:
+                    self.edit_checkbox.setVisible(True)
+                    self.edit_checkbox.setChecked(True)
         else:
             # Normal text mode
             self.response_preview.setReadOnly(not editable)
@@ -520,15 +541,33 @@ class PreviewPanel(QWidget):
                 self.response_preview.setPlaceholderText("You can edit this response before accepting...")
                 
             # Update checkbox state but block signals to prevent recursive calls
-            self.edit_checkbox.blockSignals(True)
-            self.edit_checkbox.setChecked(editable)
-            self.edit_checkbox.blockSignals(False)
+            if update_checkbox:
+                self.edit_checkbox.blockSignals(True)
+                self.edit_checkbox.setChecked(editable)
+                self.edit_checkbox.blockSignals(False)
     
     def show_actions(self, show: bool):
         """Show or hide the action frame."""
         self.action_frame.setVisible(show)
-        # Update edit checkbox visibility based on mode
-        self.edit_checkbox.setVisible(show and not self.is_chat_mode)
+        
+        # Only update checkbox visibility and state if showing actions
+        if show and not self.is_chat_mode:
+            # Make the checkbox visible
+            self.edit_checkbox.setVisible(True)
+            
+            # Ensure checkbox state matches user preference without triggering signals
+            self.edit_checkbox.blockSignals(True)
+            self.edit_checkbox.setChecked(self._user_edit_preference)
+            self.edit_checkbox.blockSignals(False)
+            
+            # Also make sure the current displayed widget matches the preference
+            if self._user_edit_preference:
+                self.preview_stack.setCurrentWidget(self.response_preview)
+            else:
+                self.preview_stack.setCurrentWidget(self.markdown_preview)
+        else:
+            # Hide checkbox in chat mode
+            self.edit_checkbox.setVisible(show and not self.is_chat_mode)
     
     def show_preview(self, show: bool):
         """Show or hide the response preview."""
@@ -578,4 +617,30 @@ class PreviewPanel(QWidget):
     def show(self):
         """Override show to ensure the appropriate widget is shown."""
         self.preview_stack.show()
-        super().show() 
+        # Synchronize UI with user preference when showing
+        self._sync_ui_with_preference()
+        super().show()
+    
+    def _sync_ui_with_preference(self):
+        """Synchronize UI state (checkbox, preview widget, editable state) with user preference."""
+        if self.is_chat_mode:
+            # Always show markdown in chat mode
+            self.preview_stack.setCurrentWidget(self.markdown_preview)
+            return
+            
+        # Block signals to avoid triggering _toggle_edit_mode
+        self.edit_checkbox.blockSignals(True)
+        self.edit_checkbox.setChecked(self._user_edit_preference)
+        self.edit_checkbox.blockSignals(False)
+        
+        # Set the appropriate widget
+        if self._user_edit_preference:
+            # If edit is enabled, show text editor
+            self.preview_stack.setCurrentWidget(self.response_preview)
+            self.response_preview.setReadOnly(False)
+            self.response_preview.setProperty("editable", True)
+            self.response_preview.style().unpolish(self.response_preview)
+            self.response_preview.style().polish(self.response_preview)
+        else:
+            # If edit is disabled, show markdown
+            self.preview_stack.setCurrentWidget(self.markdown_preview) 
