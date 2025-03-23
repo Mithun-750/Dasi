@@ -95,11 +95,13 @@ class CustomComboBox(QComboBox):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.scroll_area.setStyleSheet("background-color: transparent;")
+        self.scroll_area.setProperty("class", "global-scrollbar")
         
         # Create list widget for items
         self.list_widget = QListWidget()
-        self.list_widget.setProperty("class", "popup-list")
+        self.list_widget.setProperty("class", "popup-list global-scrollbar")
         self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
         self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -124,6 +126,41 @@ class CustomComboBox(QComboBox):
                 border-left: 2px solid #e67e22;
             }
         """)
+        
+        # Force scrollbar styling directly
+        scrollbar = self.list_widget.verticalScrollBar()
+        if scrollbar:
+            scrollbar.setStyleSheet("""
+                QScrollBar:vertical {
+                    background-color: #1a1a1a !important;
+                    width: 10px !important;
+                    margin: 0px 0px 0px 8px !important;
+                    border-radius: 5px !important;
+                    border: none !important;
+                }
+                
+                QScrollBar::handle:vertical {
+                    background-color: #333333 !important;
+                    min-height: 30px !important;
+                    border-radius: 5px !important;
+                    border: none !important;
+                }
+                
+                QScrollBar::handle:vertical:hover {
+                    background-color: #e67e22 !important;
+                }
+                
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                    height: 0px !important;
+                    border: none !important;
+                    background: none !important;
+                }
+                
+                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                    background: none !important;
+                    border: none !important;
+                }
+            """)
         
         # Set up the popup layout
         self.scroll_area.setWidget(self.list_widget)
@@ -316,17 +353,15 @@ class WebSearchTab(QWidget):
         main_layout.setSpacing(12)
         main_layout.setContentsMargins(16, 16, 16, 16)  # Adjusted right margin from 0 to 16
         
-        # Get the checkmark path based on running mode
+        # Get checkmark path for styling checkboxes
         if getattr(sys, 'frozen', False):
-            # Running as bundled PyInstaller app
+            # Running as bundled app
             base_path = sys._MEIPASS
             self.checkmark_path = os.path.join(base_path, "assets", "icons", "checkmark.svg")
-            logging.info(f"Using frozen app checkmark at: {self.checkmark_path}")
         else:
             # Running in development
-            app_dir = QDir.currentPath()
-            self.checkmark_path = f"{app_dir}/src/ui/assets/icons/checkmark.svg"
-            logging.info(f"Using development checkmark at: {self.checkmark_path}")
+            app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            self.checkmark_path = os.path.join(app_dir, "ui", "assets", "icons", "checkmark.svg")
             
         # Create a scroll area
         scroll = QScrollArea()
@@ -336,24 +371,6 @@ class WebSearchTab(QWidget):
         scroll.setStyleSheet("""
             QScrollArea { 
                 background-color: transparent; 
-            }
-            QScrollBar:vertical {
-                border: none;
-                background-color: transparent;
-                width: 10px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #404040;
-                min-height: 20px;
-                border-radius: 5px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                border: none;
-                background: none;
-            }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                background: none;
             }
         """)
         
@@ -408,33 +425,6 @@ class WebSearchTab(QWidget):
                 border-bottom-right-radius: 6px;
                 background-color: transparent;
             }
-            
-            /* Custom scrollbar styling for list widgets */
-            QScrollBar:vertical {
-                background-color: #2a2a2a;
-                width: 8px;
-                margin: 0px;
-            }
-            
-            QScrollBar::handle:vertical {
-                background-color: #555555;
-                min-height: 20px;
-                border-radius: 4px;
-            }
-            
-            QScrollBar::handle:vertical:hover {
-                background-color: #e67e22;
-            }
-            
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
-                background: none;
-            }
         """)
         
         # Add search providers
@@ -463,36 +453,100 @@ class WebSearchTab(QWidget):
         results_label = QLabel("Maximum Search Results")
         results_label.setProperty("class", "setting-label")
         
+        # Create a custom container for spinbox with buttons
+        value_container = QWidget()
+        value_container.setFixedWidth(80)
+        value_layout = QHBoxLayout(value_container)
+        value_layout.setContentsMargins(0, 0, 0, 0)
+        value_layout.setSpacing(4)
+        
+        # Create spinbox without buttons
         self.max_results = QSpinBox()
         self.max_results.setRange(1, 20)
         self.max_results.setValue(self.settings.get('web_search', 'max_results', default=5))
+        self.max_results.setFixedWidth(50)
+        self.max_results.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self.max_results.setStyleSheet("""
             QSpinBox {
-                padding: 10px 12px;
                 background-color: #222222;
                 border: 1px solid #333333;
                 border-radius: 6px;
                 color: #e0e0e0;
-                min-height: 20px;
+                padding: 5px;
                 font-size: 13px;
             }
             QSpinBox:focus {
                 border: 1px solid #3b82f6;
                 background-color: #2a2a2a;
             }
-            QSpinBox::up-button, QSpinBox::down-button {
-                background-color: #333333;
-                border: none;
-                width: 16px;
-                border-radius: 3px;
-            }
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+        """)
+        
+        # Create custom up/down buttons in a vertical layout
+        button_container = QWidget()
+        button_container.setFixedWidth(20)
+        button_layout = QVBoxLayout(button_container)
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setSpacing(1)
+        
+        # Up button
+        up_button = QPushButton("▲")
+        up_button.setFixedSize(20, 14)
+        up_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        up_button.setStyleSheet("""
+            QPushButton {
                 background-color: #444444;
+                color: white;
+                border: none;
+                border-radius: 2px;
+                font-size: 8px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background-color: #555555;
+            }
+            QPushButton:pressed {
+                background-color: #666666;
             }
         """)
         
+        # Down button
+        down_button = QPushButton("▼")
+        down_button.setFixedSize(20, 14)
+        down_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        down_button.setStyleSheet("""
+            QPushButton {
+                background-color: #444444;
+                color: white;
+                border: none;
+                border-radius: 2px;
+                font-size: 8px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background-color: #555555;
+            }
+            QPushButton:pressed {
+                background-color: #666666;
+            }
+        """)
+        
+        # Add buttons to the button layout
+        button_layout.addWidget(up_button)
+        button_layout.addWidget(down_button)
+        
+        # Add spinbox and buttons to the value layout
+        value_layout.addWidget(self.max_results)
+        value_layout.addWidget(button_container)
+        
+        # Connect custom buttons
+        up_button.clicked.connect(self._increment_max_results)
+        down_button.clicked.connect(self._decrement_max_results)
+        
+        # Connect change signal
+        self.max_results.valueChanged.connect(self._on_any_change)
+        
         results_layout.addWidget(results_label)
-        results_layout.addWidget(self.max_results)
+        results_layout.addWidget(value_container)
         
         # Options section
         options_container = QWidget()
@@ -687,4 +741,16 @@ class WebSearchTab(QWidget):
             "Success",
             "Dasi service has been restarted successfully.",
             QMessageBox.StandardButton.Ok
-        ) 
+        )
+
+    def _increment_max_results(self):
+        """Increment max results value."""
+        current_value = self.max_results.value()
+        new_value = min(current_value + 1, 20)
+        self.max_results.setValue(new_value)
+
+    def _decrement_max_results(self):
+        """Decrement max results value."""
+        current_value = self.max_results.value()
+        new_value = max(current_value - 1, 1)
+        self.max_results.setValue(new_value) 

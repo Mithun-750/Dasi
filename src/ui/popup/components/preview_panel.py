@@ -248,15 +248,13 @@ class PreviewPanel(QWidget):
         """Set up the UI components."""
         # Get the checkmark path based on running mode
         if getattr(sys, 'frozen', False):
-            # Running as bundled PyInstaller app
+            # Running as bundled app
             base_path = sys._MEIPASS
             checkmark_path = os.path.join(base_path, "assets", "icons", "checkmark.svg")
-            logging.info(f"Using frozen app checkmark at: {checkmark_path}")
         else:
             # Running in development
-            app_dir = QDir.currentPath()
-            checkmark_path = f"{app_dir}/src/ui/assets/icons/checkmark.svg"
-            logging.info(f"Using development checkmark at: {checkmark_path}")
+            app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            checkmark_path = os.path.join(app_dir, "ui", "assets", "icons", "checkmark.svg")
         
         # Main layout
         layout = QVBoxLayout()
@@ -345,33 +343,6 @@ class PreviewPanel(QWidget):
                 subcontrol-origin: padding;
                 subcontrol-position: center right;
                 padding-right: 6px;
-            }
-            
-            /* Custom scrollbar styling for list widgets */
-            QScrollBar:vertical {
-                background-color: #2a2a2a;
-                width: 8px;
-                margin: 0px;
-            }
-            
-            QScrollBar::handle:vertical {
-                background-color: #555555;
-                min-height: 20px;
-                border-radius: 4px;
-            }
-            
-            QScrollBar::handle:vertical:hover {
-                background-color: #e67e22;
-            }
-            
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
-                background: none;
             }
         """)
         

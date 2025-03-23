@@ -327,48 +327,72 @@ QListWidget::item:hover:!selected {
     border-left: 2px solid #e67e22;
 }
 
-/* Scroll Bar */
-QScrollBar:vertical {
-    background-color: #1a1a1a;
-    width: 10px;
-    margin: 0px 0px 0px 8px;
-    border-radius: 5px;
+/* Scroll Bar - Global Standardized Styling */
+* QScrollBar:vertical {
+    background-color: #1a1a1a !important;
+    width: 10px !important;
+    margin: 0px 0px 0px 8px !important;
+    border-radius: 5px !important;
+    border: none !important;
 }
 
-QScrollBar::handle:vertical {
-    background-color: #333333;
-    min-height: 30px;
-    border-radius: 5px;
+* QScrollBar::handle:vertical {
+    background-color: #333333 !important;
+    min-height: 30px !important;
+    border-radius: 5px !important;
+    border: none !important;
 }
 
-QScrollBar::handle:vertical:hover {
-    background-color: #444444;
+* QScrollBar::handle:vertical:hover {
+    background-color: #e67e22 !important;
 }
 
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-    height: 0px;
+* QScrollBar::add-line:vertical, 
+* QScrollBar::sub-line:vertical {
+    height: 0px !important;
+    border: none !important;
+    background: none !important;
 }
 
-QScrollBar:horizontal {
-    background-color: #1a1a1a;
-    height: 10px;
-    margin: 0px;
-    border-radius: 5px;
+* QScrollBar::add-page:vertical, 
+* QScrollBar::sub-page:vertical {
+    background: none !important;
+    border: none !important;
 }
 
-QScrollBar::handle:horizontal {
-    background-color: #333333;
-    min-width: 30px;
-    border-radius: 5px;
+* QScrollBar:horizontal {
+    background-color: #1a1a1a !important;
+    height: 10px !important;
+    margin: 0px !important;
+    border-radius: 5px !important;
+    border: none !important;
 }
 
-QScrollBar::handle:horizontal:hover {
-    background-color: #444444;
+* QScrollBar::handle:horizontal {
+    background-color: #333333 !important;
+    min-width: 30px !important;
+    border-radius: 5px !important;
+    border: none !important;
 }
 
-QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-    width: 0px;
+* QScrollBar::handle:horizontal:hover {
+    background-color: #e67e22 !important;
 }
+
+* QScrollBar::add-line:horizontal, 
+* QScrollBar::sub-line:horizontal {
+    width: 0px !important;
+    border: none !important;
+    background: none !important;
+}
+
+* QScrollBar::add-page:horizontal, 
+* QScrollBar::sub-page:horizontal {
+    background: none !important;
+    border: none !important;
+}
+
+/* Component-specific scrollbar overrides - removed in favor of global styling */
 
 /* Labels */
 QLabel {

@@ -19,9 +19,11 @@ from PyQt6.QtWidgets import (
     QStyledItemDelegate,
     QFileDialog,
     QSlider,
+    QProxyStyle,
+    QStyle,
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtGui import QColor, QPalette, QPainter, QPen, QPainterPath
 from .settings_manager import Settings
 import sys
 import os
@@ -30,11 +32,84 @@ import logging
 from PyQt6.QtCore import QDir
 
 
+# Custom style to draw a text arrow for combo boxes
+class ComboBoxStyle(QProxyStyle):
+    """Custom style to draw a text arrow for combo boxes."""
+    def __init__(self, style=None):
+        super().__init__(style)
+        self.arrow_color = QColor("#e67e22")  # Orange color for arrow
+        
+    def drawPrimitive(self, element, option, painter, widget=None):
+        if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown and isinstance(widget, QComboBox):
+            # Draw a custom arrow
+            rect = option.rect
+            painter.save()
+            
+            # Set up the arrow color
+            painter.setPen(QPen(self.arrow_color, 1.5))
+            
+            # Draw a triangle instead of text arrow for more modern look
+            # Calculate the triangle points
+            width = 9
+            height = 6
+            x = rect.center().x() - width // 2
+            y = rect.center().y() - height // 2
+            
+            path = QPainterPath()
+            path.moveTo(x, y)
+            path.lineTo(x + width, y)
+            path.lineTo(x + width // 2, y + height)
+            path.lineTo(x, y)
+            
+            # Fill the triangle
+            painter.fillPath(path, self.arrow_color)
+            
+            painter.restore()
+            return
+        super().drawPrimitive(element, option, painter, widget)
+
+
 class SearchableComboBox(QComboBox):
     """Custom ComboBox with search functionality."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        
+        # Apply custom arrow style
+        self.setStyle(ComboBoxStyle())
+        
+        # Style the combobox itself
+        self.setStyleSheet("""
+            QComboBox {
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                padding: 6px 12px;
+                color: #e0e0e0;
+            }
+            QComboBox:hover {
+                border: 1px solid #e67e22;
+            }
+            QComboBox:focus {
+                border: 1px solid #e67e22;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                width: 24px;
+                border-left: 1px solid #333333;
+                border-top-right-radius: 6px;
+                border-bottom-right-radius: 6px;
+                background-color: transparent;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                selection-background-color: #e67e22;
+                selection-color: white;
+            }
+        """)
 
         # Create search line edit
         self.search_edit = QLineEdit()
@@ -71,12 +146,21 @@ class SearchableComboBox(QComboBox):
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        
+        # Use transparent background but rely on global scrollbar styling
         self.scroll.setStyleSheet("background-color: transparent;")
+        self.scroll.setProperty("class", "global-scrollbar")
 
         # Create list widget for items
         self.list_widget = QListWidget()
         self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
+        self.list_widget.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.list_widget.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list_widget.setStyleSheet("""
             QListWidget {
                 background-color: transparent;
@@ -98,7 +182,43 @@ class SearchableComboBox(QComboBox):
                 border-left: 2px solid #e67e22;
             }
         """)
+        self.list_widget.setProperty("class", "global-scrollbar")
         self.scroll.setWidget(self.list_widget)
+
+        # Force scrollbar styling directly
+        scrollbar = self.list_widget.verticalScrollBar()
+        if scrollbar:
+            scrollbar.setStyleSheet("""
+                QScrollBar:vertical {
+                    background-color: #1a1a1a !important;
+                    width: 10px !important;
+                    margin: 0px 0px 0px 8px !important;
+                    border-radius: 5px !important;
+                    border: none !important;
+                }
+                
+                QScrollBar::handle:vertical {
+                    background-color: #333333 !important;
+                    min-height: 30px !important;
+                    border-radius: 5px !important;
+                    border: none !important;
+                }
+                
+                QScrollBar::handle:vertical:hover {
+                    background-color: #e67e22 !important;
+                }
+                
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                    height: 0px !important;
+                    border: none !important;
+                    background: none !important;
+                }
+                
+                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                    background: none !important;
+                    border: none !important;
+                }
+            """)
 
         # Setup popup layout
         self.popup_layout = QVBoxLayout(self.popup)
@@ -160,6 +280,20 @@ class SectionFrame(QFrame):
                 background-color: #1e1e1e;
                 border-radius: 8px;
                 border: 1px solid #333333;
+            }
+            QLabel {
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 12px;
+                color: #e0e0e0;
+            }
+            QLabel[class="subheading"] {
+                font-size: 15px;
+                font-weight: 600;
+                color: #ffffff;
+            }
+            QLabel[class="description"] {
+                font-size: 12px;
+                color: #aaaaaa;
             }
         """)
         
@@ -255,19 +389,57 @@ class GeneralTab(QWidget):
             logging.info(f"Using frozen app checkmark at: {checkmark_path}")
         else:
             # Running in development
-            app_dir = QDir.currentPath()
-            checkmark_path = f"{app_dir}/src/ui/assets/icons/checkmark.svg"
+            app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            checkmark_path = os.path.join(app_dir, "ui", "assets", "icons", "checkmark.svg")
             logging.info(f"Using development checkmark at: {checkmark_path}")
 
         # Create a scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("background-color: transparent;")
+        scroll.setProperty("class", "global-scrollbar")
+        
+        # Apply scrollbar styling directly
+        scrollbar = scroll.verticalScrollBar()
+        if scrollbar:
+            scrollbar.setStyleSheet("""
+                QScrollBar:vertical {
+                    background-color: #1a1a1a !important;
+                    width: 10px !important;
+                    margin: 0px 0px 0px 8px !important;
+                    border-radius: 5px !important;
+                    border: none !important;
+                }
+                
+                QScrollBar::handle:vertical {
+                    background-color: #333333 !important;
+                    min-height: 30px !important;
+                    border-radius: 5px !important;
+                    border: none !important;
+                }
+                
+                QScrollBar::handle:vertical:hover {
+                    background-color: #e67e22 !important;
+                }
+                
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                    height: 0px !important;
+                    border: none !important;
+                    background: none !important;
+                }
+                
+                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                    background: none !important;
+                    border: none !important;
+                }
+            """)
 
         # Create a widget to hold all settings
         content = QWidget()
         content.setStyleSheet("background-color: transparent;")
+        content.setProperty("class", "global-scrollbar")
         layout = QVBoxLayout(content)
         layout.setSpacing(12)
         layout.setContentsMargins(0, 0, 0, 0)  # Adjusted right padding
@@ -341,32 +513,93 @@ class GeneralTab(QWidget):
             }
         """)
         
-        # Keep the spin box for precise control but make it smaller
+        # Create a custom number entry with buttons
+        value_container = QWidget()
+        value_container.setFixedWidth(80)
+        value_layout = QHBoxLayout(value_container)
+        value_layout.setContentsMargins(0, 0, 0, 0)
+        value_layout.setSpacing(4)
+        
+        # Number display
         self.temperature = QDoubleSpinBox()
         self.temperature.setRange(0.0, 1.0)
         self.temperature.setSingleStep(0.1)
         self.temperature.setValue(self.settings.get('general', 'temperature', default=0.7))
-        self.temperature.setFixedWidth(70)
+        self.temperature.setFixedWidth(60)
+        self.temperature.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)  # Hide built-in buttons
         self.temperature.setStyleSheet("""
             QDoubleSpinBox {
                 background-color: #2a2a2a;
                 border: 1px solid #333333;
                 border-radius: 4px;
-                padding: 3px;
                 color: white;
+                padding: 3px;
             }
             QDoubleSpinBox:focus {
-                border: 1px solid #e67e22;
-            }
-            QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
-                background-color: #333333;
-                width: 16px;
-                border: none;
-            }
-            QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
-                background-color: #e67e22;
+                border: 1px solid #444444;
             }
         """)
+        
+        # Create custom up/down buttons in a vertical layout
+        button_container = QWidget()
+        button_container.setFixedWidth(20)
+        button_layout = QVBoxLayout(button_container)
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setSpacing(1)
+        
+        # Up button
+        up_button = QPushButton("▲")
+        up_button.setFixedSize(20, 14)
+        up_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        up_button.setStyleSheet("""
+            QPushButton {
+                background-color: #444444;
+                color: white;
+                border: none;
+                border-radius: 2px;
+                font-size: 8px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background-color: #555555;
+            }
+            QPushButton:pressed {
+                background-color: #666666;
+            }
+        """)
+        
+        # Down button
+        down_button = QPushButton("▼")
+        down_button.setFixedSize(20, 14)
+        down_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        down_button.setStyleSheet("""
+            QPushButton {
+                background-color: #444444;
+                color: white;
+                border: none;
+                border-radius: 2px;
+                font-size: 8px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background-color: #555555;
+            }
+            QPushButton:pressed {
+                background-color: #666666;
+            }
+        """)
+        
+        # Add buttons to the button layout
+        button_layout.addWidget(up_button)
+        button_layout.addWidget(down_button)
+        
+        # Add spinbox and buttons to the value layout
+        value_layout.addWidget(self.temperature)
+        value_layout.addWidget(button_container)
+        
+        # Connect custom buttons
+        up_button.clicked.connect(self._increment_temperature)
+        down_button.clicked.connect(self._decrement_temperature)
         
         # Connect signals for syncing slider and spin box
         self.temp_slider.valueChanged.connect(self._sync_temp_from_slider)
@@ -377,7 +610,7 @@ class GeneralTab(QWidget):
 
         temp_layout.addWidget(temp_label)
         temp_layout.addWidget(self.temp_slider, 1)  # Give slider more space
-        temp_layout.addWidget(self.temperature)
+        temp_layout.addWidget(value_container)
 
         llm_section.layout.addWidget(temp_container)
         layout.addWidget(llm_section)
@@ -881,3 +1114,15 @@ X-GNOME-Autostart-enabled=true
         self.temp_slider.setValue(int(value * 100))
         self.temp_slider.blockSignals(False)
         self._on_any_change()
+
+    def _increment_temperature(self):
+        """Increment temperature value."""
+        current_value = self.temperature.value()
+        new_value = min(current_value + 0.1, 1.0)
+        self.temperature.setValue(round(new_value, 1))
+
+    def _decrement_temperature(self):
+        """Decrement temperature value."""
+        current_value = self.temperature.value()
+        new_value = max(current_value - 0.1, 0.0)
+        self.temperature.setValue(round(new_value, 1))

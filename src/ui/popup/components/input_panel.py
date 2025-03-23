@@ -503,33 +503,6 @@ class InputPanel(QWidget):
                 padding-right: 8px;
             }
             
-            /* Custom scrollbar styling for list widgets */
-            QScrollBar:vertical {
-                background-color: #2a2a2a;
-                width: 8px;
-                margin: 0px;
-            }
-            
-            QScrollBar::handle:vertical {
-                background-color: #555555;
-                min-height: 20px;
-                border-radius: 4px;
-            }
-            
-            QScrollBar::handle:vertical:hover {
-                background-color: #e67e22;
-            }
-            
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
-                background: none;
-            }
-            
             #progressBar {
                 border: none;
                 background-color: #2a2a2a;

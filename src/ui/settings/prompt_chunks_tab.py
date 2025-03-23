@@ -36,8 +36,9 @@ class ChunkCard(QFrame):
                 background-color: #2a2a2a;
                 border: 1px solid #e67e22;
             }
-            QLabel {
+            #chunkCard QLabel {
                 color: #ffffff;
+                background-color: transparent;
             }
         """)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -49,7 +50,7 @@ class ChunkCard(QFrame):
 
         # Title
         title_label = QLabel(self.title)
-        title_label.setStyleSheet("font-size: 14px; font-weight: 500; color: #ffffff;")
+        title_label.setStyleSheet("font-size: 14px; font-weight: 500; color: #ffffff; background-color: transparent;")
         title_label.setMaximumHeight(20)
         layout.addWidget(title_label)
 
@@ -60,6 +61,7 @@ class ChunkCard(QFrame):
             color: #aaaaaa; 
             font-size: 12px;
             padding-bottom: 4px;
+            background-color: transparent;
         """)
         content_label.setMaximumHeight(90)  # Increased from 70 to 90
         
@@ -93,19 +95,20 @@ class CreateCard(ChunkCard):
                 background-color: #f39c12;
                 border: 1px solid #e67e22;
             }
-            QLabel {
+            #createCard QLabel {
                 color: #ffffff;
+                background-color: transparent;
             }
         """)
         
-        # Override the content label style to ensure white text
+        # Override the child labels' styles directly
         for i in range(self.layout().count()):
             widget = self.layout().itemAt(i).widget()
             if isinstance(widget, QLabel):
                 if i == 0:  # Title label
-                    widget.setStyleSheet("font-size: 14px; font-weight: 600; color: #ffffff;")
+                    widget.setStyleSheet("font-size: 14px; font-weight: 600; color: #ffffff; background-color: transparent;")
                 else:  # Content label
-                    widget.setStyleSheet("color: #ffffff; font-size: 12px; padding-bottom: 4px;")
+                    widget.setStyleSheet("color: #ffffff; font-size: 12px; padding-bottom: 4px; background-color: transparent;")
 
 
 class ChunkEditor(QWidget):
@@ -329,24 +332,6 @@ class PromptChunksTab(QWidget):
             QScrollArea {
                 border: none;
                 background-color: transparent;
-            }
-            QScrollBar:vertical {
-                border: none;
-                background-color: transparent;
-                width: 10px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #404040;
-                min-height: 20px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background-color: #e67e22;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                border: none;
-                background: none;
             }
         """)
 

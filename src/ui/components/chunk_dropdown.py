@@ -81,27 +81,6 @@ class ChunkDropdown(QFrame):
                 background-color: #2e2e2e;
                 border-left: 2px solid #e67e22;
             }
-            QScrollBar:vertical {
-                background-color: #2a2a2a;
-                width: 8px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #555555;
-                min-height: 20px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background-color: #e67e22;
-            }
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
-                background: none;
-            }
         """)
         
         # Set item delegate for custom item height

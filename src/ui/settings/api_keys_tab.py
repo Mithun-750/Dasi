@@ -275,63 +275,62 @@ class APIKeysTab(QWidget):
         # Set transparent background for this widget
         self.setStyleSheet("background-color: transparent;")
 
-        # Get the checkmark path based on running mode
+        # Get checkmark path for styling checkboxes
         if getattr(sys, 'frozen', False):
-            # Running as bundled PyInstaller app
+            # Running as bundled app
             base_path = sys._MEIPASS
             self.checkmark_path = os.path.join(base_path, "assets", "icons", "checkmark.svg")
-            logging.info(f"Using frozen app checkmark at: {self.checkmark_path}")
         else:
             # Running in development
-            app_dir = QDir.currentPath()
-            self.checkmark_path = f"{app_dir}/src/ui/assets/icons/checkmark.svg"
-            logging.info(f"Using development checkmark at: {self.checkmark_path}")
+            app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            self.checkmark_path = os.path.join(app_dir, "ui", "assets", "icons", "checkmark.svg")
 
         # Create scroll area with modern styling
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-            QScrollBar:vertical {
-                background-color: #1a1a1a;
-                width: 10px;
-                margin: 0px 0px 0px 8px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #333333;
-                min-height: 30px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background-color: #444444;
-            }
-            QScrollBar:horizontal {
-                background-color: #1a1a1a;
-                height: 10px;
-                margin: 0px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:horizontal {
-                background-color: #333333;
-                min-width: 30px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:horizontal:hover {
-                background-color: #444444;
-            }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-                width: 0px;
-            }
-        """)
+        scroll.setStyleSheet("background-color: transparent;")
+        scroll.setProperty("class", "global-scrollbar")
+        
+        # Apply scrollbar styling directly
+        scrollbar = scroll.verticalScrollBar()
+        if scrollbar:
+            scrollbar.setStyleSheet("""
+                QScrollBar:vertical {
+                    background-color: #1a1a1a !important;
+                    width: 10px !important;
+                    margin: 0px 0px 0px 8px !important;
+                    border-radius: 5px !important;
+                    border: none !important;
+                }
+                
+                QScrollBar::handle:vertical {
+                    background-color: #333333 !important;
+                    min-height: 30px !important;
+                    border-radius: 5px !important;
+                    border: none !important;
+                }
+                
+                QScrollBar::handle:vertical:hover {
+                    background-color: #e67e22 !important;
+                }
+                
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                    height: 0px !important;
+                    border: none !important;
+                    background: none !important;
+                }
+                
+                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                    background: none !important;
+                    border: none !important;
+                }
+            """)
 
         # Create content widget for scroll area
         content = QWidget()
         content.setStyleSheet("background-color: transparent;")
+        content.setProperty("class", "global-scrollbar")
         self.content_layout = QVBoxLayout(content)
         self.content_layout.setSpacing(16)
         self.content_layout.setContentsMargins(0, 0, 8, 0)  # Added 8px right padding for gap between content and scrollbar
@@ -471,33 +470,6 @@ class APIKeysTab(QWidget):
                 selection-background-color: #e67e22;
                 selection-color: white;
                 padding: 4px;
-            }
-            
-            /* Custom scrollbar styling for list widgets */
-            QScrollBar:vertical {
-                background-color: #2a2a2a;
-                width: 8px;
-                margin: 0px;
-            }
-            
-            QScrollBar::handle:vertical {
-                background-color: #555555;
-                min-height: 20px;
-                border-radius: 4px;
-            }
-            
-            QScrollBar::handle:vertical:hover {
-                background-color: #e67e22;
-            }
-            
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
-                background: none;
             }
         """)
         

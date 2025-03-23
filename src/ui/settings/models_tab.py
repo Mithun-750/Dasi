@@ -558,12 +558,19 @@ class SearchableComboBox(QComboBox):
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setStyleSheet("background-color: transparent;")
+        self.scroll.setProperty("class", "global-scrollbar")
 
         # Create list widget for items
         self.list_widget = QListWidget()
         self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
+        self.list_widget.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.list_widget.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list_widget.setStyleSheet("""
             QListWidget {
                 background-color: transparent;
@@ -585,7 +592,43 @@ class SearchableComboBox(QComboBox):
                 border-left: 2px solid #e67e22;
             }
         """)
+        self.list_widget.setProperty("class", "global-scrollbar")
         self.scroll.setWidget(self.list_widget)
+
+        # Force scrollbar styling directly
+        scrollbar = self.list_widget.verticalScrollBar()
+        if scrollbar:
+            scrollbar.setStyleSheet("""
+                QScrollBar:vertical {
+                    background-color: #1a1a1a !important;
+                    width: 10px !important;
+                    margin: 0px 0px 0px 8px !important;
+                    border-radius: 5px !important;
+                    border: none !important;
+                }
+                
+                QScrollBar::handle:vertical {
+                    background-color: #333333 !important;
+                    min-height: 30px !important;
+                    border-radius: 5px !important;
+                    border: none !important;
+                }
+                
+                QScrollBar::handle:vertical:hover {
+                    background-color: #e67e22 !important;
+                }
+                
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                    height: 0px !important;
+                    border: none !important;
+                    background: none !important;
+                }
+                
+                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                    background: none !important;
+                    border: none !important;
+                }
+            """)
 
         # Setup popup layout
         self.popup_layout = QVBoxLayout(self.popup)

@@ -309,8 +309,20 @@ class SettingsWindow(QMainWindow):
         content_layout = QVBoxLayout(content_container)
         content_layout.setContentsMargins(0, 0, 0, 0) 
         
+        # Set darker background color with proper font styling
+        content_container.setStyleSheet("""
+            QFrame {
+                background-color: #1a1a1a;
+            }
+        """)
+        
         # Create stacked widget for content
         self.content = QStackedWidget()
+        self.content.setStyleSheet("""
+            QStackedWidget {
+                background-color: #1a1a1a;
+            }
+        """)
         
         # Add content directly to layout without the card frame
         content_layout.addWidget(self.content)
