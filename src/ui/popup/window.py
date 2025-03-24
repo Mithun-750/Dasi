@@ -752,6 +752,10 @@ class DasiWindow(QWidget):
         """Handle global key events for the window."""
         if event.key() == Qt.Key.Key_Escape:
             self._handle_escape()
+        # Add global Shift+Backspace handler to reset selected text
+        elif event.key() == Qt.Key.Key_Backspace and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            self.input_panel.reset_context()
+            event.accept()
         else:
             super().keyPressEvent(event)
 

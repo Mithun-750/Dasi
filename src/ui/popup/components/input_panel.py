@@ -558,6 +558,12 @@ class InputPanel(QWidget):
                 
                 return False  # Let the @ be typed
 
+            # Handle Shift+Backspace to clear selected text
+            if (key_event.key() == Qt.Key.Key_Backspace and 
+                key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+                self.reset_context()
+                return True  # Event handled
+                
             # Handle submit when dropdown is not visible
             if (key_event.key() == Qt.Key.Key_Return and 
                 not key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier and 

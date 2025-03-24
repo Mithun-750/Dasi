@@ -19,8 +19,8 @@ class CopilotUI:
             clipboard = QApplication.clipboard()
             selected_text = clipboard.text(QClipboard.Mode.Selection)
 
-            # Only set selected text if there's new text selected
-            if selected_text and selected_text.strip():
+            # Only set selected text if there's new text selected and it's at least 4 characters
+            if selected_text and selected_text.strip() and len(selected_text.strip()) >= 4:
                 self.window.set_selected_text(selected_text.strip())
 
             # Position window near cursor with screen bounds check
