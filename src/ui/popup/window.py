@@ -348,9 +348,9 @@ class DasiWindow(QWidget):
     def _handle_input_submit(self, query: str):
         """Handle query submitted from the input panel."""
         if query:
-            # Check if this is a web search query
+            # Check if this is a web search query (check for #web anywhere in the query)
             self.is_web_search = "#web" in query.lower()
-
+            
             # Show stop button at bottom
             if not self.is_web_search:
                 self.stop_button.show()
@@ -362,7 +362,8 @@ class DasiWindow(QWidget):
             if self.is_web_search:
                 # Hide the response preview and show the web search panel
                 self.preview_panel.hide()  # Hide preview panel completely
-                search_term = query.replace("#web", "").strip()
+                # Get search term by removing the #web tag
+                search_term = query.lower().replace("#web", "", 1).strip()
                 self.web_search_panel.start(search_term)
                 self.right_panel.show()
                 self.setFixedWidth(680)  # Wider width for web search panel
@@ -389,7 +390,6 @@ class DasiWindow(QWidget):
             model = None
             if model_info and 'id' in model_info:
                 model = model_info['id']
-                logging.info(f"Selected model: {model_info['name']} (ID: {model})")
 
             # Process query in background with session ID
             self.worker = QueryWorker(
@@ -430,7 +430,6 @@ class DasiWindow(QWidget):
                         dasi_instance = DasiInstanceManager.get_instance()
                         
                         if dasi_instance and dasi_instance.llm_handler and dasi_instance.llm_handler.web_search_handler:
-                            logging.info("Cancelling ongoing web search operation")
                             dasi_instance.llm_handler.web_search_handler.cancel_search()
                         else:
                             logging.warning("Could not access web search handler for cancellation")
@@ -463,7 +462,6 @@ class DasiWindow(QWidget):
                     dasi_instance = DasiInstanceManager.get_instance()
                     
                     if dasi_instance and dasi_instance.llm_handler and dasi_instance.llm_handler.web_search_handler:
-                        logging.info("Cancelling ongoing web search operation on ESC")
                         dasi_instance.llm_handler.web_search_handler.cancel_search()
                         
                         # Signal worker to stop
@@ -572,6 +570,20 @@ class DasiWindow(QWidget):
 
         # Store the response
         self.last_response = response
+        
+        # Check for optimized search query information in web search responses
+        if self.is_web_search and self.web_search_panel.isVisible():
+            # Look for the original and optimized query information
+            # This would be in the format that the LLMHandler puts into the response
+            original_query_match = re.search(r"Original Query: (.+)$", response, re.MULTILINE)
+            optimized_query_match = re.search(r"Optimized Query: (.+)$", response, re.MULTILINE)
+            
+            if original_query_match and optimized_query_match:
+                original_query = original_query_match.group(1).strip()
+                optimized_query = optimized_query_match.group(1).strip()
+                
+                # Update the web search panel with the optimized query
+                self.web_search_panel.update_with_optimized_query(original_query, optimized_query)
 
         # If we were showing the web search panel and have a substantial response, hide it
         if self.is_web_search and self.web_search_panel.isVisible():

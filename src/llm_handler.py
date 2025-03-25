@@ -156,7 +156,7 @@ class LLMHandler:
             
             # Log all available models for debugging
             model_ids = [m['id'] for m in selected_models]
-            logging.debug(f"Available model IDs: {model_ids}")
+            logging.info(f"Available model IDs: {model_ids}")
             
             # Find the model by exact ID match
             model_info = next((m for m in selected_models if m['id'] == model_name), None)
@@ -165,7 +165,7 @@ class LLMHandler:
             if not model_info and '/' in model_name:
                 # Try to match without the path components
                 base_name = model_name.split('/')[-1]
-                logging.debug(f"Trying to match with base name: {base_name}")
+                logging.info(f"Trying to match with base name: {base_name}")
                 for m in selected_models:
                     if m['id'].endswith(f"/{base_name}"):
                         model_info = m
@@ -346,7 +346,7 @@ class LLMHandler:
                     needs_init = model != current_model
                     
                     # Log the comparison for debugging
-                    logging.debug(f"Model comparison: requested={model}, current={current_model}, needs_init={needs_init}")
+                    logging.info(f"Model comparison: requested={model}, current={current_model}, needs_init={needs_init}")
 
             if needs_init:
                 logging.info(f"Initializing new model: {model}")
@@ -368,11 +368,18 @@ class LLMHandler:
             actual_query = query
             web_search = False
 
-            # Check for #web command
+            # Check for #web command at the beginning
             if actual_query.strip().startswith('#web '):
                 web_search = True
                 actual_query = actual_query.replace('#web ', '', 1).strip()
-                logging.info(f"Web search requested: {actual_query}")
+                logging.info(f"Web search requested (prefix): {actual_query}")
+            
+            # Also check for #web anywhere in the query (not just at the beginning)
+            if "#web" in actual_query and not web_search:
+                web_search = True
+                # Remove #web tag from the query
+                actual_query = actual_query.replace("#web", "").strip()
+                logging.info(f"Web search requested (inline tag): {actual_query}")
 
             if "Context:" in query:
                 context_section, actual_query = query.split("\n\nQuery:\n", 1)
@@ -413,18 +420,27 @@ class LLMHandler:
                     if "<" in web_search_text and ">" in web_search_text:
                         web_search_text = web_search_text.split(">", 1)[1].strip()
                     web_search = web_search_text.lower() == 'true'
-                    
-            # Check for #web command in the actual query
-            if actual_query.strip().startswith('#web '):
+            
+            # Final check for #web in the actual query after context parsing
+            if "#web" in actual_query and not web_search:
+                web_search = True
+                actual_query = actual_query.replace("#web", "").strip()
+                logging.info(f"Web search requested (after context parsing): {actual_query}")
+                
+            # Check for #web at beginning of actual query
+            if actual_query.strip().startswith('#web ') and not web_search:
                 web_search = True
                 actual_query = actual_query.replace('#web ', '', 1).strip()
-                logging.info(f"Web search requested: {actual_query}")
+                logging.info(f"Web search requested (at beginning): {actual_query}")
+                
+            # Log final web search status
+            logging.info(f"Final web search status: {web_search}, Query: '{actual_query}'")
 
             # Perform web search if requested
             web_search_results = None
             if web_search:
                 try:
-                    logging.info(f"Performing web search for: {actual_query}")
+                    logging.info(f"Web search flag is set to {web_search}. Attempting web search for: {actual_query}")
                     # Lazy initialization of web search handler
                     if self.web_search_handler is None:
                         from web_search_handler import WebSearchHandler
@@ -446,7 +462,7 @@ class LLMHandler:
                     def perform_search():
                         nonlocal search_completed, search_results, search_error
                         try:
-                            results = self.web_search_handler.search_and_scrape(actual_query)
+                            results = self.web_search_handler.search_and_scrape(actual_query, optimize_query=True)
                             search_results = results
                             search_completed = True
                         except Exception as e:
@@ -458,8 +474,8 @@ class LLMHandler:
                     search_thread.daemon = True  # Make thread a daemon so it doesn't block program exit
                     search_thread.start()
                     
-                    # Wait for the search to complete with a timeout (30 seconds)
-                    timeout = 30  # seconds
+                    # Wait for the search to complete with a timeout (60 seconds)
+                    timeout = 60  # seconds - increased from 30 to 60 for more scraping time
                     start_time = time.time()
                     while not search_completed and not self.web_search_handler._cancellation_requested:
                         search_thread.join(0.5)  # Check every 0.5 seconds
@@ -482,6 +498,15 @@ class LLMHandler:
                     
                     # Format search results for inclusion in the prompt
                     search_results_text = "=====WEB_SEARCH_RESULTS=====<results from web search>\n"
+                    
+                    # Add original and optimized query information if available
+                    if 'original_query' in web_search_results and 'optimized_query' in web_search_results:
+                        original_query = web_search_results['original_query']
+                        optimized_query = web_search_results['optimized_query']
+                        
+                        if original_query != optimized_query:
+                            search_results_text += f"Original Query: {original_query}\n"
+                            search_results_text += f"Optimized Query: {optimized_query}\n\n"
                     
                     # Add search results
                     search_results_text += "Search Results:\n"
@@ -581,6 +606,7 @@ class LLMHandler:
                 3. If the search results don't contain relevant information, acknowledge this and provide your best answer
                 4. Focus on the most relevant information from the search results
                 5. If the information seems outdated or contradictory, note this to the user
+                6. If both original and optimized queries are shown, consider how the query optimization may have affected the search results
                 ======================="""
                 messages.append(SystemMessage(content=web_search_instruction))
 

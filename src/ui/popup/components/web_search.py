@@ -5,6 +5,7 @@ from PyQt6.QtGui import QMovie
 import os
 import sys
 import logging
+import random  # Add random module for random phrase selection
 
 class WebSearchPanel(QWidget):
     """Web search loading panel component for the Dasi window."""
@@ -19,6 +20,27 @@ class WebSearchPanel(QWidget):
         self.loading_animation = None
         self.dot_timer = None
         self.dot_count = 0
+        self.phrase_timer = None  # New timer for phrase rotation
+        self.current_phrase_index = 0  # Track current phrase index
+        
+        # Fun phrases that will rotate every 5 seconds
+        self.fun_phrases = [
+            # Main heading phrases
+            ["Searching the cosmos...", "Consulting the digital oracles for wisdom..."],
+            ["Venturing into the depths of the web", "Suchanā Grahaṇa - The ancient art of information gathering..."],
+            ["Summoning knowledge from the digital realm:", "Deciphering ancient internet hieroglyphs..."],
+            ["Traversing the information superhighway", "Avoiding digital traffic jams..."],
+            ["Unleashing the search hounds", "Following the scent of knowledge..."],
+            ["Diving into the data ocean", "Searching for pearls of wisdom..."],
+            ["Scanning alternate realities", "Looking for answers in parallel universes..."],
+            ["Consulting the council of search engines", "Gathering their collective wisdom..."],
+            ["Deploying search ninjas", "They move silently through the web..."],
+            ["Awakening dormant algorithms", "Ancient digital spirits guide our search..."],
+            ["Launching knowledge satellites", "Orbiting the planet for information..."],
+            ["Opening forbidden search portals", "Accessing classified information archives..."],
+            ["Interrogating the digital librarians", "They know where all knowledge is stored..."],
+            ["Decoding the matrix", "There is no spoon, only search results..."]
+        ]
         
         # Setup UI
         self._setup_ui()
@@ -73,11 +95,14 @@ class WebSearchPanel(QWidget):
             font-size: 12px; 
             color: #b0b0b0; 
             margin-top: 5px;
+            margin-bottom: 5px;
             font-style: italic;
             letter-spacing: 0.2px;
+            line-height: 1.3;
         """)
         self.loading_info_label.setWordWrap(True)
         self.loading_info_label.setFixedWidth(290)  # Fixed width with some margin for wrapping
+        self.loading_info_label.setMinimumHeight(60)  # Taller to accommodate multiple lines
         
         # Create a progress bar for the loading container
         self.loading_progress_bar = QProgressBar()
@@ -175,7 +200,6 @@ class WebSearchPanel(QWidget):
             self.loading_animation = QMovie(gif_path)
             self.loading_animation.setScaledSize(QSize(120, 120))  # Reduced size to match the label
             self.loading_animation_label.setMovie(self.loading_animation)
-            logging.info(f"Using GIF animation from {gif_path}")
         else:
             # Create a text-based animation as fallback with improved styling
             self.loading_animation_label.setText("Searching")
@@ -199,21 +223,43 @@ class WebSearchPanel(QWidget):
         else:
             self.dot_count = 0  # Reset dot count
             self.dot_timer.start(500)  # Update every 500ms
+            # Set initial text for text-based animation
+            self.loading_animation_label.setText("Exploring")
         
         # Start the progress bar animation
         self.loading_progress_bar.setRange(0, 0)  # Indeterminate progress
         
-        # Update loading text with search term if provided
-        if search_term:
-            self.loading_text_label.setText(f"Searching the web for: {search_term}")
-        else:
-            self.loading_text_label.setText("Searching the web...")
+        # Reset phrase index
+        self.current_phrase_index = 0
         
-        # Reset the info label to the default message
-        self.loading_info_label.setText("This may take a moment as we gather relevant information from the web.")
+        # Update loading text with initial phrase
+        self._update_phrase()
+        
+        # Start the phrase rotation timer - update phrases every 5 seconds
+        self.phrase_timer = QTimer(self)
+        self.phrase_timer.timeout.connect(self._update_phrase)
+        self.phrase_timer.start(5000)  # 5000ms = 5 seconds
         
         # Show the panel
         self.show()
+    
+    def _update_phrase(self):
+        """Update the fun phrases displayed in the loading panel."""
+        if not self.isVisible():
+            return
+            
+        # Don't update if we're showing a query
+        current_info_text = self.loading_info_label.text()
+        if "\"" in current_info_text and not current_info_text.startswith("\""):
+            return
+            
+        # Select a random phrase pair instead of sequential
+        phrase_pair = random.choice(self.fun_phrases)
+        self.loading_text_label.setText(phrase_pair[0])
+        
+        # Only update info label if not showing a query
+        if "\"" not in current_info_text or (current_info_text.startswith("\"") and current_info_text.endswith("\"")):
+            self.loading_info_label.setText(phrase_pair[1])
     
     def stop(self):
         """Stop the web search animation."""
@@ -222,6 +268,10 @@ class WebSearchPanel(QWidget):
             self.loading_animation.stop()
         elif self.dot_timer and self.dot_timer.isActive():
             self.dot_timer.stop()
+            
+        # Stop the phrase timer
+        if self.phrase_timer and self.phrase_timer.isActive():
+            self.phrase_timer.stop()
         
         # Set progress bar to complete
         self.loading_progress_bar.setRange(0, 100)
@@ -239,22 +289,44 @@ class WebSearchPanel(QWidget):
         """Update the loading text animation."""
         self.dot_count = (self.dot_count + 1) % 4
         dots = "." * self.dot_count
-        self.loading_animation_label.setText(f"Searching{dots}")
         
-        # Rotate through different informational messages
-        info_messages = [
-            "This may take a moment as we gather relevant information from the web.",
-            "We're searching multiple sources to find the most accurate information.",
-            "Web search results will be used to provide up-to-date information.",
-            "You can stop the search at any time by clicking the Stop button below."
-        ]
+        # Get the current text without dots
+        current_text = self.loading_animation_label.text()
+        base_text = current_text.rstrip('.')
         
-        # Update the info message every 4 cycles (2 seconds)
-        if self.dot_count == 0:
-            current_text = self.loading_info_label.text()
-            current_index = info_messages.index(current_text) if current_text in info_messages else -1
-            next_index = (current_index + 1) % len(info_messages)
-            self.loading_info_label.setText(info_messages[next_index])
+        # Set text with updated dots
+        self.loading_animation_label.setText(f"{base_text}{dots}")
+    
+    def _update_to_search_message(self, search_term):
+        """Update the message to show we're now searching with the optimized query."""
+        # This method is now obsolete as we use the phrase rotation timer instead
+        pass
+    
+    def update_with_optimized_query(self, original_query, optimized_query):
+        """Update the message to show the optimized query."""
+        if self.isVisible() and original_query != optimized_query:  # Only update if still visible and queries are different
+            # Keep the current heading but update the query text
+            
+            # Format the query to make it more readable
+            max_length = 60  # Maximum length for the query line
+            
+            # Helper function to wrap long queries
+            def wrap_query(query, max_len):
+                if len(query) <= max_len:
+                    return query
+                    
+                # Find a good breaking point (space) near the max length
+                breaking_point = query[:max_len].rfind(' ')
+                if breaking_point == -1:  # No space found, just truncate
+                    return f"{query[:max_len]}..."
+                    
+                return f"{query[:breaking_point]}..."
+            
+            # Format and show only the optimized query
+            formatted_optimized = wrap_query(optimized_query, max_length)
+            
+            query_text = f"\"{formatted_optimized}\""
+            self.loading_info_label.setText(query_text)
     
     def hideEvent(self, event):
         """Handle hide event to clean up resources."""
@@ -263,5 +335,9 @@ class WebSearchPanel(QWidget):
             self.loading_animation.stop()
         elif self.dot_timer and self.dot_timer.isActive():
             self.dot_timer.stop()
+            
+        # Stop the phrase timer
+        if self.phrase_timer and self.phrase_timer.isActive():
+            self.phrase_timer.stop()
         
         super().hideEvent(event) 

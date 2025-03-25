@@ -750,6 +750,12 @@ class InputPanel(QWidget):
             # Check if this is a web search query
             self.is_web_search = "#web" in query.lower()
             
+            # Extract actual web search query if this is a web search
+            if self.is_web_search:
+                # Keep the original query format for submission, but make a note of the actual search content
+                # The actual extraction happens in LLMHandler
+                logging.info(f"Web search query detected: {query}")
+            
             # Show loading state
             self.enable_input(False)
             self.show_progress(True)

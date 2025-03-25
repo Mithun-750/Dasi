@@ -25,11 +25,11 @@ except ImportError:
 
 # Ensure console logging is enabled
 console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.DEBUG)
+console_handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(levelname)s - %(message)s')
 console_handler.setFormatter(formatter)
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 # Check if the handler is already added to avoid duplicates
 if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
     logger.addHandler(console_handler)
@@ -229,6 +229,102 @@ class WebSearchHandler:
         """Reset the cancellation flag."""
         self._cancellation_requested = False
         
+    def generate_optimized_search_query(self, user_query: str) -> str:
+        """
+        Generate an optimized search query using the LLM.
+        
+        Args:
+            user_query: The original user query
+            
+        Returns:
+            An optimized search query
+        """
+        try:
+            # Add a small delay to ensure users see the query optimization step
+            # This improves UX by showing the actual optimization happening
+            import time
+            time.sleep(0.8)  # 800ms delay
+            
+            # Check if LLM handler is available
+            from llm_handler import LLMHandler
+            llm_handler = LLMHandler()
+            
+            # Check if the user_query already contains the template text (recursive case)
+            template_start = "You are an AI assistant designed to generate effective search queries."
+            if template_start in user_query:
+                # Extract the actual query from the recursive template
+                query_marker = "USER QUERY: \""
+                if query_marker in user_query:
+                    # Find the last occurrence in case of recursion
+                    start_index = user_query.rindex(query_marker) + len(query_marker)
+                    # Find the closing quote, or just take the rest if no quote
+                    end_index = user_query.rfind("\"", start_index)
+                    if end_index == -1:
+                        actual_query = user_query[start_index:]
+                    else:
+                        actual_query = user_query[start_index:end_index]
+                    
+                    # Clean up and use this as the query
+                    actual_query = actual_query.strip()
+                    if actual_query:
+                        user_query = actual_query
+                        logging.info(f"Extracted inner query from recursive template: {user_query}")
+            
+            # Create a prompt to optimize the search query
+            prompt = f"""You are an AI assistant designed to generate effective search queries. When a user needs information, create queries that will retrieve the most relevant results across different search engines.
+
+To generate optimal search queries:
+
+1. Prioritize natural language over search operators (avoid OR, AND, quotes unless necessary)
+2. Format queries conversationally as complete questions when possible
+3. Include specific key terms, especially for technical or specialized topics
+4. Incorporate relevant time frames if the information needs to be current
+5. Keep queries concise (4-7 words is often ideal) but complete
+6. Avoid ambiguous terms that could have multiple meanings
+7. Use synonyms for important concepts to broaden coverage
+
+The search query should be clear, focused, and unlikely to retrieve irrelevant results. Provide ONLY the search query text with no additional explanation or commentary.
+
+USER QUERY: "{user_query}"
+OPTIMIZED SEARCH QUERY:"""
+            
+            
+            # Get the optimized query from the LLM
+            optimized_query = llm_handler.get_response(prompt, session_id="web_search_optimization")
+            
+            # Clean up the response (remove quotes, explanation text, etc.)
+            optimized_query = optimized_query.strip()
+            
+            # Remove leading/trailing quotes if present
+            if optimized_query.startswith('"') and optimized_query.endswith('"'):
+                optimized_query = optimized_query[1:-1].strip()
+            elif optimized_query.startswith("'") and optimized_query.endswith("'"):
+                optimized_query = optimized_query[1:-1].strip()
+                
+            # Remove any explanatory text that might have been included
+            if ":" in optimized_query and len(optimized_query.split(":", 1)) > 1:
+                # Check if there's introduction text like "Search query:" at the beginning
+                parts = optimized_query.split(":", 1)
+                if len(parts[0].split()) <= 3:  # If first part has 3 or fewer words
+                    optimized_query = parts[1].strip()
+                
+            # If the result is too long, truncate it to a reasonable length
+            if len(optimized_query) > 150:
+                optimized_query = optimized_query[:150]
+                
+            # Ensure the query is not empty
+            if not optimized_query:
+                logging.warning("LLM returned empty search query, using original query")
+                return user_query
+                
+            logging.info(f"Generated optimized search query: {optimized_query}")
+            return optimized_query
+            
+        except Exception as e:
+            logging.error(f"Error generating optimized search query: {str(e)}")
+            # Fall back to the original query
+            return user_query
+        
     def search(self, query: str, provider: Optional[str] = None, max_results: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Perform a web search using the specified provider.
@@ -243,6 +339,8 @@ class WebSearchHandler:
         """
         # Reset cancellation flag at the start of a new search
         self._cancellation_requested = False
+        
+        logging.info(f"WebSearchHandler.search called with query: '{query}'")
         
         # Get default provider if none specified
         if not provider:
@@ -639,55 +737,104 @@ class WebSearchHandler:
                 logging.info(f"Scraping cancelled. Processed {len(documents)} documents before cancellation.")
                 return documents
                 
+            # Add a per-website timeout mechanism
             try:
-                # Use a custom loader with shorter timeouts
-                try:
-                    import requests
-                    from bs4 import BeautifulSoup
-                    
-                    # Use a short timeout to avoid hanging
-                    logging.info(f"Scraping content from {url} with timeout")
-                    headers = {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                    }
-                    response = requests.get(url, headers=headers, timeout=10)
-                    
-                    # Check for cancellation after the request
-                    if self._cancellation_requested:
-                        logging.info("Scraping cancelled after request.")
-                        return documents
-                    
-                    # Parse the content
-                    soup = BeautifulSoup(response.content, 'html.parser')
-                    
-                    # Extract main content (naive approach - just get the text)
-                    content = soup.get_text(separator='\n', strip=True)
-                    
-                    # Create a document
-                    from langchain_core.documents import Document
-                    doc = Document(page_content=content, metadata={"source": url})
-                    documents.append(doc)
-                    logging.info(f"Successfully scraped content from {url} using requests/BeautifulSoup")
-                    
-                except (ImportError, Exception) as e:
-                    # Fall back to WebBaseLoader if requests/BS4 approach fails
-                    logging.warning(f"Falling back to WebBaseLoader for {url}: {str(e)}")
-                    loader = WebBaseLoader(url)
-                    docs = loader.load()
-                    documents.extend(docs)
-                    logging.info(f"Successfully scraped content from {url} using WebBaseLoader")
+                # Set a per-website timeout - if this is exceeded, skip to the next website
+                import threading
+                import time
                 
-                # Check for cancellation again after processing
+                website_scrape_completed = False
+                website_doc = None
+                website_error = None
+                
+                def scrape_single_website():
+                    nonlocal website_scrape_completed, website_doc, website_error
+                    try:
+                        # Use a custom loader with shorter timeouts
+                        try:
+                            import requests
+                            from bs4 import BeautifulSoup
+                            
+                            # Use a timeout to avoid hanging
+                            logging.info(f"Scraping content from {url} with timeout")
+                            headers = {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                            }
+                            response = requests.get(url, headers=headers, timeout=20)  # Increased from 10 to 20 seconds
+                            
+                            # Check for cancellation after the request
+                            if self._cancellation_requested:
+                                logging.info("Scraping cancelled after request.")
+                                website_scrape_completed = True
+                                return
+                            
+                            # Parse the content
+                            soup = BeautifulSoup(response.content, 'html.parser')
+                            
+                            # Extract main content (naive approach - just get the text)
+                            content = soup.get_text(separator='\n', strip=True)
+                            
+                            # Limit content length to avoid processing excessively large pages
+                            max_content_length = 50000  # ~50KB of text is plenty for most use cases
+                            if len(content) > max_content_length:
+                                content = content[:max_content_length] + "\n\n[Content truncated due to length...]"
+                                logging.info(f"Content from {url} truncated to {max_content_length} characters")
+                            
+                            # Create a document
+                            from langchain_core.documents import Document
+                            doc = Document(page_content=content, metadata={"source": url})
+                            website_doc = doc
+                            logging.info(f"Successfully scraped content from {url} using requests/BeautifulSoup")
+                            
+                        except (ImportError, Exception) as e:
+                            # Fall back to WebBaseLoader if requests/BS4 approach fails
+                            logging.warning(f"Falling back to WebBaseLoader for {url}: {str(e)}")
+                            loader = WebBaseLoader(url)
+                            docs = loader.load()
+                            if docs:
+                                website_doc = docs[0]
+                            logging.info(f"Successfully scraped content from {url} using WebBaseLoader")
+                        
+                        website_scrape_completed = True
+                            
+                    except Exception as e:
+                        website_error = e
+                        website_scrape_completed = True
+                
+                # Start scraping in a separate thread
+                scrape_thread = threading.Thread(target=scrape_single_website)
+                scrape_thread.daemon = True
+                scrape_thread.start()
+                
+                # Wait for the scraping to complete with a per-website timeout
+                website_timeout = 25  # seconds per website (slightly longer than the request timeout)
+                start_time = time.time()
+                while not website_scrape_completed and not self._cancellation_requested:
+                    scrape_thread.join(0.5)  # Check every 0.5 seconds
+                    if time.time() - start_time > website_timeout:
+                        logging.warning(f"Scraping {url} timed out after {website_timeout} seconds, skipping to next URL")
+                        break
+                
+                # If website scrape completed successfully and we have a document, add it
+                if website_scrape_completed and website_doc:
+                    documents.append(website_doc)
+                
+                # If there was an error, log it but continue with other URLs
+                if website_error:
+                    logging.error(f"Error scraping content from {url}: {str(website_error)}")
+                
+                # Check cancellation again
                 if self._cancellation_requested:
-                    logging.info("Scraping cancelled after processing.")
+                    logging.info("Scraping cancelled during website processing.")
                     return documents
-                    
+                
             except Exception as e:
-                logging.error(f"Error scraping content from {url}: {str(e)}")
+                logging.error(f"Error in per-website timeout mechanism for {url}: {str(e)}")
+                # Continue with next URL rather than failing the entire process
                 
         return documents
         
-    def search_and_scrape(self, query: str, provider: Optional[str] = None, max_results: Optional[int] = None) -> Dict[str, Any]:
+    def search_and_scrape(self, query: str, provider: Optional[str] = None, max_results: Optional[int] = None, optimize_query: bool = True) -> Dict[str, Any]:
         """
         Perform a web search and scrape content from the results.
         
@@ -695,12 +842,30 @@ class WebSearchHandler:
             query: The search query
             provider: The search provider to use
             max_results: Maximum number of results to return
+            optimize_query: Whether to optimize the query using LLM before searching
             
         Returns:
             Dictionary containing search results and scraped content
         """
         # Reset cancellation flag at the start
         self._cancellation_requested = False
+        
+        
+        # Optimize the query if requested
+        original_query = query
+        if optimize_query:
+            try:
+                
+                # Optimize the query
+                query = self.generate_optimized_search_query(query)
+                
+                # Log the optimized query
+                logging.info(f"Using optimized search query: {query}")
+            except Exception as e:
+                logging.error(f"Error optimizing search query: {str(e)}")
+                # Use the original query if optimization fails
+                query = original_query
+                logging.info(f"Falling back to original query: {query}")
         
         # Check if scraping is enabled
         scrape_content = self.settings.get('web_search', 'scrape_content', default=True)
@@ -713,7 +878,9 @@ class WebSearchHandler:
             logging.info("Web search and scrape operation cancelled after search phase")
             return {
                 'search_results': search_results,
-                'scraped_content': []
+                'scraped_content': [],
+                'original_query': original_query,
+                'optimized_query': query if optimize_query else original_query
             }
         
         # Scrape content if enabled
@@ -724,5 +891,7 @@ class WebSearchHandler:
             
         return {
             'search_results': search_results,
-            'scraped_content': scraped_content
+            'scraped_content': scraped_content,
+            'original_query': original_query,
+            'optimized_query': query if optimize_query else original_query
         } 
