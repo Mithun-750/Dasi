@@ -4,11 +4,13 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTextEdit, QFrame, QLabel,
                              QScrollArea, QListWidget, QListWidgetItem, QStyledItemDelegate,
                              QLineEdit, QProxyStyle, QStyle, QStackedWidget)
 from PyQt6.QtCore import Qt, pyqtSignal, QStringListModel, QEvent, QSize, QPoint, QRect, QEasingCurve, QPropertyAnimation
-from PyQt6.QtGui import QFont, QCursor, QColor, QPainter, QPen, QPainterPath, QClipboard
-from typing import Callable, Optional, Dict, Any
+from PyQt6.QtGui import QFont, QCursor, QColor, QPainter, QPen, QPainterPath, QClipboard, QTextCursor
+from typing import Callable, Optional, Dict, Any, List
 from pathlib import Path
 import logging
 import re
+import json
+import os
 
 from ...settings import Settings
 from ...components.chunk_dropdown import ChunkDropdown
@@ -278,6 +280,15 @@ class InputPanel(QWidget):
         self.chunk_dropdown = None  # Will be initialized later
         self.highlighter = None  # Initialize highlighter reference
         self.is_web_search = False  # Flag to track if current query is a web search
+
+        # Initialize command history
+        self.history_file = Path(
+            self.settings.config_dir) / 'input_history.json'
+        self.history = []
+        self.history_position = -1
+        self.current_input = ""
+        self.max_history = 500  # Maximum number of history entries
+        self._load_history()
 
         # Set minimum width for consistent UI
         self.setMinimumWidth(310)
@@ -570,6 +581,80 @@ class InputPanel(QWidget):
         if obj is self.input_field and event.type() == QEvent.Type.KeyPress:
             key_event = event
 
+            # History navigation with up/down arrow keys
+            if key_event.key() == Qt.Key.Key_Up:
+                # If dropdown is visible, let it handle navigation
+                if self.chunk_dropdown.isVisible():
+                    return False
+
+                # Get current text for searching
+                current_text = self.input_field.toPlainText()
+
+                # Save the current input before navigating history
+                if self.history_position == -1:
+                    self.current_input = current_text
+
+                # Navigate history backwards (older entries)
+                if len(self.history) > 0:
+                    # Search mode - find items starting with current input (not current display text)
+                    search_text = self.current_input if self.history_position != -1 else current_text
+
+                    # Start searching from next position
+                    start_pos = self.history_position + 1 if self.history_position != -1 else 0
+
+                    # Don't search beyond the history length
+                    if start_pos < len(self.history):
+                        found = False
+                        # Loop through history entries from newest to oldest
+                        for i in range(start_pos, len(self.history)):
+                            if self.history[len(self.history) - 1 - i].startswith(search_text):
+                                self.history_position = i
+                                self._set_input_text(
+                                    self.history[len(self.history) - 1 - i])
+                                found = True
+                                break
+
+                        if not found and start_pos > 0:
+                            # No more matches, stay at current position
+                            pass
+
+                return True
+
+            elif key_event.key() == Qt.Key.Key_Down:
+                # If dropdown is visible, let it handle navigation
+                if self.chunk_dropdown.isVisible():
+                    return False
+
+                # Only navigate down if we're in history
+                if self.history_position == -1:
+                    return False
+
+                # Navigate history forwards (newer entries)
+                search_text = self.current_input
+
+                if self.history_position > 0:
+                    # Try to find a matching entry in a newer position
+                    found = False
+                    # Loop from current position toward newer entries
+                    for i in range(self.history_position - 1, -1, -1):
+                        if self.history[len(self.history) - 1 - i].startswith(search_text):
+                            self.history_position = i
+                            self._set_input_text(
+                                self.history[len(self.history) - 1 - i])
+                            found = True
+                            break
+
+                    if not found:
+                        # Return to original input if no more matches
+                        self.history_position = -1
+                        self._set_input_text(self.current_input)
+                else:
+                    # Already at newest history entry, return to original input
+                    self.history_position = -1
+                    self._set_input_text(self.current_input)
+
+                return True
+
             # Show dropdown on @ key only when properly spaced
             if key_event.text() == '@':
                 # Get the text and cursor position
@@ -599,6 +684,10 @@ class InputPanel(QWidget):
                     not self.chunk_dropdown.isVisible()):
                 self._handle_submit()
                 return True
+
+            # Reset history position when typing
+            if key_event.key() != Qt.Key.Key_Up and key_event.key() != Qt.Key.Key_Down:
+                self.history_position = -1
 
             return False  # Let all other keys through
 
@@ -778,6 +867,9 @@ class InputPanel(QWidget):
         """Handle submit action."""
         query = self.get_query()
         if query:
+            # Add to history
+            self._add_to_history(query)
+
             # Replace @mentions with chunk content
             query = self._replace_chunks(query)
 
@@ -796,6 +888,57 @@ class InputPanel(QWidget):
 
             # Emit signal with query
             self.submit_query.emit(query)
+
+    def _add_to_history(self, query: str):
+        """Add a query to the history."""
+        # Don't add empty queries or duplicates of the most recent entry
+        if not query or (self.history and self.history[-1] == query):
+            return
+
+        # Add to history
+        self.history.append(query)
+
+        # Trim history if it exceeds max size
+        if len(self.history) > self.max_history:
+            self.history = self.history[-self.max_history:]
+
+        # Reset history position
+        self.history_position = -1
+
+        # Save history to file
+        self._save_history()
+
+    def _load_history(self):
+        """Load command history from file."""
+        try:
+            if self.history_file.exists():
+                with open(self.history_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.history = data.get('history', [])
+                    # Ensure we don't exceed max history
+                    self.history = self.history[-self.max_history:]
+        except Exception as e:
+            logging.error(f"Error loading history: {e}")
+            self.history = []
+
+    def _save_history(self):
+        """Save command history to file."""
+        try:
+            # Create directory if it doesn't exist
+            os.makedirs(self.history_file.parent, exist_ok=True)
+
+            with open(self.history_file, 'w', encoding='utf-8') as f:
+                json.dump({'history': self.history}, f,
+                          ensure_ascii=False, indent=2)
+        except Exception as e:
+            logging.error(f"Error saving history: {e}")
+
+    def _set_input_text(self, text: str):
+        """Set input text and move cursor to end."""
+        self.input_field.setPlainText(text)
+        cursor = self.input_field.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self.input_field.setTextCursor(cursor)
 
     def _replace_chunks(self, query: str) -> str:
         """Replace @mentions with their corresponding chunk content."""
