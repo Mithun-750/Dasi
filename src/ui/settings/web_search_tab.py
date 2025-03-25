@@ -310,7 +310,6 @@ class WebSearchTab(QWidget):
             'default_provider': self.settings.get('web_search', 'default_provider', default='ddg_search'),
             'max_results': self.settings.get('web_search', 'max_results', default=5),
             'scrape_content': self.settings.get('web_search', 'scrape_content', default=True),
-            'include_citations': self.settings.get('web_search', 'include_citations', default=True),
         }
         self.has_unsaved_changes = False
         self.update_button_visibility()
@@ -327,7 +326,6 @@ class WebSearchTab(QWidget):
             'default_provider': self.default_provider.currentData(),
             'max_results': self.max_results.value(),
             'scrape_content': self.scrape_content.isChecked(),
-            'include_citations': self.include_citations.isChecked(),
             'enabled_providers': all_providers,
         }
         
@@ -338,7 +336,6 @@ class WebSearchTab(QWidget):
             current['default_provider'] != self.original_values['default_provider'],
             current['max_results'] != self.original_values['max_results'],
             current['scrape_content'] != self.original_values['scrape_content'],
-            current['include_citations'] != self.original_values['include_citations'],
         ])
         
         self.update_button_visibility()
@@ -563,10 +560,6 @@ class WebSearchTab(QWidget):
         self.scrape_content = QCheckBox("Scrape content from search results")
         self.scrape_content.setChecked(self.settings.get('web_search', 'scrape_content', default=True))
         
-        # Include citations checkbox - exactly matching api_keys_tab.py styling
-        self.include_citations = QCheckBox("Include citations in responses")
-        self.include_citations.setChecked(self.settings.get('web_search', 'include_citations', default=True))
-        
         # Apply consistent checkbox styling
         checkbox_style = f"""
             QCheckBox {{
@@ -604,10 +597,8 @@ class WebSearchTab(QWidget):
         """
         
         self.scrape_content.setStyleSheet(checkbox_style)
-        self.include_citations.setStyleSheet(checkbox_style)
         
         options_layout.addWidget(self.scrape_content)
-        options_layout.addWidget(self.include_citations)
         
         # Add all to general layout
         general_section.layout.addWidget(provider_container)
@@ -650,7 +641,6 @@ class WebSearchTab(QWidget):
         self.default_provider.currentIndexChanged.connect(self._on_any_change)
         self.max_results.valueChanged.connect(self._on_any_change)
         self.scrape_content.stateChanged.connect(self._on_any_change)
-        self.include_citations.stateChanged.connect(self._on_any_change)
     
     def _on_any_change(self):
         """Handler for any change in the settings."""
@@ -668,7 +658,6 @@ class WebSearchTab(QWidget):
         
         # Restore checkboxes
         self.scrape_content.setChecked(self.original_values['scrape_content'])
-        self.include_citations.setChecked(self.original_values['include_citations'])
         
         self.has_unsaved_changes = False
         self.update_button_visibility()
@@ -685,7 +674,6 @@ class WebSearchTab(QWidget):
         
         # Save checkboxes
         self.settings.set(current['scrape_content'], 'web_search', 'scrape_content')
-        self.settings.set(current['include_citations'], 'web_search', 'include_citations')
         
         # Save enabled providers - all providers are always enabled
         self.settings.set(current['enabled_providers'], 'web_search', 'enabled_providers')
