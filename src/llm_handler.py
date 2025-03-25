@@ -433,8 +433,6 @@ class LLMHandler:
                 actual_query = actual_query.replace('#web ', '', 1).strip()
                 logging.info(f"Web search requested (at beginning): {actual_query}")
                 
-            # Log final web search status
-            logging.info(f"Final web search status: {web_search}, Query: '{actual_query}'")
 
             # Perform web search if requested
             web_search_results = None
@@ -598,16 +596,18 @@ class LLMHandler:
             
             # Add web search instruction if web search was performed
             if web_search and web_search_results:
+                # Base web search instruction without any citation option
                 web_search_instruction = """=====WEB_SEARCH_INSTRUCTIONS=====<instructions for handling web search results>
                 You have been provided with web search results to help answer the user's query.
                 When using this information:
                 1. Synthesize information from multiple sources when possible
-                2. Cite sources using [1], [2], etc. corresponding to the search result numbers
-                3. If the search results don't contain relevant information, acknowledge this and provide your best answer
-                4. Focus on the most relevant information from the search results
-                5. If the information seems outdated or contradictory, note this to the user
-                6. If both original and optimized queries are shown, consider how the query optimization may have affected the search results
+                2. If the search results don't contain relevant information, acknowledge this and provide your best answer
+                3. Focus on the most relevant information from the search results
+                4. If the information seems outdated or contradictory, note this to the user
+                5. If both original and optimized queries are shown, consider how the query optimization may have affected the search results
+                6. IMPORTANT: DO NOT include any citations or reference numbers (like [1], [2]) in your response
                 ======================="""
+                
                 messages.append(SystemMessage(content=web_search_instruction))
 
             # Add chat history (limited to configured number of messages)

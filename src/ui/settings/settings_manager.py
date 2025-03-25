@@ -54,7 +54,6 @@ class Settings(QObject):
                 'default_provider': 'google_serper',
                 'max_results': 5,
                 'scrape_content': True,
-                'include_citations': True,
                 'enabled_providers': [
                     'google_serper', 
                     'brave_search', 
