@@ -15,6 +15,7 @@ from ui.settings import Settings
 from langchain_community.chat_message_histories import SQLChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from pathlib import Path
+import re
 
 
 class LLMHandler:
@@ -383,6 +384,36 @@ class LLMHandler:
             context = {}
             actual_query = query
             web_search = False
+            link_scrape = False
+            link_to_scrape = None
+
+            # Direct URL detection for scraping (if a full URL is found in the query)
+            url_pattern = r'(https?://[^\s]+)'
+            url_match = re.search(url_pattern, actual_query)
+            if url_match and not (web_search or link_scrape):
+                potential_url = url_match.group(1)
+                logging.info(
+                    f"Detected URL directly in query: {potential_url}")
+                # Only treat as link scrape if it's a reasonably complete URL
+                if len(potential_url) > 15 and ('.' in potential_url):
+                    link_scrape = True
+                    link_to_scrape = potential_url
+                    logging.info(
+                        f"Automatically treating as link scrape: {link_to_scrape}")
+
+            # Specific check for #URL format (the exact pattern used in the example)
+            hash_url_pattern = r'#(https?://[^\s]+)'
+            hash_url_match = re.search(hash_url_pattern, actual_query)
+            if hash_url_match and not link_scrape:
+                hash_url = hash_url_match.group(1)
+                logging.info(f"Detected #URL pattern: {hash_url}")
+                link_scrape = True
+                link_to_scrape = hash_url
+                # Remove the #URL pattern from the query
+                actual_query = actual_query.replace(
+                    f"#{hash_url}", "", 1).strip()
+                logging.info(f"Setting link_to_scrape to: {link_to_scrape}")
+                logging.info(f"Updated query: {actual_query}")
 
             # Check for #web command at the beginning
             if actual_query.strip().startswith('#web '):
@@ -421,6 +452,20 @@ class LLMHandler:
                         selected_text = selected_text.split(">", 1)[1].strip()
                     context['selected_text'] = selected_text
 
+                # Check for link scrape info in context
+                if "=====LINK_SCRAPE=====" in context_section:
+                    link_scrape = True
+                    link_info = context_section.split(
+                        "=====LINK_SCRAPE=====", 1)[1]
+                    link_to_scrape = link_info.split(
+                        "=======================", 1)[0].strip()
+                    # Remove the metadata part if present
+                    if "<" in link_to_scrape and ">" in link_to_scrape:
+                        link_to_scrape = link_to_scrape.split(">", 1)[
+                            1].strip()
+                    logging.info(
+                        f"Link scrape requested from context: {link_to_scrape}")
+
                 if "Mode:" in context_section:
                     mode = context_section.split(
                         "Mode:", 1)[1].split("\n", 1)[0].strip()
@@ -447,6 +492,20 @@ class LLMHandler:
                             1].strip()
                     web_search = web_search_text.lower() == 'true'
 
+                # Also check for is_link_scrape and link_to_scrape in context
+                if 'is_link_scrape' in context and 'link_to_scrape' in context:
+                    link_scrape = context['is_link_scrape']
+                    link_to_scrape = context['link_to_scrape']
+                    logging.info(
+                        f"Link scrape requested from context dictionary: {link_to_scrape}")
+
+            # Handle link scrape from context
+            if 'is_link_scrape' in context and 'link_to_scrape' in context and not link_scrape:
+                link_scrape = context['is_link_scrape']
+                link_to_scrape = context['link_to_scrape']
+                logging.info(
+                    f"Link scrape requested from context dictionary: {link_to_scrape}")
+
             # Final check for #web in the actual query after context parsing
             if "#web" in actual_query and not web_search:
                 web_search = True
@@ -460,6 +519,99 @@ class LLMHandler:
                 actual_query = actual_query.replace('#web ', '', 1).strip()
                 logging.info(
                     f"Web search requested (at beginning): {actual_query}")
+
+            # Handle link scraping
+            if link_scrape and link_to_scrape:
+                try:
+                    logging.info(
+                        f"Link scrape requested for: {link_to_scrape}")
+                    # Log additional details for debugging
+                    logging.info(f"Full context received: {context}")
+                    logging.info(f"Link scrape flag: {link_scrape}")
+                    logging.info(f"Link to scrape: {link_to_scrape}")
+
+                    # Lazy initialization of web search handler
+                    if self.web_search_handler is None:
+                        from web_search_handler import WebSearchHandler
+                        self.web_search_handler = WebSearchHandler()
+                        logging.info(
+                            "Web search handler initialized for link scraping")
+
+                    # Reset cancellation flag before starting scraping
+                    self.web_search_handler.reset_cancellation()
+
+                    # Create a timeout mechanism using a separate thread
+                    import threading
+                    import time
+
+                    # Flags to track scraping status
+                    scrape_completed = False
+                    scraped_content = None
+                    scrape_error = None
+
+                    def perform_scrape():
+                        nonlocal scrape_completed, scraped_content, scrape_error
+                        try:
+                            # Use the existing scrape_content method to get the content
+                            documents = self.web_search_handler.scrape_content(
+                                [link_to_scrape])
+                            scraped_content = documents
+                            scrape_completed = True
+                        except Exception as e:
+                            scrape_error = e
+                            scrape_completed = True
+
+                    # Start scraping in a separate thread
+                    scrape_thread = threading.Thread(target=perform_scrape)
+                    scrape_thread.daemon = True
+                    scrape_thread.start()
+
+                    # Wait for scraping to complete with a timeout (30 seconds)
+                    timeout = 30
+                    start_time = time.time()
+                    while not scrape_completed and not self.web_search_handler._cancellation_requested:
+                        scrape_thread.join(0.5)  # Check every 0.5 seconds
+                        if time.time() - start_time > timeout:
+                            logging.warning(
+                                f"Link scraping timed out after {timeout} seconds")
+                            self.web_search_handler.cancel_search()
+                            return f"The scraping of '{link_to_scrape}' timed out. Please try again with a different URL or try later."
+
+                    # Check if scraping was cancelled
+                    if self.web_search_handler._cancellation_requested:
+                        logging.info(
+                            "Link scraping was cancelled, returning early")
+                        return "Link scraping cancelled by user."
+
+                    # Check if there was an error
+                    if scrape_error:
+                        logging.error(
+                            f"Error scraping link content: {str(scrape_error)}")
+                        return f"Error scraping content from '{link_to_scrape}': {str(scrape_error)}"
+
+                    # Format scraped content for inclusion in the prompt
+                    scraped_content_text = "=====SCRAPED_CONTENT=====<content from the provided URL>\n"
+
+                    if scraped_content and len(scraped_content) > 0:
+                        for i, doc in enumerate(scraped_content):
+                            scraped_content_text += f"Content from {doc.metadata.get('source', link_to_scrape)}:\n"
+                            # Limit content length to avoid token limits
+                            content = doc.page_content
+                            if len(content) > 10000:  # Increased limit for direct URL scraping
+                                content = content[:10000] + \
+                                    "... (content truncated)"
+                            scraped_content_text += f"{content}\n\n"
+                    else:
+                        scraped_content_text += f"No content could be scraped from the URL: {link_to_scrape}\n"
+
+                    scraped_content_text += "=======================\n\n"
+
+                    # Add scraped content to the query
+                    actual_query = f"{scraped_content_text}Based on the scraped content above from {link_to_scrape}, please answer: {actual_query}"
+
+                except Exception as e:
+                    logging.error(f"Error performing link scraping: {str(e)}")
+                    actual_query = f"I tried to scrape content from '{link_to_scrape}' but encountered an error: {str(e)}. Please answer without the scraped content."
 
             # Perform web search if requested
             web_search_results = None
@@ -644,6 +796,21 @@ class LLMHandler:
                 ======================="""
 
                 messages.append(SystemMessage(content=web_search_instruction))
+
+            # Add scraped content instruction if link scraping was performed
+            elif link_scrape and link_to_scrape:
+                scraped_content_instruction = """=====SCRAPED_CONTENT_INSTRUCTIONS=====<instructions for handling scraped content>
+                You have been provided with content scraped from a specific URL.
+                When using this information:
+                1. Provide a comprehensive analysis of the content
+                2. Extract key information and present it in a clear, organized manner
+                3. If the content appears incomplete or doesn't contain information relevant to the query, acknowledge this
+                4. If the content has been truncated, note that your analysis is based on partial information
+                5. IMPORTANT: DO NOT include any citations or reference numbers (like [1], [2]) in your response
+                ======================="""
+
+                messages.append(SystemMessage(
+                    content=scraped_content_instruction))
 
             # Add chat history (limited to configured number of messages)
             history_messages = message_history.messages[-self.history_limit:] if message_history.messages else [

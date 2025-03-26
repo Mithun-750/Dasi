@@ -297,6 +297,7 @@ class InputPanel(QWidget):
         self._setup_ui()
 
         # Add syntax highlighter with chunks directory
+        # This highlighter also handles #web and URL# patterns
         self.highlighter = MentionHighlighter(
             self.input_field.document(), self.chunks_dir)
 
@@ -378,7 +379,7 @@ class InputPanel(QWidget):
         self.input_field.setObjectName("inputField")
         self.input_field.setProperty("class", "input-field")
         self.input_field.setPlaceholderText(
-            "Type your query... (Use #web to search the internet)")
+            "Type your query... (@chunks, #web, and #URL/URL# will be highlighted)")
         self.input_field.setMinimumHeight(80)
 
         # Set up key bindings
@@ -876,6 +877,22 @@ class InputPanel(QWidget):
             # Check if this is a web search query
             self.is_web_search = "#web" in query.lower()
 
+            # Check if this is a link scrape query using our detection method
+            self.is_link_scrape, self.link_to_scrape = self._detect_link_scrape(
+                query)
+
+            # If link scrape is detected, modify the query to make it clearer
+            if self.is_link_scrape and self.link_to_scrape:
+                # Log the detection
+                logging.info(f"Link scrape detected: {self.link_to_scrape}")
+
+                # Remove the # from the query if it's at the beginning of the URL
+                query = query.replace(
+                    f"#{self.link_to_scrape}", self.link_to_scrape, 1)
+                # Remove the # from the query if it's at the end of the URL
+                query = query.replace(
+                    f"{self.link_to_scrape}#", self.link_to_scrape, 1)
+
             # Extract actual web search query if this is a web search
             if self.is_web_search:
                 # Keep the original query format for submission, but make a note of the actual search content
@@ -973,4 +990,36 @@ class InputPanel(QWidget):
         context['mode'] = 'compose' if self.compose_button.property(
             "class") == "segment-button active" else 'chat'
 
+        # Add link scrape info if present
+        if self.is_link_scrape and self.link_to_scrape:
+            context['is_link_scrape'] = True
+            context['link_to_scrape'] = self.link_to_scrape
+
         return context
+
+    def _detect_link_scrape(self, text):
+        """Detect if the text contains a URL followed by # for link scraping.
+
+        Args:
+            text: The text to check
+
+        Returns:
+            Tuple (is_link_scrape, link_to_scrape) where link_to_scrape is None if is_link_scrape is False
+        """
+        import re
+        # Match URL followed by # (original pattern)
+        url_pattern_after = r'(https?://[^\s]+)#'
+        # Match # followed by URL (new pattern)
+        url_pattern_before = r'#(https?://[^\s]+)'
+
+        # Check for URL followed by #
+        url_match = re.search(url_pattern_after, text)
+        if url_match:
+            return True, url_match.group(1)
+
+        # Check for # followed by URL
+        url_match = re.search(url_pattern_before, text)
+        if url_match:
+            return True, url_match.group(1)
+
+        return False, None
