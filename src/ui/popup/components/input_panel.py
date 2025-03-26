@@ -385,52 +385,30 @@ class InputPanel(QWidget):
         # Set up key bindings
         self.input_field.installEventFilter(self)
 
-        # Create mode selector container - using segmented button style
-        mode_container = QWidget()
-        mode_container.setObjectName("modeContainer")
-        mode_container.setProperty("class", "mode-container")
-        mode_layout = QHBoxLayout(mode_container)
-        mode_layout.setContentsMargins(0, 0, 0, 0)
-        mode_layout.setSpacing(0)
+        # Create container for selectors (mode and model)
+        selectors_container = QWidget()
+        selectors_container.setProperty("class", "transparent-container")
+        selectors_layout = QHBoxLayout(selectors_container)
+        selectors_layout.setContentsMargins(0, 0, 0, 0)
+        selectors_layout.setSpacing(8)
 
-        # Create modern mode selector with custom buttons
-        self.chat_button = QPushButton("Chat")
-        self.compose_button = QPushButton("Compose")
+        # Create mode selector dropdown
+        self.mode_selector = CustomComboBox()
+        self.mode_selector.setProperty("class", "combo-box")
+        self.mode_selector.addItem("Chat")
+        self.mode_selector.addItem("Compose")
+        # Fixed width for consistent layout
+        self.mode_selector.setFixedWidth(100)
+        self.mode_selector.activated.connect(self._handle_mode_change)
 
-        # Style buttons and set initial state
-        self.chat_button.setProperty("class", "segment-button active")
-        self.compose_button.setProperty("class", "segment-button")
-        self.chat_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.compose_button.setCursor(
-            QCursor(Qt.CursorShape.PointingHandCursor))
-
-        # Set fixed height for consistent look
-        self.chat_button.setFixedHeight(32)
-        self.compose_button.setFixedHeight(32)
-
-        # Add buttons to layout
-        mode_layout.addWidget(self.chat_button)
-        mode_layout.addWidget(self.compose_button)
-
-        # Connect button signals
-        self.chat_button.clicked.connect(
-            lambda: self._handle_mode_button_click(self.chat_button))
-        self.compose_button.clicked.connect(
-            lambda: self._handle_mode_button_click(self.compose_button))
-
-        # Create model selector container
-        model_container = QWidget()
-        model_container.setProperty("class", "transparent-container")
-        model_layout = QHBoxLayout(model_container)
-        model_layout.setContentsMargins(0, 0, 0, 0)
-        model_layout.setSpacing(8)
-
-        # Create a custom ComboBox with animated popup
+        # Create model selector dropdown
         self.model_selector = CustomComboBox()
         self.model_selector.setProperty("class", "combo-box")
         self.update_model_selector()
 
-        model_layout.addWidget(self.model_selector)
+        # Add both selectors to layout
+        selectors_layout.addWidget(self.mode_selector)
+        selectors_layout.addWidget(self.model_selector)
 
         # Loading progress bar
         self.progress_bar = QProgressBar()
@@ -440,8 +418,7 @@ class InputPanel(QWidget):
         self.progress_bar.hide()
 
         layout.addWidget(self.input_field, 1)
-        layout.addWidget(mode_container)
-        layout.addWidget(model_container)
+        layout.addWidget(selectors_container)
         layout.addWidget(self.progress_bar)
         self.setLayout(layout)
 
@@ -821,28 +798,17 @@ class InputPanel(QWidget):
                 return model_info
         return None
 
-    def _handle_mode_button_click(self, clicked_button):
-        """Handle mode change between Chat and Compose buttons."""
-        # Update button states
-        is_compose = clicked_button == self.compose_button
-
-        # Update visual states
-        self.chat_button.setProperty("class", "segment-button")
-        self.compose_button.setProperty("class", "segment-button")
-        clicked_button.setProperty("class", "segment-button active")
-
-        # Refresh style
-        self.chat_button.style().unpolish(self.chat_button)
-        self.chat_button.style().polish(self.chat_button)
-        self.compose_button.style().unpolish(self.compose_button)
-        self.compose_button.style().polish(self.compose_button)
+    def _handle_mode_change(self, index):
+        """Handle mode change between Chat and Compose modes."""
+        # Update mode based on selected index
+        is_compose = index == 1  # 1 is "Compose", 0 is "Chat"
 
         # Emit signal to inform parent
         self.mode_changed.emit(is_compose)
 
     def is_compose_mode(self):
         """Check if compose mode is active."""
-        return self.compose_button.property("class") == "segment-button active"
+        return self.mode_selector.currentIndex() == 1
 
     def enable_input(self, enabled=True):
         """Enable or disable the input field."""
@@ -987,8 +953,8 @@ class InputPanel(QWidget):
             context['selected_text'] = self.selected_text
 
         # Add mode to context
-        context['mode'] = 'compose' if self.compose_button.property(
-            "class") == "segment-button active" else 'chat'
+        context['mode'] = 'compose' if self.mode_selector.currentIndex(
+        ) == 1 else 'chat'
 
         # Add link scrape info if present
         if self.is_link_scrape and self.link_to_scrape:
