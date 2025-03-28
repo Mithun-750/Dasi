@@ -41,7 +41,7 @@ class DasiWindow(QWidget):
     def __init__(self, process_query: Callable[[str], str], signals: UISignals):
         # Initialize session ID
         self.session_id = str(uuid.uuid4())
-        
+
         super().__init__()
         self.process_query = process_query
         self.signals = signals
@@ -86,14 +86,15 @@ class DasiWindow(QWidget):
         # Add logo
         logo_label = QLabel()
         logo_label.setObjectName("logoLabel")
-        
+
         # Get the absolute path to the icon
         if getattr(sys, 'frozen', False):
             # If we're running as a bundled app
             base_path = sys._MEIPASS
         else:
             # If we're running in development
-            base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            base_path = os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))))
 
         # Try multiple icon paths
         potential_icon_paths = [
@@ -110,7 +111,8 @@ class DasiWindow(QWidget):
         if icon_path:
             pixmap = QPixmap(icon_path)
             # Scale the logo to 20x20 pixels while maintaining aspect ratio
-            scaled_pixmap = pixmap.scaled(20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            scaled_pixmap = pixmap.scaled(
+                20, 20, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
             logo_label.setPixmap(scaled_pixmap)
         else:
             logging.warning("Logo not found")
@@ -162,7 +164,7 @@ class DasiWindow(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(8)
         self.right_layout = right_layout  # Store reference to the layout
-        
+
         # Set a fixed width for the right panel to ensure consistency
         right_panel.setFixedWidth(360)  # Increased from 330px to 360px
 
@@ -176,9 +178,9 @@ class DasiWindow(QWidget):
 
         # Create preview panel
         self.preview_panel = PreviewPanel()
-        self.preview_panel.accept_clicked.connect(self._handle_accept)
+        self.preview_panel.use_clicked.connect(self._handle_use)
         self.preview_panel.export_clicked.connect(self._handle_export)
-        
+
         # Ensure the preview panel has enough height for dropdown expansion
         self.preview_panel.setMinimumHeight(200)
 
@@ -350,14 +352,14 @@ class DasiWindow(QWidget):
         if query:
             # Check if this is a web search query (check for #web anywhere in the query)
             self.is_web_search = "#web" in query.lower()
-            
+
             # Show stop button at bottom
             if not self.is_web_search:
                 self.stop_button.show()
-            
+
             # Hide preview panel actions
             self.preview_panel.show_actions(False)
-            
+
             # Show web search panel for web searches
             if self.is_web_search:
                 # Hide the response preview and show the web search panel
@@ -400,21 +402,21 @@ class DasiWindow(QWidget):
         """Reset UI elements after stopping an operation."""
         # Re-enable input field
         self.input_panel.enable_input(True)
-        
+
         # Hide loading indicators
         self.input_panel.show_progress(False)
         self.stop_button.hide()
-        
+
         # Stop web search panel if it's active
         self.web_search_panel.stop()
         self.web_search_panel.hide()  # Hide web search panel
-        
+
         # Show preview panel
         self.preview_panel.show()
         self.preview_panel.show_preview(False)
         self.right_panel.hide()
         self.setFixedWidth(340)   # Reset to input-only width
-        
+
         # Reset web search flag
         self.is_web_search = False
 
@@ -428,23 +430,24 @@ class DasiWindow(QWidget):
                         # Get the Dasi instance from the instance manager
                         from instance_manager import DasiInstanceManager
                         dasi_instance = DasiInstanceManager.get_instance()
-                        
+
                         if dasi_instance and dasi_instance.llm_handler and dasi_instance.llm_handler.web_search_handler:
                             dasi_instance.llm_handler.web_search_handler.cancel_search()
                         else:
-                            logging.warning("Could not access web search handler for cancellation")
+                            logging.warning(
+                                "Could not access web search handler for cancellation")
                     except Exception as e:
                         logging.error(f"Error cancelling web search: {str(e)}")
-                
+
                 # Signal worker to stop
                 self.worker.stop()
-                
+
                 # Use the safer termination method with timeout
                 self.worker.terminate_safely()
-                
+
                 # Reset UI to clean state
                 self._reset_ui_after_stop()
-                
+
             except Exception as e:
                 # Catch any exceptions during the stop process to prevent app crashes
                 logging.error(f"Error during stop operation: {str(e)}")
@@ -460,30 +463,31 @@ class DasiWindow(QWidget):
                     # Get the Dasi instance from the instance manager
                     from instance_manager import DasiInstanceManager
                     dasi_instance = DasiInstanceManager.get_instance()
-                    
+
                     if dasi_instance and dasi_instance.llm_handler and dasi_instance.llm_handler.web_search_handler:
                         dasi_instance.llm_handler.web_search_handler.cancel_search()
-                        
+
                         # Signal worker to stop
                         self.worker.stop()
-                        
+
                         # Use the safer termination method with timeout
                         self.worker.terminate_safely()
                 except Exception as e:
-                    logging.error(f"Error cancelling web search on ESC: {str(e)}")
-            
+                    logging.error(
+                        f"Error cancelling web search on ESC: {str(e)}")
+
             # Reset UI elements
             self._reset_ui_after_stop()
-            
+
             # Additionally for escape, hide the window and clear input
             self.hide()
             self.input_panel.clear_input()
             self.reset_context()
-            
+
             # Clear clipboard selection
             clipboard = QApplication.clipboard()
             clipboard.clear(QClipboard.Mode.Selection)
-            
+
         except Exception as e:
             # Catch any exceptions to prevent app crashes
             logging.error(f"Error handling escape key: {str(e)}")
@@ -511,10 +515,12 @@ class DasiWindow(QWidget):
         """Handle mode change between Chat and Compose."""
         # Show/hide action elements based on mode
         if is_compose:
-            self.preview_panel.set_chat_mode(False)  # Use plain text for compose mode
+            # Use plain text for compose mode
+            self.preview_panel.set_chat_mode(False)
             self.preview_panel.show_actions(True)
         else:
-            self.preview_panel.set_chat_mode(True)  # Use markdown for chat mode
+            self.preview_panel.set_chat_mode(
+                True)  # Use markdown for chat mode
             self.preview_panel.show_actions(False)
 
     def _handle_error(self, error_msg: str):
@@ -522,10 +528,10 @@ class DasiWindow(QWidget):
         # Hide loading state
         self.input_panel.show_progress(False)
         self.stop_button.hide()
-        
+
         # Stop web search panel if it's active
         self.web_search_panel.stop()
-        
+
         # Re-enable input field with existing content
         self.input_panel.enable_input(True)
 
@@ -545,20 +551,20 @@ class DasiWindow(QWidget):
         if response == "<COMPLETE>":
             self.input_panel.show_progress(False)
             self.stop_button.hide()
-            
+
             # Stop web search panel if it's active
             self.web_search_panel.stop()
-            
+
             # Reset web search flag
             self.is_web_search = False
-            
+
             # Clear and re-enable input field only on successful completion
             self.input_panel.clear_input()
             self.input_panel.enable_input(True)
-            
+
             # Show reset session button since we now have history
             self.reset_session_button.show()
-            
+
             if self.input_panel.is_compose_mode():
                 # Make response preview editable in compose mode
                 self.preview_panel.set_editable(True)
@@ -570,20 +576,23 @@ class DasiWindow(QWidget):
 
         # Store the response
         self.last_response = response
-        
+
         # Check for optimized search query information in web search responses
         if self.is_web_search and self.web_search_panel.isVisible():
             # Look for the original and optimized query information
             # This would be in the format that the LLMHandler puts into the response
-            original_query_match = re.search(r"Original Query: (.+)$", response, re.MULTILINE)
-            optimized_query_match = re.search(r"Optimized Query: (.+)$", response, re.MULTILINE)
-            
+            original_query_match = re.search(
+                r"Original Query: (.+)$", response, re.MULTILINE)
+            optimized_query_match = re.search(
+                r"Optimized Query: (.+)$", response, re.MULTILINE)
+
             if original_query_match and optimized_query_match:
                 original_query = original_query_match.group(1).strip()
                 optimized_query = optimized_query_match.group(1).strip()
-                
+
                 # Update the web search panel with the optimized query
-                self.web_search_panel.update_with_optimized_query(original_query, optimized_query)
+                self.web_search_panel.update_with_optimized_query(
+                    original_query, optimized_query)
 
         # If we were showing the web search panel and have a substantial response, hide it
         if self.is_web_search and self.web_search_panel.isVisible():
@@ -605,10 +614,11 @@ class DasiWindow(QWidget):
         self.stop_button.show()
 
         # Adjust window size - keep consistent with web search width
-        self.setFixedWidth(680)  # Increased from 650px to 680px to accommodate the wider right panel
+        # Increased from 650px to 680px to accommodate the wider right panel
+        self.setFixedWidth(680)
 
-    def _handle_accept(self, method: str, response: str):
-        """Accept the generated response."""
+    def _handle_use(self, method: str, response: str):
+        """Handle using the response - either by copying/pasting or typing it out."""
         self.hide()
         self.input_panel.clear_input()
         self.reset_context()
@@ -635,18 +645,18 @@ class DasiWindow(QWidget):
         # Show loading state in the export button
         original_text = self.preview_panel.export_button.text()
         self.preview_panel.export_button.setText("Cancel")
-        
+
         # Create a worker thread for filename suggestion
         class FilenameWorker(QThread):
             finished = pyqtSignal(str)
             error = pyqtSignal(str)
-            
+
             def __init__(self, content, session_id):
                 super().__init__()
                 self.content = content
                 self.session_id = session_id
                 self.is_stopped = False
-            
+
             def run(self):
                 try:
                     if not self.is_stopped:
@@ -658,28 +668,31 @@ class DasiWindow(QWidget):
                         self.finished.emit(filename)
                 except Exception as e:
                     self.error.emit(str(e))
-            
+
             def stop(self):
                 self.is_stopped = True
-        
+
         # Create and configure the worker
         self.filename_worker = FilenameWorker(response, self.session_id)
-        
+
         def handle_filename_ready(suggested_filename):
             # Restore button state
             self.preview_panel.export_button.setText(original_text)
             self.preview_panel.export_button.setEnabled(True)
             # Restore the original click handler
             self.preview_panel.export_button.clicked.disconnect()
-            self.preview_panel.export_button.clicked.connect(self.preview_panel._handle_export)
-            
+            self.preview_panel.export_button.clicked.connect(
+                self.preview_panel._handle_export)
+
             try:
                 # Get the default export path from settings
-                default_path = self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents"))
-                
+                default_path = self.settings.get(
+                    'general', 'export_path', default=os.path.expanduser("~/Documents"))
+
                 # Combine default path with suggested filename
-                default_filepath = os.path.join(default_path, suggested_filename)
-                
+                default_filepath = os.path.join(
+                    default_path, suggested_filename)
+
                 # Open file dialog with suggested name and default path
                 filename, _ = QFileDialog.getSaveFileName(
                     self,
@@ -687,28 +700,28 @@ class DasiWindow(QWidget):
                     default_filepath,
                     "Markdown Files (*.md);;All Files (*)"
                 )
-                
+
                 if filename:  # Only save if user didn't cancel
                     # Write response to file
                     with open(filename, "w") as f:
                         f.write(response)
-            
+
             except Exception as e:
                 logging.error(f"Error during export: {str(e)}", exc_info=True)
                 self._handle_export_error(response)
-        
+
         def handle_filename_error(error):
             logging.error(f"Error getting filename suggestion: {error}")
             self._handle_export_error(response)
-        
+
         # Connect signals
         self.filename_worker.finished.connect(handle_filename_ready)
         self.filename_worker.error.connect(handle_filename_error)
-        
+
         # Update export button to allow cancellation
         self.preview_panel.export_button.clicked.disconnect()
         self.preview_panel.export_button.clicked.connect(self._cancel_export)
-        
+
         # Start the worker
         self.filename_worker.start()
 
@@ -717,27 +730,30 @@ class DasiWindow(QWidget):
         if hasattr(self, 'filename_worker') and self.filename_worker.isRunning():
             self.filename_worker.stop()
             self.filename_worker.wait()
-            
+
             # Restore export button
             self.preview_panel.export_button.setText("Export")
             self.preview_panel.export_button.clicked.disconnect()
-            self.preview_panel.export_button.clicked.connect(self.preview_panel._handle_export)
-    
+            self.preview_panel.export_button.clicked.connect(
+                self.preview_panel._handle_export)
+
     def _handle_export_error(self, response: str):
         """Handle export errors by falling back to timestamp-based filename."""
         try:
             # Restore button state
             self.preview_panel.export_button.setText("Export")
             self.preview_panel.export_button.clicked.disconnect()
-            self.preview_panel.export_button.clicked.connect(self.preview_panel._handle_export)
+            self.preview_panel.export_button.clicked.connect(
+                self.preview_panel._handle_export)
             self.preview_panel.export_button.setEnabled(True)
-            
+
             # Use timestamp for filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             suggested_filename = f"dasi_response_{timestamp}.md"
-            default_path = self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents"))
+            default_path = self.settings.get(
+                'general', 'export_path', default=os.path.expanduser("~/Documents"))
             default_filepath = os.path.join(default_path, suggested_filename)
-            
+
             # Open file dialog with fallback name
             filename, _ = QFileDialog.getSaveFileName(
                 self,
@@ -745,14 +761,15 @@ class DasiWindow(QWidget):
                 default_filepath,
                 "Markdown Files (*.md);;All Files (*)"
             )
-            
+
             if filename:  # Only save if user didn't cancel
                 # Write response to file
                 with open(filename, "w") as f:
                     f.write(response)
-        
+
         except Exception as e:
-            logging.error(f"Error during export fallback: {str(e)}", exc_info=True)
+            logging.error(
+                f"Error during export fallback: {str(e)}", exc_info=True)
             QMessageBox.critical(
                 self,
                 "Export Error",
@@ -775,17 +792,17 @@ class DasiWindow(QWidget):
         """Handle reset session button click."""
         # Store current selected text
         current_selected_text = self.input_panel.selected_text
-        
+
         # Generate new session ID
         self.session_id = str(uuid.uuid4())
         # Clear conversation history in LLM handler
         self.process_query(f"!clear_session:{self.session_id}")
-        
+
         # Reset UI but preserve selected text
         self.reset_context()
         if current_selected_text:
             self.input_panel.set_selected_text(current_selected_text)
-            
+
         self.input_panel.clear_input()
         self.preview_panel.clear()
         self.right_panel.hide()
@@ -803,6 +820,5 @@ class DasiWindow(QWidget):
         """Handle hide event to clean up resources."""
         # Make sure all animations are stopped
         self.web_search_panel.stop()
-        
-        super().hideEvent(event)
 
+        super().hideEvent(event)

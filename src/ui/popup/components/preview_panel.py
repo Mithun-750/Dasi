@@ -273,8 +273,8 @@ class SplitButton(QToolButton):
         self.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
 
-        # Set fixed size
-        self.setFixedHeight(28)
+        # Set fixed size to match dropdown height
+        self.setFixedHeight(30)
 
         # Apply styling - simplified to the essential elements only
         self.setStyleSheet("""
@@ -285,9 +285,9 @@ class SplitButton(QToolButton):
                 border-radius: 4px;
                 font-weight: bold;
                 font-size: 12px;
-                padding: 4px 8px;
-                min-height: 28px;
-                max-height: 28px;
+                padding: 6px 8px;
+                min-height: 18px;
+                max-height: 18px;
             }
             QToolButton:hover {
                 background-color: #d35400;
@@ -408,8 +408,8 @@ class PreviewPanel(QWidget):
     """Preview panel component for the Dasi window."""
 
     # Signals
-    # Emitted when accept is clicked (method, response)
-    accept_clicked = pyqtSignal(str, str)
+    # Emitted when use is clicked (method, response)
+    use_clicked = pyqtSignal(str, str)
     # Emitted when export is clicked (response)
     export_clicked = pyqtSignal(str)
 
@@ -582,15 +582,15 @@ class PreviewPanel(QWidget):
         grid_layout.setContentsMargins(0, 0, 0, 0)
         grid_layout.setHorizontalSpacing(4)
 
-        # Create combined accept button with dropdown
-        self.accept_split_button = SplitButton("Accept")
-        self.accept_split_button.add_option("⚡ Copy/Paste", "paste")
-        self.accept_split_button.add_option("⌨ Type Text", "type")
-        self.accept_split_button.clicked.connect(self._handle_accept)
-        self.accept_split_button.option_selected.connect(
+        # Create combined use button with dropdown
+        self.use_split_button = SplitButton("Use")
+        self.use_split_button.add_option("⚡ Copy/Paste", "paste")
+        self.use_split_button.add_option("⌨ Type Text", "type")
+        self.use_split_button.clicked.connect(self._handle_use)
+        self.use_split_button.option_selected.connect(
             self._handle_option_selected)
         # Use Expanding policy to fill available space
-        self.accept_split_button.setSizePolicy(
+        self.use_split_button.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         # Create export button
@@ -600,19 +600,19 @@ class PreviewPanel(QWidget):
         self.export_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.export_button.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        # Match the height with accept button
-        self.export_button.setFixedHeight(28)
+        # Match the height with use button
+        self.export_button.setFixedHeight(30)
         self.export_button.setStyleSheet("""
             QPushButton {
                 background-color: #333333;
                 color: #e0e0e0;
                 border: none;
                 border-radius: 4px;
-                padding: 4px 8px;
+                padding: 6px 8px;
                 font-size: 12px;
                 font-weight: bold;
-                min-height: 28px;
-                max-height: 28px;
+                min-height: 18px;
+                max-height: 18px;
             }
             QPushButton:hover {
                 background-color: #444444;
@@ -624,7 +624,7 @@ class PreviewPanel(QWidget):
         """)
 
         # Add to grid layout with equal column stretch
-        grid_layout.addWidget(self.accept_split_button, 0, 0)
+        grid_layout.addWidget(self.use_split_button, 0, 0)
         grid_layout.addWidget(self.export_button, 0, 1)
         grid_layout.setColumnStretch(0, 1)
         grid_layout.setColumnStretch(1, 1)
@@ -698,7 +698,7 @@ class PreviewPanel(QWidget):
                 self.response_preview.style().unpolish(self.response_preview)
                 self.response_preview.style().polish(self.response_preview)
                 self.response_preview.setPlaceholderText(
-                    "You can edit this response before accepting...")
+                    "You can edit this response before using...")
             else:
                 # Switch to markdown preview mode
                 current_text = self.response_preview.toPlainText()
@@ -737,7 +737,7 @@ class PreviewPanel(QWidget):
                     self.response_preview.style().unpolish(self.response_preview)
                     self.response_preview.style().polish(self.response_preview)
                     self.response_preview.setPlaceholderText(
-                        "You can edit this response before accepting...")
+                        "You can edit this response before using...")
                 else:
                     # Keep markdown view but update content
                     if current_text:
@@ -790,7 +790,7 @@ class PreviewPanel(QWidget):
                 self.response_preview.style().unpolish(self.response_preview)
                 self.response_preview.style().polish(self.response_preview)
                 self.response_preview.setPlaceholderText(
-                    "You can edit this response before accepting...")
+                    "You can edit this response before using...")
                 # Update button state
                 if update_button:
                     self.edit_button.setVisible(True)
@@ -804,7 +804,7 @@ class PreviewPanel(QWidget):
 
             if editable:
                 self.response_preview.setPlaceholderText(
-                    "You can edit this response before accepting...")
+                    "You can edit this response before using...")
 
             # Update button state but block signals to prevent recursive calls
             if update_button:
@@ -848,8 +848,8 @@ class PreviewPanel(QWidget):
         self.markdown_preview.clear()
         self.show_actions(False)  # Hide actions when clearing
 
-    def _handle_accept(self):
-        """Handle accept button click."""
+    def _handle_use(self):
+        """Handle use button click."""
         # Get response from the appropriate widget
         if self.is_chat_mode:
             response = self.markdown_preview.get_plain_text()
@@ -862,10 +862,10 @@ class PreviewPanel(QWidget):
                 response = response[1:].lstrip()
 
             # Get selected insertion method
-            method = self.accept_split_button.get_selected_data()
+            method = self.use_split_button.get_selected_data()
 
             # Emit signal with method and response
-            self.accept_clicked.emit(method, response)
+            self.use_clicked.emit(method, response)
 
     def _handle_export(self):
         """Handle export button click."""

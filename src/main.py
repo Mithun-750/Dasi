@@ -261,10 +261,10 @@ class Dasi:
                 self.hotkey_listener.stop()
             if self.tray:
                 self.tray.hide()
-            
+
             # Clear the instance from manager
             DasiInstanceManager.clear_instance()
-            
+
             if QApplication.instance():
                 QApplication.instance().quit()
         except Exception as e:
@@ -382,14 +382,15 @@ To resolve this issue:
         try:
             return bool(self.settings.get_selected_models())
         except Exception as e:
-            logging.error(f"Error checking for selected models: {str(e)}", exc_info=True)
+            logging.error(
+                f"Error checking for selected models: {str(e)}", exc_info=True)
             return False
 
     def run(self):
         """Start the application."""
         try:
             logging.info("Starting application main loop")
-            
+
             # Only start hotkey listener if models are selected
             if self.check_selected_models():
                 print("Dasi is running. Press Ctrl+Alt+Shift+I to activate.")
@@ -397,7 +398,7 @@ To resolve this issue:
             else:
                 logging.info("No models selected, showing settings window")
                 self.show_settings()
-                
+
             sys.exit(self.app.exec())
         except Exception as e:
             logging.error(f"Error in main loop: {str(e)}", exc_info=True)
@@ -410,7 +411,8 @@ def check_selected_models():
         settings = Settings()
         return bool(settings.get_selected_models())
     except Exception as e:
-        logging.error(f"Error checking for selected models: {str(e)}", exc_info=True)
+        logging.error(
+            f"Error checking for selected models: {str(e)}", exc_info=True)
         return False
 
 
@@ -424,7 +426,7 @@ if __name__ == "__main__":
         if is_already_running():
             print("Another instance of Dasi is already running.")
             sys.exit(1)
-            
+
         # Check if any models are selected
         if not check_selected_models():
             # Launch settings window if no models are selected
