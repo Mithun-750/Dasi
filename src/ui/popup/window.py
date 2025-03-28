@@ -176,7 +176,29 @@ class DasiWindow(QWidget):
         self.stop_button = QPushButton("Stop")
         self.stop_button.setObjectName("stopButton")
         self.stop_button.setProperty("class", "danger")
-        self.stop_button.setStyleSheet("margin: 8px 0;")
+        self.stop_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Set a fixed size for the stop button to prevent expansion issues
+        self.stop_button.setFixedWidth(330)
+        self.stop_button.setFixedHeight(30)
+        self.stop_button.setStyleSheet("""
+            QPushButton#stopButton {
+                background-color: #dc2626;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 12px;
+                padding: 6px 8px;
+                min-height: 18px;
+                max-height: 18px;
+            }
+            QPushButton#stopButton:hover {
+                background-color: #ef4444;
+            }
+            QPushButton#stopButton:pressed {
+                background-color: #b91c1c;
+            }
+        """)
         self.stop_button.clicked.connect(self._handle_stop)
         self.stop_button.hide()
 
