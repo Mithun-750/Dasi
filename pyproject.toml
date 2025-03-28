@@ -5,7 +5,7 @@ description = "A powerful desktop copilot that provides inline LLM support throu
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    {name = "Mithun750", email = "mithun750@example.com"}
+    {name = "Mithun750"}
 ]
 license = {text = "MIT"}
 dependencies = [
