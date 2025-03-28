@@ -570,6 +570,7 @@ class DasiWindow(QWidget):
             # Clear and re-enable input field only on successful completion
             self.input_panel.clear_input()
             self.input_panel.enable_input(True)
+            self.input_panel.set_focus()
 
             # Show reset session button since we now have history
             self.reset_session_button.show()

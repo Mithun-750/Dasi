@@ -929,6 +929,10 @@ class InputPanel(QWidget):
         """Enable or disable the input field."""
         self.input_field.setEnabled(enabled)
 
+    def set_focus(self):
+        """Set focus to the input field."""
+        self.input_field.setFocus()
+
     def show_progress(self, show=True):
         """Show or hide the progress bar."""
         if show:
