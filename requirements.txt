@@ -23,6 +23,7 @@ exa-py>=1.0.6  # Exa search API
 pynput>=1.7.6 # Global hotkey support
 pyautogui>=0.9.54  # Cursor position and typing simulation
 PyQt6>=6.8.1  # Modern UI framework
+PyQt6-WebEngine>=6.8.0  # Web rendering for markdown display
 python-dotenv>=1.0.1  # Environment variable management
 pyqtdarktheme>=2.1.0  # Modern dark theme for PyQt6
 pyperclip>=1.9.0  # Clipboard management
