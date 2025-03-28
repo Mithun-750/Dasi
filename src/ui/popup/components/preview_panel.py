@@ -382,6 +382,8 @@ class SplitButton(QToolButton):
             self.selected_index = index
             text, data = self.options[index]
             self.option_selected.emit(text, data)
+            # Rebuild menu to update checkmark position
+            self._rebuild_menu()
 
     def get_selected_data(self):
         """Get the data for the currently selected option."""
