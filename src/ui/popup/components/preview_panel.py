@@ -2,8 +2,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
                              QPushButton, QComboBox, QSizePolicy, QFrame,
                              QProxyStyle, QStyle, QStyledItemDelegate, QStackedWidget, QCheckBox,
                              QScrollArea, QListWidget, QListWidgetItem, QMenu, QGridLayout, QToolButton)
-from PyQt6.QtCore import Qt, pyqtSignal, QDir, QEvent, QSize, QPoint, QRect, QEasingCurve, QPropertyAnimation
-from PyQt6.QtGui import QTextCursor, QColor, QPen, QPainterPath, QPainter, QCursor, QIcon, QAction
+from PyQt6.QtCore import Qt, pyqtSignal, QDir, QEvent, QSize, QPoint, QRect, QEasingCurve, QPropertyAnimation, QTimer
+from PyQt6.QtGui import QTextCursor, QColor, QPen, QPainterPath, QPainter, QCursor, QIcon, QAction, QPixmap
 import sys
 import os
 import logging
@@ -437,7 +437,7 @@ class PreviewPanel(QWidget):
         # Main layout
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(3)  # Reduced spacing from 5px to 3px
+        layout.setSpacing(0)
 
         # Create a stacked widget to hold both preview types
         self.preview_stack = QStackedWidget()
@@ -481,6 +481,85 @@ class PreviewPanel(QWidget):
         self.preview_stack.addWidget(
             self.markdown_preview)  # Index 1: Markdown
 
+        # Create a container for the preview stack that allows positioning
+        self.preview_container = QFrame()
+        self.preview_container.setObjectName("preview_container")
+        self.preview_container.setFixedWidth(330)
+        self.preview_container.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+
+        # Set up container layout
+        container_layout = QVBoxLayout(self.preview_container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        container_layout.addWidget(self.preview_stack)
+
+        # Create overlay for the edit button
+        self.preview_overlay = QFrame(self.preview_container)
+        self.preview_overlay.setObjectName("preview_overlay")
+        self.preview_overlay.setGeometry(
+            0, 0, self.preview_container.width(), self.preview_container.height())
+        self.preview_overlay.setStyleSheet("background-color: transparent;")
+
+        # Make the overlay transparent to mouse events
+        self.preview_overlay.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+        # Create empty layout for overlay
+        overlay_layout = QVBoxLayout(self.preview_overlay)
+        overlay_layout.setContentsMargins(0, 0, 0, 0)
+        overlay_layout.setSpacing(0)
+
+        # Create edit button
+        self.edit_button = QPushButton(self.preview_container)
+        # Slightly larger for better touchability
+        self.edit_button.setFixedSize(28, 28)
+        self.edit_button.setCheckable(True)
+        self.edit_button.setObjectName("edit_button")
+        self.edit_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.edit_button.setText("")  # Ensure no text is set
+        self.edit_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e67e22;
+                border: none;
+                border-radius: 14px;
+                min-width: 28px;
+                max-width: 28px;
+                min-height: 28px;
+                max-height: 28px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background-color: #d35400;
+            }
+            QPushButton:checked {
+                background-color: #a04000;
+            }
+        """)
+
+        # Create pen icon for the button
+        pen_icon = self._create_pen_icon()
+        self.edit_button.setIcon(pen_icon)
+        # Smaller icon for cleaner appearance
+        self.edit_button.setIconSize(QSize(14, 14))
+
+        # Initially position the button (will be updated in update_button_position)
+        self.edit_button.move(0, 0)
+
+        # Connect button signals
+        self.edit_button.toggled.connect(self._on_edit_toggled)
+
+        # Setup chat overlay
+        # Use the response_preview which is at index 0
+        self.chat_overlay = ChatOverlay(self.preview_stack.widget(0))
+
+        # Install event filter to handle resize events
+        self.preview_container.installEventFilter(self)
+
+        # Initialize with the current settings
+        self.update_ui_mode()
+        self.update_button_position()  # Position the button initially
+
         # Action frame for buttons and selector
         self.action_frame = QFrame()
         # Match width with response preview
@@ -493,56 +572,6 @@ class PreviewPanel(QWidget):
             2, 0, 2, 0)  # Removed bottom margin completely
         # Further reduced spacing between elements
         self.action_layout.setSpacing(4)
-
-        # Top row with selector and edit checkbox
-        top_row = QHBoxLayout()
-        top_row.setSpacing(4)
-        top_row.setContentsMargins(0, 0, 0, 0)
-
-        # Add edit checkbox
-        self.edit_checkbox = QCheckBox("Edit")
-        # Default to editable in compose mode
-        self.edit_checkbox.setChecked(True)
-        self.edit_checkbox.setStyleSheet(f"""
-            QCheckBox {{
-                color: #e0e0e0;
-                font-size: 12px;
-                spacing: 5px;
-                outline: none;
-                border: none;
-            }}
-            QCheckBox:focus, QCheckBox:hover {{
-                outline: none;
-                border: none;
-            }}
-            QCheckBox::indicator {{
-                width: 16px;
-                height: 16px;
-                border: 1px solid #444444;
-                border-radius: 3px;
-                background-color: #2a2a2a;
-            }}
-            QCheckBox::indicator:checked {{
-                background-color: #2d2d2d;
-                border: 1px solid #ff9f30;
-                image: url("{checkmark_path}");
-            }}
-            QCheckBox::indicator:hover {{
-                border-color: #ff9f30;
-                background-color: #333333;
-            }}
-            QCheckBox:hover {{
-                color: #ffffff;
-                outline: none;
-                border: none;
-            }}
-        """)
-        self.edit_checkbox.stateChanged.connect(self._toggle_edit_mode)
-
-        # Add stretch first to push checkbox to the right
-        top_row.addStretch(1)
-        # Add edit checkbox to top row aligned to the right
-        top_row.addWidget(self.edit_checkbox, 0, Qt.AlignmentFlag.AlignRight)
 
         # Button layout with grid to ensure equal width
         button_layout = QHBoxLayout()
@@ -604,35 +633,72 @@ class PreviewPanel(QWidget):
         button_layout.addLayout(grid_layout)
 
         # Add layouts to action layout
-        self.action_layout.addLayout(top_row)
         self.action_layout.addLayout(button_layout)
         self.action_frame.setLayout(self.action_layout)
         self.action_frame.hide()
 
         # Add widgets to main layout
-        layout.addWidget(self.preview_stack, 1)
+        layout.addWidget(self.preview_container)
         # Use 0 stretch factor to minimize height
-        layout.addWidget(self.action_frame, 0)
+        layout.addWidget(self.action_frame)
 
         self.setLayout(layout)
         # Make entire panel take minimum required height
         self.setSizePolicy(QSizePolicy.Policy.Fixed,
                            QSizePolicy.Policy.Minimum)
 
-    def _toggle_edit_mode(self):
+    def _create_pen_icon(self):
+        """Create a simple pen icon for the edit button."""
+        # Create a pixmap for drawing the pen icon
+        pixmap = QPixmap(28, 28)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        # Create a painter to draw on the pixmap
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Set up the pen - use a thicker line for better visibility
+        pen_color = QColor(255, 255, 255)  # White color
+        painter.setPen(QPen(pen_color, 1.8))
+
+        # Draw a simplified pencil/pen icon
+        # Main diagonal line
+        painter.drawLine(9, 19, 18, 10)
+
+        # Pen tip (small triangle)
+        pen_path = QPainterPath()
+        pen_path.moveTo(18, 10)
+        pen_path.lineTo(20, 12)
+        pen_path.lineTo(16, 16)
+        pen_path.lineTo(18, 10)
+
+        # Fill the pen tip
+        painter.setBrush(pen_color)
+        painter.drawPath(pen_path)
+
+        painter.end()
+
+        return QIcon(pixmap)
+
+    def _on_edit_toggled(self, checked):
         """Toggle between editable text and markdown preview."""
         if not self.is_chat_mode:  # Only applies in compose mode
-            # Update user preference
-            self._user_edit_preference = self.edit_checkbox.isChecked()
+            # Update user preference based on button state
+            self._user_edit_preference = checked
 
-            if self.edit_checkbox.isChecked():
+            if checked:
                 # Switch to editable text mode
                 current_text = self.markdown_preview.get_plain_text() if self.preview_stack.currentWidget(
                 ) == self.markdown_preview else self.response_preview.toPlainText()
                 self.preview_stack.setCurrentWidget(self.response_preview)
                 self.response_preview.setText(current_text)
-                # Apply edit mode but don't update checkbox (it's already checked by the user)
-                self.set_editable(True, update_checkbox=False)
+                # Make text editable
+                self.response_preview.setReadOnly(False)
+                self.response_preview.setProperty("editable", True)
+                self.response_preview.style().unpolish(self.response_preview)
+                self.response_preview.style().polish(self.response_preview)
+                self.response_preview.setPlaceholderText(
+                    "You can edit this response before accepting...")
             else:
                 # Switch to markdown preview mode
                 current_text = self.response_preview.toPlainText()
@@ -649,16 +715,16 @@ class PreviewPanel(QWidget):
                 self.preview_stack.setCurrentWidget(self.markdown_preview)
                 if current_text:
                     self.markdown_preview.set_markdown(current_text)
-                # Hide edit checkbox in chat mode
-                self.edit_checkbox.setVisible(False)
+                # Hide edit button in chat mode
+                self.edit_button.setVisible(False)
             else:
                 # Transferring from markdown to text
                 current_text = self.markdown_preview.get_plain_text()
 
                 # Apply the user's stored edit preference
-                self.edit_checkbox.blockSignals(True)
-                self.edit_checkbox.setChecked(self._user_edit_preference)
-                self.edit_checkbox.blockSignals(False)
+                self.edit_button.blockSignals(True)
+                self.edit_button.setChecked(self._user_edit_preference)
+                self.edit_button.blockSignals(False)
 
                 # Show the appropriate view based on user preference
                 if self._user_edit_preference:
@@ -677,8 +743,8 @@ class PreviewPanel(QWidget):
                     if current_text:
                         self.markdown_preview.set_markdown(current_text)
 
-                # Show edit checkbox in compose mode
-                self.edit_checkbox.setVisible(True)
+                # Show edit button in compose mode
+                self.edit_button.setVisible(True)
 
         self.is_chat_mode = is_chat_mode
 
@@ -702,12 +768,12 @@ class PreviewPanel(QWidget):
             scrollbar = self.response_preview.verticalScrollBar()
             scrollbar.setValue(scrollbar.maximum())
 
-    def set_editable(self, editable: bool, update_checkbox: bool = True):
+    def set_editable(self, editable: bool, update_button: bool = True):
         """Set whether the response preview is editable.
 
         Args:
             editable: Whether the response should be editable
-            update_checkbox: Whether to update the checkbox state (default: True)
+            update_button: Whether to update the button state (default: True)
         """
         if self.is_chat_mode:
             # Markdown view is never editable, so switch to text mode if editing is required
@@ -725,10 +791,10 @@ class PreviewPanel(QWidget):
                 self.response_preview.style().polish(self.response_preview)
                 self.response_preview.setPlaceholderText(
                     "You can edit this response before accepting...")
-                # Update checkbox state
-                if update_checkbox:
-                    self.edit_checkbox.setVisible(True)
-                    self.edit_checkbox.setChecked(True)
+                # Update button state
+                if update_button:
+                    self.edit_button.setVisible(True)
+                    self.edit_button.setChecked(True)
         else:
             # Normal text mode
             self.response_preview.setReadOnly(not editable)
@@ -740,25 +806,25 @@ class PreviewPanel(QWidget):
                 self.response_preview.setPlaceholderText(
                     "You can edit this response before accepting...")
 
-            # Update checkbox state but block signals to prevent recursive calls
-            if update_checkbox:
-                self.edit_checkbox.blockSignals(True)
-                self.edit_checkbox.setChecked(editable)
-                self.edit_checkbox.blockSignals(False)
+            # Update button state but block signals to prevent recursive calls
+            if update_button:
+                self.edit_button.blockSignals(True)
+                self.edit_button.setChecked(editable)
+                self.edit_button.blockSignals(False)
 
     def show_actions(self, show: bool):
         """Show or hide the action frame."""
         self.action_frame.setVisible(show)
 
-        # Only update checkbox visibility and state if showing actions
+        # Only update edit button visibility if showing actions
         if show and not self.is_chat_mode:
-            # Make the checkbox visible
-            self.edit_checkbox.setVisible(True)
+            # Make the edit button visible
+            self.edit_button.setVisible(True)
 
-            # Ensure checkbox state matches user preference without triggering signals
-            self.edit_checkbox.blockSignals(True)
-            self.edit_checkbox.setChecked(self._user_edit_preference)
-            self.edit_checkbox.blockSignals(False)
+            # Ensure button state matches user preference without triggering signals
+            self.edit_button.blockSignals(True)
+            self.edit_button.setChecked(self._user_edit_preference)
+            self.edit_button.blockSignals(False)
 
             # Also make sure the current displayed widget matches the preference
             if self._user_edit_preference:
@@ -766,12 +832,15 @@ class PreviewPanel(QWidget):
             else:
                 self.preview_stack.setCurrentWidget(self.markdown_preview)
         else:
-            # Hide checkbox in chat mode
-            self.edit_checkbox.setVisible(show and not self.is_chat_mode)
+            # Hide edit button in chat mode
+            self.edit_button.setVisible(show and not self.is_chat_mode)
 
     def show_preview(self, show: bool):
         """Show or hide the response preview."""
         self.preview_stack.setVisible(show)
+        # Also update edit button visibility
+        if not self.is_chat_mode:
+            self.edit_button.setVisible(show)
 
     def clear(self):
         """Clear the response preview."""
@@ -819,19 +888,23 @@ class PreviewPanel(QWidget):
         self.preview_stack.show()
         # Synchronize UI with user preference when showing
         self._sync_ui_with_preference()
+        # Update button position
+        self.update_button_position()
         super().show()
 
     def _sync_ui_with_preference(self):
-        """Synchronize UI state (checkbox, preview widget, editable state) with user preference."""
+        """Synchronize UI state (edit button, preview widget, editable state) with user preference."""
         if self.is_chat_mode:
             # Always show markdown in chat mode
             self.preview_stack.setCurrentWidget(self.markdown_preview)
+            self.edit_button.setVisible(False)
             return
 
         # Block signals to avoid triggering _toggle_edit_mode
-        self.edit_checkbox.blockSignals(True)
-        self.edit_checkbox.setChecked(self._user_edit_preference)
-        self.edit_checkbox.blockSignals(False)
+        self.edit_button.blockSignals(True)
+        self.edit_button.setChecked(self._user_edit_preference)
+        self.edit_button.blockSignals(False)
+        self.edit_button.setVisible(True)
 
         # Set the appropriate widget
         if self._user_edit_preference:
@@ -848,4 +921,103 @@ class PreviewPanel(QWidget):
     def _handle_option_selected(self, text, data):
         """Handle when an option is selected from the split button dropdown."""
         # No need to do anything here, the option is already stored in the button
+        pass
+
+    def update_button_position(self):
+        """Update the position of the edit button to the bottom right corner of the preview."""
+        try:
+            if not hasattr(self, 'preview_container') or not hasattr(self, 'edit_button'):
+                return
+
+            # If we're in chat mode and the button exists, hide it
+            if self.is_chat_mode and hasattr(self, 'edit_button'):
+                self.edit_button.setVisible(False)
+                return
+
+            # Make sure the button is visible when not in chat mode
+            self.edit_button.setVisible(True)
+
+            # Get preview container dimensions
+            container_width = self.preview_container.width()
+            container_height = self.preview_container.height()
+
+            # Calculate position (bottom right with padding)
+            button_size = self.edit_button.size()
+            padding = 10  # Padding from edge
+            x_pos = container_width - button_size.width() - padding
+            y_pos = container_height - button_size.height() - padding
+
+            # Ensure positions are valid (non-negative)
+            x_pos = max(0, x_pos)
+            y_pos = max(0, y_pos)
+
+            # Move button to position
+            self.edit_button.move(x_pos, y_pos)
+
+            # Ensure button is on top
+            self.edit_button.raise_()
+
+        except Exception as e:
+            # Log warning if anything goes wrong
+            logging.warning(f"Error positioning edit button: {e}")
+
+    def showEvent(self, event):
+        """Handle show events to ensure proper button positioning."""
+        super().showEvent(event)
+        # Update button position when shown
+        QTimer.singleShot(0, self.update_button_position)
+
+    def eventFilter(self, obj, event):
+        """Event filter to handle resize events for the preview container."""
+        if obj == self.preview_container:
+            if event.type() == QEvent.Type.Resize:
+                # Update button position on resize
+                self.update_button_position()
+
+                # Also update overlay size if we're using it
+                if hasattr(self, 'preview_overlay'):
+                    self.preview_overlay.setGeometry(
+                        0, 0, obj.width(), obj.height())
+
+            # Make sure we don't block scroll events
+            elif event.type() in [QEvent.Type.Wheel, QEvent.Type.MouseButtonPress,
+                                  QEvent.Type.MouseButtonRelease, QEvent.Type.MouseMove]:
+                # Don't filter these events, let them be processed normally
+                return False
+
+        return super().eventFilter(obj, event)
+
+    def update_ui_mode(self):
+        """Update UI components based on current mode (chat or compose)."""
+        if self.is_chat_mode:
+            # In chat mode, show markdown and hide edit button
+            self.preview_stack.setCurrentWidget(self.markdown_preview)
+            self.edit_button.setVisible(False)
+        else:
+            # In compose mode, set widget and edit state based on user preference
+            if self._user_edit_preference:
+                self.preview_stack.setCurrentWidget(self.response_preview)
+                self.response_preview.setReadOnly(False)
+                self.response_preview.setProperty("editable", True)
+                self.response_preview.style().unpolish(self.response_preview)
+                self.response_preview.style().polish(self.response_preview)
+            else:
+                self.preview_stack.setCurrentWidget(self.markdown_preview)
+
+            # Make edit button visible and sync with current preference
+            self.edit_button.blockSignals(True)
+            self.edit_button.setChecked(self._user_edit_preference)
+            self.edit_button.blockSignals(False)
+            self.edit_button.setVisible(True)
+
+# If ChatOverlay is not defined elsewhere, create a simple placeholder class
+
+
+class ChatOverlay:
+    """Placeholder for ChatOverlay. Replace with actual implementation."""
+
+    def __init__(self, parent=None):
+        self.parent = parent
+
+    def clear(self):
         pass
