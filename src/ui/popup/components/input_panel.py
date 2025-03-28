@@ -631,6 +631,17 @@ class InputPanel(QWidget):
 
             # History navigation with up/down arrow keys
             if key_event.key() == Qt.Key.Key_Up:
+                # Alt+Up to cycle to previous model
+                if key_event.modifiers() & Qt.KeyboardModifier.AltModifier:
+                    current_index = self.model_selector.currentIndex()
+                    if current_index > 0:
+                        self.model_selector.setCurrentIndex(current_index - 1)
+                    else:
+                        # Wrap around to the last item
+                        self.model_selector.setCurrentIndex(
+                            self.model_selector.count() - 1)
+                    return True
+
                 # If dropdown is visible, let it handle navigation
                 if self.chunk_dropdown.isVisible():
                     return False
@@ -669,6 +680,16 @@ class InputPanel(QWidget):
                 return True
 
             elif key_event.key() == Qt.Key.Key_Down:
+                # Alt+Down to cycle to next model
+                if key_event.modifiers() & Qt.KeyboardModifier.AltModifier:
+                    current_index = self.model_selector.currentIndex()
+                    if current_index < self.model_selector.count() - 1:
+                        self.model_selector.setCurrentIndex(current_index + 1)
+                    else:
+                        # Wrap around to the first item
+                        self.model_selector.setCurrentIndex(0)
+                    return True
+
                 # If dropdown is visible, let it handle navigation
                 if self.chunk_dropdown.isVisible():
                     return False
@@ -701,6 +722,30 @@ class InputPanel(QWidget):
                     self.history_position = -1
                     self._set_input_text(self.current_input)
 
+                return True
+
+            # Alt+Left/Right to cycle through modes
+            elif key_event.key() == Qt.Key.Key_Left and key_event.modifiers() & Qt.KeyboardModifier.AltModifier:
+                # Cycle to previous mode
+                current_index = self.mode_selector.currentIndex()
+                if current_index > 0:
+                    self.mode_selector.setCurrentIndex(current_index - 1)
+                else:
+                    # Wrap around to the last item
+                    self.mode_selector.setCurrentIndex(
+                        self.mode_selector.count() - 1)
+                self._handle_mode_change(self.mode_selector.currentIndex())
+                return True
+
+            elif key_event.key() == Qt.Key.Key_Right and key_event.modifiers() & Qt.KeyboardModifier.AltModifier:
+                # Cycle to next mode
+                current_index = self.mode_selector.currentIndex()
+                if current_index < self.mode_selector.count() - 1:
+                    self.mode_selector.setCurrentIndex(current_index + 1)
+                else:
+                    # Wrap around to the first item
+                    self.mode_selector.setCurrentIndex(0)
+                self._handle_mode_change(self.mode_selector.currentIndex())
                 return True
 
             # Show dropdown on @ key only when properly spaced

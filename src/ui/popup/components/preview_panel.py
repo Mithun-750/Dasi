@@ -641,7 +641,8 @@ class PreviewPanel(QWidget):
 
         # Add widgets to main layout
         layout.addWidget(self.preview_container)
-        # Use 0 stretch factor to minimize height
+        # Use 0 stretch factor to minimize height but add spacing
+        layout.addSpacing(5)  # Add 8px spacing between preview and buttons
         layout.addWidget(self.action_frame)
 
         self.setLayout(layout)
