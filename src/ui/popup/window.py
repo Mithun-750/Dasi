@@ -123,12 +123,16 @@ class DasiWindow(QWidget):
         title.setProperty("class", "header-title")
 
         # Add reset session button before close button
-        self.reset_session_button = QPushButton("Reset Session")
+        self.reset_session_button = QPushButton()
         self.reset_session_button.setObjectName("resetSessionButton")
         self.reset_session_button.setProperty("class", "header-button")
         self.reset_session_button.clicked.connect(self._handle_reset_session)
-        self.reset_session_button.setFixedWidth(100)
+        self.reset_session_button.setFixedSize(24, 24)
         self.reset_session_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Set tooltip for the reset button
+        self.reset_session_button.setToolTip("Reset Session")
+        # Add reload icon using text as a unicode character since we're not loading external resources
+        self.reset_session_button.setText("⟳")
         self.reset_session_button.hide()  # Hide by default
 
         # Add close button
@@ -324,12 +328,17 @@ class DasiWindow(QWidget):
             #resetSessionButton {
                 background-color: rgba(42, 42, 42, 0.5);
                 color: #cccccc;
-                font-size: 11px;
-                padding: 5px 10px;
+                font-size: 16px;
+                padding: 0px;
                 margin-right: 6px;
-                font-weight: 500;
-                letter-spacing: 0.3px;
+                font-weight: bold;
                 border: 1px solid rgba(80, 80, 80, 0.3);
+                border-radius: 12px;
+                text-align: center;
+                min-width: 24px;
+                max-width: 24px;
+                min-height: 24px;
+                max-height: 24px;
             }
             #resetSessionButton:hover {
                 background-color: #e67e22;
