@@ -59,44 +59,86 @@ class ComboBoxStyle(QProxyStyle):
 class CustomComboBox(QComboBox):
     """ComboBox with custom popup and animation."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, max_visible_items=10, popup_width=None):
         super().__init__(parent)
+
+        # Store configuration
+        self.max_visible_items = max_visible_items
+        self.item_height = 36  # Base item height including padding
+        self.custom_popup_width = popup_width  # Store custom width if provided
 
         # Apply custom arrow
         self.setStyle(ComboBoxStyle())
+
+        # Force combobox-popup:0 to enable explicit control
+        self.setStyleSheet("QComboBox { combobox-popup: 0; }")
 
         # Create popup frame
         self.popup_frame = QFrame(self.window())
         self.popup_frame.setWindowFlags(
             Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self.popup_frame.setProperty("class", "popup-frame")
-
-        # Create shadow effect
         self.popup_frame.setStyleSheet("""
             QFrame.popup-frame {
                 background-color: #222222;
                 border: 1px solid #333333;
                 border-radius: 6px;
-                padding: 4px;
             }
         """)
 
-        # Create scroll area for better handling of many items
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
+        # Create scrollable list area
+        self.scroll_area = QScrollArea(self.popup_frame)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setWidgetResizable(True)
+
+        # Always hide horizontal scrollbar
         self.scroll_area.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll_area.setStyleSheet("background-color: transparent;")
+
+        # Use stronger styling to make scrollbar clearly visible
+        self.scroll_area.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background-color: transparent;
+                width: 10px;
+                margin: 0px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #666666;
+                border-radius: 5px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #e67e22;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: transparent;
+            }
+        """)
+
+        # Create inner container for list items
+        self.list_container = QWidget()
+        self.list_container.setStyleSheet("background-color: transparent;")
+        self.list_layout = QVBoxLayout(self.list_container)
+        self.list_layout.setContentsMargins(4, 4, 4, 4)
+        self.list_layout.setSpacing(2)
 
         # Create list widget for items
         self.list_widget = QListWidget()
-        self.list_widget.setProperty("class", "popup-list")
         self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
-        self.list_widget.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.list_widget.setProperty("class", "popup-list")
+
+        # Always hide horizontal scrollbar in list widget too
         self.list_widget.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
         self.list_widget.setStyleSheet("""
             QListWidget {
                 background-color: transparent;
@@ -107,7 +149,7 @@ class CustomComboBox(QComboBox):
                 padding: 8px;
                 border-radius: 4px;
                 color: #e0e0e0;
-                margin: 2px;
+                margin: 1px;
             }
             QListWidget::item:selected {
                 background-color: #e67e22;
@@ -119,64 +161,96 @@ class CustomComboBox(QComboBox):
             }
         """)
 
-        # Set up the popup layout
-        self.scroll_area.setWidget(self.list_widget)
-        self.popup_layout = QVBoxLayout(self.popup_frame)
-        self.popup_layout.setContentsMargins(0, 0, 0, 0)
-        self.popup_layout.addWidget(self.scroll_area)
-
         # Connect list widget signals
         self.list_widget.itemClicked.connect(self._handle_item_selected)
+
+        # Set up layout hierarchy
+        self.list_layout.addWidget(self.list_widget)
+        self.scroll_area.setWidget(self.list_container)
+
+        # Set up popup layout
+        self.popup_layout = QVBoxLayout(self.popup_frame)
+        self.popup_layout.setContentsMargins(0, 0, 0, 0)
+        self.popup_layout.setSpacing(0)
+        self.popup_layout.addWidget(self.scroll_area)
 
         # Add animation
         self.animation = QPropertyAnimation(self.popup_frame, b"geometry")
         self.animation.setEasingCurve(QEasingCurve.Type.OutQuint)
-        self.animation.setDuration(180)  # Animation duration in milliseconds
+        self.animation.setDuration(200)
 
-        # Remember if popup is visible
+        # Track popup state
         self.popup_visible = False
 
-        # Set fixed item height to make calculations easier
-        self.item_height = 32
-
-        # Set max height in items
-        self.max_visible_items = 10
+    def set_max_visible_items(self, count):
+        """Set the maximum number of visible items in the dropdown."""
+        self.max_visible_items = count
 
     def showPopup(self):
         """Show custom popup instead of standard dropdown."""
         if self.count() == 0 or not self.isEnabled():
             return
 
-        # Calculate popup position and size
-        # Minimum width for better readability
-        popup_width = max(self.width(), 260)
+        # Calculate popup width and position
+        if self.custom_popup_width:
+            # Use custom width if specified
+            popup_width = self.custom_popup_width
+        else:
+            # Default calculation
+            popup_width = max(self.width(), 240)
 
-        # Calculate height based on number of items (limited by max_visible_items)
-        items_height = min(
-            self.count(), self.max_visible_items) * self.item_height
-        popup_height = items_height + 8  # Add padding
-
-        # Get global position for the popup
         pos = self.mapToGlobal(QPoint(0, self.height()))
 
-        # Clear and populate list widget
+        # Calculate popup height based on item count
+        total_items = min(self.count(), self.max_visible_items)
+
+        # Calculate item heights with padding and spacing
+        item_total_height = total_items * self.item_height
+        popup_height = item_total_height + 8  # Add small margin
+
+        # Determine if scrollbar is needed and set policy on SCROLL AREA
+        if self.count() <= self.max_visible_items:
+            # No need for vertical scrollbar if all items fit
+            self.scroll_area.setVerticalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        else:
+            # Show vertical scrollbar when we have more items than max_visible_items
+            self.scroll_area.setVerticalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            # Explicitly show the scrollbar
+            self.scroll_area.verticalScrollBar().show()
+
+        # Ensure no horizontal scrollbar in both scroll area and list widget
+        self.list_widget.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        # For the list widget, we let the scroll area handle vertical scrolling
+        self.list_widget.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        # Populate list widget
         self.list_widget.clear()
         for i in range(self.count()):
             item = QListWidgetItem(self.itemText(i))
-            # Store item data for later retrieval
             if self.itemData(i) is not None:
                 item.setData(Qt.ItemDataRole.UserRole, self.itemData(i))
             self.list_widget.addItem(item)
 
-        # Set the current item
+        # Set current item
         if self.currentIndex() >= 0:
             self.list_widget.setCurrentRow(self.currentIndex())
 
-        # Set initial and final geometry for animation
+        # Ensure the list widget has the correct size
+        if self.count() > self.max_visible_items:
+            # Make the list widget extend to show all items (scroll area will handle scrolling)
+            self.list_widget.setMinimumHeight(self.count() * self.item_height)
+
+        # Set up animation
         start_rect = QRect(pos.x(), pos.y(), popup_width, 0)
         end_rect = QRect(pos.x(), pos.y(), popup_width, popup_height)
 
-        # Set up animation
         self.animation.setStartValue(start_rect)
         self.animation.setEndValue(end_rect)
 
@@ -185,10 +259,10 @@ class CustomComboBox(QComboBox):
         self.popup_frame.show()
         self.animation.start()
 
-        # Set popup visible flag
+        # Update state
         self.popup_visible = True
 
-        # Install event filter to handle mouse events outside the popup
+        # Install event filter
         self.window().installEventFilter(self)
 
     def hidePopup(self):
@@ -198,24 +272,19 @@ class CustomComboBox(QComboBox):
 
         # Set up closing animation
         current_rect = self.popup_frame.geometry()
-        start_rect = current_rect
         end_rect = QRect(current_rect.x(), current_rect.y(),
                          current_rect.width(), 0)
 
-        self.animation.setStartValue(start_rect)
+        self.animation.setStartValue(current_rect)
         self.animation.setEndValue(end_rect)
-
-        # Connect animation finished signal to hide the popup
         self.animation.finished.connect(self._finish_hiding)
-
-        # Start the closing animation
         self.animation.start()
+
+        # Update state
+        self.popup_visible = False
 
         # Remove event filter
         self.window().removeEventFilter(self)
-
-        # Set popup visible flag
-        self.popup_visible = False
 
     def _finish_hiding(self):
         """Hide the popup frame and disconnect signal after animation."""
@@ -392,8 +461,9 @@ class InputPanel(QWidget):
         selectors_layout.setContentsMargins(0, 0, 0, 0)
         selectors_layout.setSpacing(8)
 
-        # Create mode selector dropdown
-        self.mode_selector = CustomComboBox()
+        # Create mode selector dropdown - use narrower popup width
+        self.mode_selector = CustomComboBox(
+            max_visible_items=2, popup_width=120)
         self.mode_selector.setProperty("class", "combo-box")
         self.mode_selector.addItem("Chat")
         self.mode_selector.addItem("Compose")
@@ -401,8 +471,8 @@ class InputPanel(QWidget):
         self.mode_selector.setFixedWidth(100)
         self.mode_selector.activated.connect(self._handle_mode_change)
 
-        # Create model selector dropdown
-        self.model_selector = CustomComboBox()
+        # Create model selector dropdown - use default popup width
+        self.model_selector = CustomComboBox(max_visible_items=4)
         self.model_selector.setProperty("class", "combo-box")
         self.update_model_selector()
 
