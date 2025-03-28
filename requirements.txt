@@ -27,3 +27,6 @@ PyQt6-WebEngine>=6.8.0  # Web rendering for markdown display
 python-dotenv>=1.0.1  # Environment variable management
 pyqtdarktheme>=2.1.0  # Modern dark theme for PyQt6
 pyperclip>=1.9.0  # Clipboard management
+
+# Development tools
+invoke>=2.2.0  # Task execution for development workflow
