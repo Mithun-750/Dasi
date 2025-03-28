@@ -793,6 +793,9 @@ class DasiWindow(QWidget):
         # Store current selected text
         current_selected_text = self.input_panel.selected_text
 
+        # Store current input text
+        current_input_text = self.input_panel.get_query()
+
         # Generate new session ID
         self.session_id = str(uuid.uuid4())
         # Clear conversation history in LLM handler
@@ -803,7 +806,7 @@ class DasiWindow(QWidget):
         if current_selected_text:
             self.input_panel.set_selected_text(current_selected_text)
 
-        self.input_panel.clear_input()
+        # Don't clear the input field - removed: self.input_panel.clear_input()
         self.preview_panel.clear()
         self.right_panel.hide()
         self.setFixedWidth(340)  # Input-only mode width
