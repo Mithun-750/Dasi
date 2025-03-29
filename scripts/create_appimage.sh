@@ -126,6 +126,9 @@ done
 
 # Set up icon
 print_status "Setting up application icon..."
+ICON_FOUND=false
+
+# First try to use PNG icon (preferred for AppImage)
 if [ -f "src/assets/Dasi.png" ]; then
     # Copy the main icon
     cp src/assets/Dasi.png AppDir/dasi.png
@@ -146,9 +149,42 @@ if [ -f "src/assets/Dasi.png" ]; then
         print_warning "ImageMagick not available. Only using the 256x256 icon."
     fi
     
-    print_success "Icon set successfully"
-else
-    print_warning "Icon file not found at src/assets/Dasi.png"
+    print_success "Icon set successfully from PNG"
+    ICON_FOUND=true
+# Next try to use ICO file and convert it if possible
+elif [ -f "src/assets/Dasi.ico" ]; then
+    print_status "Found ICO file, attempting to use it..."
+    
+    # Check if convert (ImageMagick) is available
+    if command -v convert &> /dev/null; then
+        print_status "Converting ICO to PNG for AppImage..."
+        
+        # Extract the largest icon from the ICO file for the AppImage icon
+        convert "src/assets/Dasi.ico[0]" AppDir/dasi.png
+        cp AppDir/dasi.png AppDir/.DirIcon
+        cp AppDir/dasi.png AppDir/usr/share/icons/hicolor/256x256/apps/dasi.png
+        cp AppDir/dasi.png AppDir/usr/share/pixmaps/dasi.png
+        
+        # Also generate smaller size icons
+        for size in 16 24 32 48 64 96 128 192; do
+            mkdir -p AppDir/usr/share/icons/hicolor/${size}x${size}/apps
+            convert "src/assets/Dasi.ico[0]" -resize ${size}x${size} AppDir/usr/share/icons/hicolor/${size}x${size}/apps/dasi.png || print_warning "Could not convert icon to ${size}x${size}, continuing anyway"
+        done
+        
+        # Create a high-quality PNG from the ICO for better appearance
+        convert "src/assets/Dasi.ico[0]" -background none -flatten -alpha off AppDir/dasi.png
+        cp AppDir/dasi.png AppDir/.DirIcon
+        
+        print_success "Icon converted and set successfully from ICO"
+        ICON_FOUND=true
+    else
+        print_warning "ImageMagick not available. Cannot convert ICO to PNG for AppImage."
+    fi
+fi
+
+if [ "$ICON_FOUND" = false ]; then
+    print_warning "No usable icon found (tried src/assets/Dasi.png and src/assets/Dasi.ico)"
+    print_warning "AppImage will have no icon. Please add a PNG or ICO icon file to src/assets/"
 fi
 
 # Create desktop file
@@ -263,7 +299,52 @@ fi
 print_status "Building AppImage..."
 VERSION=$(grep -oP '(?<=version = ").*(?=")' pyproject.toml || echo "0.1.0")
 ARCH=$(uname -m)
-./scripts/appimagetool-x86_64.AppImage AppDir "Dasi-${VERSION}-${ARCH}.AppImage"
+
+# Ensure .DirIcon has proper permissions
+chmod 644 AppDir/.DirIcon || true
+chmod 644 AppDir/dasi.png || true
+
+# Verify icon files are present
+if [ -f "AppDir/.DirIcon" ]; then
+    print_status "Icon file (.DirIcon) found, it will be embedded in the AppImage"
+else
+    print_warning "No .DirIcon file found, AppImage may not have an icon"
+    # Try to create it as a last resort
+    if [ -f "src/assets/Dasi.png" ]; then
+        cp src/assets/Dasi.png AppDir/.DirIcon
+        print_status "Created .DirIcon from src/assets/Dasi.png"
+    elif [ -f "src/assets/Dasi.ico" ] && command -v convert &> /dev/null; then
+        convert src/assets/Dasi.ico AppDir/.DirIcon
+        print_status "Created .DirIcon from src/assets/Dasi.ico"
+    fi
+fi
+
+# Also make sure there's a root icon file with the same name as the desktop file
+cp AppDir/.DirIcon AppDir/dasi.png || true
+
+# Ensure icon name in desktop file matches the actual icon files
+desktop_icon=$(grep -oP '(?<=Icon=).*' AppDir/dasi.desktop)
+if [ -n "$desktop_icon" ]; then
+    print_status "Desktop entry uses icon: $desktop_icon"
+    # Create symlink from .DirIcon to the icon name in the desktop file if needed
+    if [ "$desktop_icon" != "dasi" ] && [ -f "AppDir/.DirIcon" ]; then
+        cp AppDir/.DirIcon "AppDir/$desktop_icon.png"
+        print_status "Created icon with name $desktop_icon.png for desktop entry integration"
+    fi
+fi
+
+# One final check - ensure the icon file is in the AppDir root with proper permissions
+if [ -f "AppDir/.DirIcon" ]; then
+    chmod 644 AppDir/.DirIcon
+    # AppImageTool sometimes works better with the icon having the same name as the AppDir
+    cp AppDir/.DirIcon AppDir/dasi.png
+    chmod 644 AppDir/dasi.png
+    print_status "Final icon setup complete"
+fi
+
+# Generate the AppImage with desktop integration
+print_status "Running AppImageTool with desktop integration..."
+ARCH=$ARCH ./scripts/appimagetool-x86_64.AppImage --comp xz -g AppDir "Dasi-${VERSION}-${ARCH}.AppImage"
 
 print_success "AppImage created successfully!"
 ls -la Dasi-*.AppImage
@@ -273,4 +354,7 @@ echo -e "${GREEN}chmod +x Dasi-${VERSION}-${ARCH}.AppImage"
 echo -e "./Dasi-${VERSION}-${ARCH}.AppImage${NC}"
 echo ""
 print_status "Or if you have FUSE issues:"
-echo -e "${GREEN}./Dasi-${VERSION}-${ARCH}.AppImage --appimage-extract-and-run${NC}" 
+echo -e "${GREEN}./Dasi-${VERSION}-${ARCH}.AppImage --appimage-extract-and-run${NC}"
+
+print_status "The AppImage should have the Dasi icon embedded. If it doesn't appear immediately in your file manager,"
+print_status "you may need to clear your icon cache or restart your file manager." 
