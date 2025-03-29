@@ -1064,18 +1064,15 @@ class InputPanel(QWidget):
         return query
 
     def get_context(self):
-        """Get the current context dictionary."""
+        """Get the current context as a dictionary."""
         context = {}
-
-        # Add selected text if available
         if self.selected_text:
             context['selected_text'] = self.selected_text
 
-        # Add mode to context
-        context['mode'] = 'compose' if self.mode_selector.currentIndex(
-        ) == 1 else 'chat'
+        # Always include mode information
+        context['mode'] = 'compose' if self.is_compose_mode() else 'chat'
 
-        # Add link scrape info if present
+        # Include link scrape info if available
         if self.is_link_scrape and self.link_to_scrape:
             context['is_link_scrape'] = True
             context['link_to_scrape'] = self.link_to_scrape

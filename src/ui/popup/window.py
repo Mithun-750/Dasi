@@ -598,6 +598,9 @@ class DasiWindow(QWidget):
             self.reset_session_button.show()
 
             if self.input_panel.is_compose_mode():
+                # For compose mode, process the response to handle backticks but preserve language
+                self.preview_panel.process_final_response()
+
                 # Make response preview editable in compose mode
                 self.preview_panel.set_editable(True)
                 self.preview_panel.show_actions(True)
@@ -673,7 +676,7 @@ class DasiWindow(QWidget):
         self.setFixedWidth(340)  # Input-only mode width
 
     def _handle_export(self, response: str):
-        """Export the generated response to a markdown file."""
+        """Export the generated response to a file with the appropriate extension."""
         # Show loading state in the export button
         original_text = self.preview_panel.export_button.text()
         self.preview_panel.export_button.setText("Cancel")
@@ -683,16 +686,23 @@ class DasiWindow(QWidget):
             finished = pyqtSignal(str)
             error = pyqtSignal(str)
 
-            def __init__(self, content, session_id):
+            def __init__(self, content, session_id, code_language=None):
                 super().__init__()
                 self.content = content
                 self.session_id = session_id
+                self.code_language = code_language
                 self.is_stopped = False
 
             def run(self):
                 try:
                     if not self.is_stopped:
                         llm_handler = LLMHandler()
+                        # Set the detected language in LLMHandler if we have it
+                        if self.code_language:
+                            llm_handler.detected_language = self.code_language
+                            logging.info(
+                                f"Setting detected language in LLMHandler: {self.code_language}")
+
                         filename = llm_handler.suggest_filename(
                             content=self.content,
                             session_id=self.session_id
@@ -704,8 +714,15 @@ class DasiWindow(QWidget):
             def stop(self):
                 self.is_stopped = True
 
-        # Create and configure the worker
-        self.filename_worker = FilenameWorker(response, self.session_id)
+        # Get code language from preview panel if available
+        code_language = getattr(self.preview_panel, '_code_language', None)
+        # Debug logging to trace the issue
+        logging.info(
+            f"Window._handle_export: code_language={code_language}, preview_panel={id(self.preview_panel)}")
+
+        # Create and configure the worker with clean response and detected language
+        self.filename_worker = FilenameWorker(
+            response, self.session_id, code_language)
 
         def handle_filename_ready(suggested_filename):
             # Restore button state
@@ -725,12 +742,20 @@ class DasiWindow(QWidget):
                 default_filepath = os.path.join(
                     default_path, suggested_filename)
 
+                # Determine file extension and filter based on detected language
+                file_extension = os.path.splitext(suggested_filename)[1]
+                filter_string = self._get_filter_string_for_extension(
+                    file_extension)
+
+                logging.info(
+                    f"Using file extension: {file_extension} with filter: {filter_string}")
+
                 # Open file dialog with suggested name and default path
                 filename, _ = QFileDialog.getSaveFileName(
                     self,
                     "Save Response",
                     default_filepath,
-                    "Markdown Files (*.md);;All Files (*)"
+                    filter_string
                 )
 
                 if filename:  # Only save if user didn't cancel
@@ -757,17 +782,35 @@ class DasiWindow(QWidget):
         # Start the worker
         self.filename_worker.start()
 
-    def _cancel_export(self):
-        """Cancel the export operation."""
-        if hasattr(self, 'filename_worker') and self.filename_worker.isRunning():
-            self.filename_worker.stop()
-            self.filename_worker.wait()
+    def _get_filter_string_for_extension(self, file_extension):
+        """Get the appropriate filter string for QFileDialog based on file extension."""
+        extension_filters = {
+            ".py": "Python Files (*.py);;All Files (*)",
+            ".js": "JavaScript Files (*.js);;All Files (*)",
+            ".ts": "TypeScript Files (*.ts);;All Files (*)",
+            ".java": "Java Files (*.java);;All Files (*)",
+            ".c": "C Files (*.c);;All Files (*)",
+            ".cpp": "C++ Files (*.cpp);;All Files (*)",
+            ".cs": "C# Files (*.cs);;All Files (*)",
+            ".go": "Go Files (*.go);;All Files (*)",
+            ".rs": "Rust Files (*.rs);;All Files (*)",
+            ".rb": "Ruby Files (*.rb);;All Files (*)",
+            ".php": "PHP Files (*.php);;All Files (*)",
+            ".swift": "Swift Files (*.swift);;All Files (*)",
+            ".kt": "Kotlin Files (*.kt);;All Files (*)",
+            ".html": "HTML Files (*.html);;All Files (*)",
+            ".css": "CSS Files (*.css);;All Files (*)",
+            ".sql": "SQL Files (*.sql);;All Files (*)",
+            ".sh": "Shell Script Files (*.sh);;All Files (*)",
+            ".json": "JSON Files (*.json);;All Files (*)",
+            ".xml": "XML Files (*.xml);;All Files (*)",
+            ".yaml": "YAML Files (*.yaml);;All Files (*)",
+            ".yml": "YAML Files (*.yml);;All Files (*)",
+            ".txt": "Text Files (*.txt);;All Files (*)",
+        }
 
-            # Restore export button
-            self.preview_panel.export_button.setText("Export")
-            self.preview_panel.export_button.clicked.disconnect()
-            self.preview_panel.export_button.clicked.connect(
-                self.preview_panel._handle_export)
+        # Default to markdown if extension not found in our dictionary
+        return extension_filters.get(file_extension.lower(), "Markdown Files (*.md);;All Files (*)")
 
     def _handle_export_error(self, response: str):
         """Handle export errors by falling back to timestamp-based filename."""
@@ -779,19 +822,62 @@ class DasiWindow(QWidget):
                 self.preview_panel._handle_export)
             self.preview_panel.export_button.setEnabled(True)
 
+            # Check if we have a code language for a better extension
+            code_language = getattr(self.preview_panel, '_code_language', None)
+            extension = ".md"  # Default extension
+
+            if code_language:
+                # Map language to file extension
+                extension_map = {
+                    "python": ".py",
+                    "javascript": ".js",
+                    "typescript": ".ts",
+                    "java": ".java",
+                    "c": ".c",
+                    "cpp": ".cpp",
+                    "c++": ".cpp",
+                    "csharp": ".cs",
+                    "c#": ".cs",
+                    "go": ".go",
+                    "rust": ".rs",
+                    "ruby": ".rb",
+                    "php": ".php",
+                    "swift": ".swift",
+                    "kotlin": ".kt",
+                    "html": ".html",
+                    "css": ".css",
+                    "sql": ".sql",
+                    "shell": ".sh",
+                    "bash": ".sh",
+                    "json": ".json",
+                    "xml": ".xml",
+                    "yaml": ".yaml",
+                    "yml": ".yml",
+                    "text": ".txt",
+                    "plaintext": ".txt",
+                }
+
+                if code_language.lower() in extension_map:
+                    extension = extension_map[code_language.lower()]
+                    logging.info(
+                        f"Using extension {extension} based on language {code_language}")
+
             # Use timestamp for filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            suggested_filename = f"dasi_response_{timestamp}.md"
+            suggested_filename = f"dasi_response_{timestamp}{extension}"
             default_path = self.settings.get(
                 'general', 'export_path', default=os.path.expanduser("~/Documents"))
             default_filepath = os.path.join(default_path, suggested_filename)
+
+            # Get the appropriate filter string
+            filter_string = self._get_filter_string_for_extension(extension)
 
             # Open file dialog with fallback name
             filename, _ = QFileDialog.getSaveFileName(
                 self,
                 "Save Response",
                 default_filepath,
-                "Markdown Files (*.md);;All Files (*)"
+                filter_string
             )
 
             if filename:  # Only save if user didn't cancel
@@ -808,6 +894,18 @@ class DasiWindow(QWidget):
                 f"Failed to export response: {str(e)}",
                 QMessageBox.StandardButton.Ok
             )
+
+    def _cancel_export(self):
+        """Cancel the export operation."""
+        if hasattr(self, 'filename_worker') and self.filename_worker.isRunning():
+            self.filename_worker.stop()
+            self.filename_worker.wait()
+
+            # Restore export button
+            self.preview_panel.export_button.setText("Export")
+            self.preview_panel.export_button.clicked.disconnect()
+            self.preview_panel.export_button.clicked.connect(
+                self.preview_panel._handle_export)
 
     def keyPressEvent(self, event):
         """Handle global key events for the window."""
