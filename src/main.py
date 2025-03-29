@@ -8,7 +8,7 @@ from hotkey_listener import HotkeyListener
 from ui import CopilotUI
 from llm_handler import LLMHandler
 from ui.settings import Settings, SettingsWindow
-from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget
 from PyQt6.QtGui import QIcon, QPixmap, QPainter
 from PyQt6.QtCore import Qt
 from typing import Optional, Callable
@@ -275,8 +275,19 @@ class Dasi:
             if not self.settings_window:
                 from ui.settings import SettingsWindow
                 self.settings_window = SettingsWindow(dasi_instance=self)
+
+                # Apply theme again to ensure all widgets are styled properly
+                apply_theme(self.app, "dark")
+
             self.settings_window.show()
             self.settings_window.activateWindow()
+            # Force a style refresh to ensure correct appearance
+            self.settings_window.style().unpolish(self.settings_window)
+            self.settings_window.style().polish(self.settings_window)
+            # Also refresh child widgets
+            for widget in self.settings_window.findChildren(QWidget):
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
         except Exception as e:
             logging.error(f"Error showing settings: {str(e)}", exc_info=True)
 
@@ -459,8 +470,17 @@ if __name__ == "__main__":
             # Launch settings window if no models are selected
             logging.info("No models selected, launching settings window")
             app = QApplication(sys.argv)
+            # Apply theme before creating window
+            apply_theme(app, "dark")
             window = SettingsWindow()
             window.show()
+            # Force a style refresh to ensure correct appearance
+            window.style().unpolish(window)
+            window.style().polish(window)
+            # Also refresh child widgets
+            for widget in window.findChildren(QWidget):
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
             sys.exit(app.exec())
         else:
             # Launch main application
