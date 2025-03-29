@@ -7,13 +7,33 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 class Settings(QObject):
     """Settings manager with signals for changes."""
+    # Singleton instance
+    _instance = None
+
+    # Signals
     models_changed = pyqtSignal()  # Signal emitted when models list changes
-    custom_instructions_changed = pyqtSignal()  # Signal emitted when custom instructions change
+    # Signal emitted when custom instructions change
+    custom_instructions_changed = pyqtSignal()
     temperature_changed = pyqtSignal()  # Signal emitted when temperature changes
-    web_search_changed = pyqtSignal()  # Signal emitted when web search settings change
+    # Signal emitted when web search settings change
+    web_search_changed = pyqtSignal()
+
+    def __new__(cls):
+        """Create a new instance or return the existing one (Singleton pattern)."""
+        if cls._instance is None:
+            cls._instance = super(Settings, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
 
     def __init__(self):
+        """Initialize Settings once."""
+        # Only initialize once due to singleton pattern
+        if self._initialized:
+            return
+
         super().__init__()
+        self._initialized = True
+
         # Get config directory (following XDG specification)
         self.config_dir = Path(
             os.getenv('XDG_CONFIG_HOME', Path.home() / '.config')) / 'dasi'
@@ -55,8 +75,8 @@ class Settings(QObject):
                 'max_results': 5,
                 'scrape_content': True,
                 'enabled_providers': [
-                    'google_serper', 
-                    'brave_search', 
+                    'google_serper',
+                    'brave_search',
                     'ddg_search'
                 ]
             }
@@ -117,7 +137,7 @@ class Settings(QObject):
 
         current[keys[-1]] = value
         success = self.save_settings()
-        
+
         # Emit appropriate signals based on what was changed
         if success:
             # Check if this is a web search setting change
@@ -129,7 +149,7 @@ class Settings(QObject):
             # Check for temperature change
             elif keys and keys[0] == 'general' and keys[-1] == 'temperature':
                 self.temperature_changed.emit()
-                
+
         return success
 
     def get_api_key(self, provider: str) -> str:
@@ -139,11 +159,11 @@ class Settings(QObject):
     def set_api_key(self, provider: str, key: str) -> bool:
         """Set API key for a specific provider."""
         success = self.set(key, 'api_keys', provider)
-        
+
         # Emit web_search_changed signal if this is a web search provider
         if success and provider in ['google_serper', 'brave_search', 'exa_search', 'tavily_search']:
             self.web_search_changed.emit()
-            
+
         return success
 
     def get_selected_models(self) -> List[Dict[str, str]]:

@@ -29,12 +29,13 @@ from .general_tab import SectionFrame
 
 class RoundLabel(QLabel):
     """Custom label with rounded corners using QPainter."""
-    
+
     def __init__(self, text, parent=None, radius=12):
         super().__init__(text, parent)
         self.radius = radius
         # Set colors for the label - using orange theme
-        self.bg_color = QColor(230, 126, 34, 25)  # Light orange background with ~10% opacity
+        # Light orange background with ~10% opacity
+        self.bg_color = QColor(230, 126, 34, 25)
         self.text_color = QColor(230, 126, 34)  # Orange text (#e67e22)
         # Set fixed height for consistent look
         self.setFixedHeight(24)
@@ -48,38 +49,39 @@ class RoundLabel(QLabel):
         metrics = self.fontMetrics()
         text_width = metrics.horizontalAdvance(text)
         self.setMinimumWidth(text_width + 24)  # 12px padding on each side
-    
+
     def sizeHint(self):
         size = super().sizeHint()
         size.setHeight(24)
         return size
-    
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
+
         try:
             # Create the path for the rounded rectangle
             path = QPainterPath()
-            path.addRoundedRect(QRectF(0, 0, self.width(), self.height()), 
+            path.addRoundedRect(QRectF(0, 0, self.width(), self.height()),
                                 self.radius, self.radius)
-            
+
             # Set the clipping path
             painter.setClipPath(path)
-            
+
             # Fill background
             painter.fillRect(self.rect(), self.bg_color)
-            
+
             # Draw text - use the font we set in the constructor
             painter.setPen(self.text_color)
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
+            painter.drawText(
+                self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
         finally:
             painter.end()
 
 
 class RoundButton(QPushButton):
     """Custom button with rounded corners using QPainter."""
-    
+
     def __init__(self, text, parent=None, radius=14):
         super().__init__(text, parent)
         self.radius = radius
@@ -89,29 +91,29 @@ class RoundButton(QPushButton):
         self.hover_border_color = QColor(230, 126, 34, 102)  # ~40% opacity
         self.hover_bg_color = QColor(230, 126, 34, 25)  # ~10% opacity
         self.text_color = QColor(230, 126, 34)  # #e67e22
-        
+
     def enterEvent(self, event):
         self.hover = True
         self.update()
         return super().enterEvent(event)
-        
+
     def leaveEvent(self, event):
         self.hover = False
         self.update()
         return super().leaveEvent(event)
-        
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
+
         try:
             # Create the path for the perfect circle
             path = QPainterPath()
             path.addEllipse(QRectF(1, 1, self.width()-2, self.height()-2))
-            
+
             # Set the clipping path
             painter.setClipPath(path)
-            
+
             # Draw the background
             if self.hover:
                 # Hover state
@@ -119,18 +121,20 @@ class RoundButton(QPushButton):
             else:
                 # Normal state
                 painter.fillRect(self.rect(), Qt.GlobalColor.transparent)
-            
+
             # Draw the border
-            painter.setPen(self.hover_border_color if self.hover else self.border_color)
+            painter.setPen(
+                self.hover_border_color if self.hover else self.border_color)
             painter.drawEllipse(1, 1, self.width()-2, self.height()-2)
-            
+
             # Draw the text centered
             painter.setPen(self.text_color)
             font = painter.font()
             font.setPointSize(12)
             font.setBold(True)
             painter.setFont(font)
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
+            painter.drawText(
+                self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
         finally:
             # Make sure painter is ended properly
             painter.end()
@@ -425,7 +429,7 @@ class ModelFetchWorker(QThread):
                     'name': 'Grok-1'
                 }
             ]
-            
+
             return models
         except Exception as e:
             logging.error(f"Error setting up xAI models: {str(e)}")
@@ -462,35 +466,36 @@ class ModelFetchWorker(QThread):
 
 class ComboBoxStyle(QProxyStyle):
     """Custom style to draw a text arrow for combo boxes."""
+
     def __init__(self, style=None):
         super().__init__(style)
         self.arrow_color = QColor("#e67e22")  # Orange color for arrow
-        
+
     def drawPrimitive(self, element, option, painter, widget=None):
         if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown and isinstance(widget, QComboBox):
             # Draw a custom arrow
             rect = option.rect
             painter.save()
-            
+
             # Set up the arrow color
             painter.setPen(QPen(self.arrow_color, 1.5))
-            
+
             # Draw a triangle instead of text arrow for more modern look
             # Calculate the triangle points
             width = 9
             height = 6
             x = rect.center().x() - width // 2
             y = rect.center().y() - height // 2
-            
+
             path = QPainterPath()
             path.moveTo(x, y)
             path.lineTo(x + width, y)
             path.lineTo(x + width // 2, y + height)
             path.lineTo(x, y)
-            
+
             # Fill the triangle
             painter.fillPath(path, self.arrow_color)
-            
+
             painter.restore()
             return
         super().drawPrimitive(element, option, painter, widget)
@@ -504,7 +509,7 @@ class SearchableComboBox(QComboBox):
 
         # Apply custom arrow style
         self.setStyle(ComboBoxStyle())
-        
+
         # Apply orange-themed style
         self.setStyleSheet("""
             QComboBox {
@@ -522,7 +527,7 @@ class SearchableComboBox(QComboBox):
                 width: 24px;
             }
         """)
-        
+
         # Create search line edit
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Search models...")
@@ -692,13 +697,15 @@ class ModelsTab(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
-        layout.setContentsMargins(16, 16, 16, 16)  # Adjusted right padding from 0 to 16
+        # Adjusted right padding from 0 to 16
+        layout.setContentsMargins(16, 16, 16, 16)
 
         # Create a scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("QScrollArea { background-color: transparent; }")
 
         # Create a widget to hold all content
@@ -706,7 +713,8 @@ class ModelsTab(QWidget):
         content.setStyleSheet("background-color: transparent;")
         content_layout = QVBoxLayout(content)
         content_layout.setSpacing(12)
-        content_layout.setContentsMargins(0, 0, 0, 0)  # Removed 8px right padding
+        content_layout.setContentsMargins(
+            0, 0, 0, 0)  # Removed 8px right padding
 
         # Model Selection Section
         selection_section = SectionFrame(
@@ -878,46 +886,51 @@ class ModelsTab(QWidget):
 
         # Check if we have any API keys or custom models configured
         google_key = self.settings.get_api_key('google')
-        
+
         # Check for any custom OpenAI models
         has_custom_openai = False
-        
+
         # Check the original custom_openai model
-        custom_model_id = self.settings.get('models', 'custom_openai', 'model_id')
-        custom_base_url = self.settings.get('models', 'custom_openai', 'base_url')
+        custom_model_id = self.settings.get(
+            'models', 'custom_openai', 'model_id')
+        custom_base_url = self.settings.get(
+            'models', 'custom_openai', 'base_url')
         custom_api_key = self.settings.get_api_key('custom_openai')
         if custom_model_id and custom_base_url and custom_api_key:
             has_custom_openai = True
-            
+
         # Check for additional custom OpenAI models
         if not has_custom_openai:
             index = 1
             while True:
                 settings_key = f"custom_openai_{index}"
-                model_id = self.settings.get('models', settings_key, 'model_id')
-                base_url = self.settings.get('models', settings_key, 'base_url')
+                model_id = self.settings.get(
+                    'models', settings_key, 'model_id')
+                base_url = self.settings.get(
+                    'models', settings_key, 'base_url')
                 api_key = self.settings.get_api_key(settings_key)
-                
+
                 if model_id and base_url and api_key:
                     has_custom_openai = True
                     break
-                
+
                 if index > 10:  # Limit the search to avoid infinite loop
                     break
-                    
+
                 index += 1
-        
+
         # Always check for local Ollama models regardless of API keys
         try:
             # Quick check if Ollama is running
             ollama_available = False
             try:
-                response = requests.get('http://localhost:11434/api/tags', timeout=0.5)
+                response = requests.get(
+                    'http://localhost:11434/api/tags', timeout=0.5)
                 if response.status_code == 200:
                     ollama_available = True
             except:
                 pass
-                
+
             if ollama_available:
                 # Show loading state and start worker thread
                 self.model_dropdown.clear()
@@ -925,13 +938,13 @@ class ModelsTab(QWidget):
                 self.model_dropdown.setEnabled(False)
                 self.progress_bar.setRange(0, 0)  # Indeterminate progress
                 self.progress_bar.show()
-                
+
                 # Start worker thread
                 self.fetch_worker = ModelFetchWorker(self.settings)
                 self.fetch_worker.finished.connect(self._on_fetch_success)
                 self.fetch_worker.error.connect(self._on_fetch_error)
                 self.fetch_worker.start()
-                
+
                 # Update UI to show fetching state
                 if hasattr(self, 'refresh_button'):
                     self.refresh_button.setEnabled(False)
@@ -984,7 +997,7 @@ class ModelsTab(QWidget):
                 'name': f"Custom: {custom_model_id}"
             }
             models.append(custom_model)
-            
+
         # Then check for additional custom OpenAI models
         index = 1
         while True:
@@ -993,7 +1006,7 @@ class ModelsTab(QWidget):
                 'models', settings_key, 'model_id')
             custom_base_url = self.settings.get(
                 'models', settings_key, 'base_url')
-            
+
             if custom_model_id and custom_base_url:
                 custom_model = {
                     'id': custom_model_id,  # Store the exact model ID as provided
@@ -1049,7 +1062,8 @@ class ModelsTab(QWidget):
 
         # Main container widget with single border
         widget = QWidget()
-        widget.setObjectName("modelItem")  # Give it a specific name for styling
+        # Give it a specific name for styling
+        widget.setObjectName("modelItem")
         widget.setStyleSheet("""
             #modelItem {
                 background-color: #222222;
@@ -1057,7 +1071,7 @@ class ModelsTab(QWidget):
                 border-radius: 8px;
             }
         """)
-        
+
         # Use a single horizontal layout
         layout = QHBoxLayout(widget)
         layout.setContentsMargins(16, 12, 16, 12)
@@ -1105,10 +1119,12 @@ class ModelsTab(QWidget):
         actions_layout = QHBoxLayout()
         actions_layout.setContentsMargins(0, 0, 0, 0)
         actions_layout.setSpacing(10)
-        actions_layout.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        actions_layout.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         # Default model indicator
-        is_default = self.settings.get('models', 'default_model') == model_info['id']
+        is_default = self.settings.get(
+            'models', 'default_model') == model_info['id']
         default_label = RoundLabel("Default")
         default_label.setVisible(is_default)
 
@@ -1123,8 +1139,9 @@ class ModelsTab(QWidget):
             color: #e67e22;
         """)
         default_btn.setVisible(False)
-        default_btn.clicked.connect(lambda: self.set_default_model(model_info['id']))
-        
+        default_btn.clicked.connect(
+            lambda: self.set_default_model(model_info['id']))
+
         # Add hover effects with event filter
         default_btn.enterEvent = lambda e: default_btn.setStyleSheet("""
             padding: 4px 12px;
@@ -1148,7 +1165,7 @@ class ModelsTab(QWidget):
         remove_btn.setFixedSize(28, 28)
         remove_btn.setVisible(False)
         remove_btn.clicked.connect(lambda: self.remove_model(model_info['id']))
-        
+
         # Add content to actions layout
         actions_layout.addWidget(default_label)
         actions_layout.addWidget(default_btn)
@@ -1186,18 +1203,18 @@ class ModelsTab(QWidget):
                     if not self.is_default:
                         self.default_btn.setVisible(True)
                     self.remove_btn.setVisible(True)
-                    
+
                     # Apply hover style only to the main widget
                     obj.setStyleSheet(self.hover_style)
-                    
+
                 elif event.type() == QEvent.Type.Leave:
                     # Hide buttons
                     self.default_btn.setVisible(False)
                     self.remove_btn.setVisible(False)
-                    
+
                     # Restore original style
                     obj.setStyleSheet(self.original_style)
-                
+
                 return False
 
         # Install event filter
@@ -1256,33 +1273,35 @@ class ModelsTab(QWidget):
             self.load_selected_models()
             # Emit signal that models have changed
             self.models_changed.emit()
-            
+
     def remove_models_by_provider(self, provider: str):
         """Remove all models from a specific provider when its API key is cleared."""
         if not provider:
             return
-            
+
         # Get current selected models
         current_models = self.settings.get_selected_models()
-        
+
         # Find models from the specified provider
         # For custom_openai providers, we need to match the exact provider key
         if provider == 'custom_openai' or provider.startswith('custom_openai_'):
-            models_to_remove = [model['id'] for model in current_models if model['provider'] == provider]
+            models_to_remove = [
+                model['id'] for model in current_models if model['provider'] == provider]
         else:
             # For standard providers, remove all models from that provider
-            models_to_remove = [model['id'] for model in current_models if model['provider'] == provider]
-        
+            models_to_remove = [
+                model['id'] for model in current_models if model['provider'] == provider]
+
         if not models_to_remove:
             # No models to remove
             return
-            
+
         # Remove each model
         removed_any = False
         for model_id in models_to_remove:
             if self.settings.remove_selected_model(model_id):
                 removed_any = True
-                
+
         if removed_any:
             # Reload settings from disk
             self.settings.load_settings()
@@ -1290,17 +1309,19 @@ class ModelsTab(QWidget):
             self.load_selected_models()
             # Emit signal that models have changed
             self.models_changed.emit()
-            
+
             # Log the removal
-            logging.info(f"Removed {len(models_to_remove)} models from provider '{provider}' due to API key reset")
-            
+            logging.info(
+                f"Removed {len(models_to_remove)} models from provider '{provider}' due to API key reset")
+
             # Check if the default model was removed
             default_model = self.settings.get('models', 'default_model')
             if default_model in models_to_remove:
                 # Reset the default model
                 self.settings.set("", 'models', 'default_model')
-                logging.info(f"Reset default model as it was from provider '{provider}'")
-                
+                logging.info(
+                    f"Reset default model as it was from provider '{provider}'")
+
             # Show notification to the user
             # Format the provider name for display
             display_provider = provider
@@ -1311,7 +1332,7 @@ class ModelsTab(QWidget):
                 display_provider = "Custom OpenAI Model"
             else:
                 display_provider = provider.title()
-                
+
             QMessageBox.information(
                 self,
                 "Models Removed",

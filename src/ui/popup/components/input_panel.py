@@ -373,8 +373,11 @@ class InputPanel(QWidget):
         # Setup chunk dropdown
         self._setup_chunk_dropdown()
 
-        # Connect to settings signals
+        # Connect to settings signals - add logging to track this connection
+        logging.info(
+            "InputPanel: Connecting to settings.models_changed signal")
         self.settings.models_changed.connect(self.update_model_selector)
+        logging.info("InputPanel: Signal connected")
 
     def _setup_ui(self):
         """Set up the UI components."""
@@ -845,11 +848,17 @@ class InputPanel(QWidget):
 
     def update_model_selector(self):
         """Update the model selector with currently selected models."""
+        # Log that this method was called
+        logging.info("InputPanel: Updating model selector")
+
         # Reload settings from disk
         self.settings.load_settings()
 
         self.model_selector.clear()
         selected_models = self.settings.get_selected_models()
+
+        # Log the current models
+        logging.info(f"InputPanel: Found {len(selected_models)} models")
 
         if not selected_models:
             self.model_selector.addItem("No models selected")
@@ -903,6 +912,9 @@ class InputPanel(QWidget):
         # Configure size policy to expand horizontally
         self.model_selector.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        # Log that the update is complete
+        logging.info("InputPanel: Model selector updated successfully")
 
     def get_selected_model(self):
         """Get the currently selected model ID."""
