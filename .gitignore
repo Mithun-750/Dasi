@@ -18,6 +18,11 @@ ENV/
 # PyInstaller distribution
 /dist
 /build
+/AppDir
+
+# AppImage files
+appimagetool-*.AppImage
+*.AppImage
 
 # Unit test / coverage reports
 *.coverage

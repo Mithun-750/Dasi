@@ -18,4 +18,16 @@ def sync(c):
 @task
 def build(c):
     """Build the application"""
-    c.run("uv run installer.py install") 
+    c.run("uv run installer.py install")
+
+@task
+def appimage(c):
+    """Build Dasi as an AppImage"""
+    # Make the script executable
+    c.run("chmod +x create_appimage.sh")
+    
+    # Run the script
+    print("Building Dasi AppImage...")
+    c.run("./create_appimage.sh")
+    
+    print("\nAppImage created! You can find it in the current directory.") 
