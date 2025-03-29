@@ -90,6 +90,12 @@ print_status "Copying application files..."
 cp -r src AppDir/usr/
 cp LICENSE AppDir/usr/
 cp README.md AppDir/usr/
+
+# Copy default prompt chunks
+print_status "Copying default prompt chunks..."
+mkdir -p AppDir/usr/defaults/prompt_chunks
+cp -r defaults/prompt_chunks/* AppDir/usr/defaults/prompt_chunks/
+
 cp -r .venv/lib/python3.10/site-packages/* AppDir/usr/lib/python3.10/site-packages/
 
 # Copy Python standard library (more comprehensive approach)
@@ -226,6 +232,9 @@ export QT_DEBUG_PLUGINS=1
 # Set icon path for the application to use
 export DASI_ICON_PATH="${HERE}/usr/share/icons/hicolor/256x256/apps/dasi.png"
 
+# Set path for default prompt chunks
+export DASI_DEFAULT_CHUNKS_PATH="${HERE}/usr/defaults/prompt_chunks"
+
 # Create a script to modify the src/main.py file to use the absolute icon path
 TEMP_SCRIPT="${HERE}/usr/src/icon_fix.py"
 cat > "${TEMP_SCRIPT}" << 'PYTHON_EOF'
@@ -277,6 +286,61 @@ PYTHON_EOF
 
 # Run the icon fix script
 "${HERE}/usr/bin/python3" "${TEMP_SCRIPT}"
+
+# Create a script to initialize default prompt chunks from AppImage
+CHUNKS_SCRIPT="${HERE}/usr/src/prompt_chunks_fix.py"
+cat > "${CHUNKS_SCRIPT}" << 'PYTHON_EOF'
+import os
+import shutil
+import logging
+from pathlib import Path
+
+# Setup basic logging
+logging.basicConfig(level=logging.INFO)
+
+# Get the default prompt chunks path from environment
+default_chunks_path = os.environ.get('DASI_DEFAULT_CHUNKS_PATH', '')
+if not default_chunks_path or not os.path.exists(default_chunks_path):
+    logging.error(f"Default prompt chunks directory not found: {default_chunks_path}")
+    exit(1)
+
+# Determine the user's config directory
+home_dir = Path.home()
+config_dir = home_dir / '.config' / 'dasi'
+target_chunks_dir = config_dir / 'prompt_chunks'
+
+# Create the target directory if it doesn't exist
+target_chunks_dir.mkdir(parents=True, exist_ok=True)
+
+# Check if we need to copy default prompt chunks
+if len(list(target_chunks_dir.glob('*.md'))) == 0:
+    logging.info(f"No prompt chunks found in {target_chunks_dir}, copying defaults...")
+    # Copy all files from default chunks directory
+    for chunk_file in Path(default_chunks_path).glob('*.md'):
+        target_file = target_chunks_dir / chunk_file.name
+        shutil.copy2(chunk_file, target_file)
+        logging.info(f"Copied default prompt chunk: {chunk_file.name}")
+else:
+    logging.info(f"Prompt chunks directory already exists with content, not copying defaults.")
+    
+    # Check for missing default chunks and copy them
+    default_chunks = set(f.name for f in Path(default_chunks_path).glob('*.md'))
+    existing_chunks = set(f.name for f in target_chunks_dir.glob('*.md'))
+    missing_chunks = default_chunks - existing_chunks
+    
+    if missing_chunks:
+        logging.info(f"Adding {len(missing_chunks)} missing default prompt chunks...")
+        for chunk_name in missing_chunks:
+            src_file = Path(default_chunks_path) / chunk_name
+            target_file = target_chunks_dir / chunk_name
+            shutil.copy2(src_file, target_file)
+            logging.info(f"Added missing prompt chunk: {chunk_name}")
+
+logging.info("Prompt chunks check completed")
+PYTHON_EOF
+
+# Run the prompt chunks initialization script
+"${HERE}/usr/bin/python3" "${CHUNKS_SCRIPT}"
 
 # Run the application with verbose output for easier debugging
 exec "${HERE}/usr/bin/python3" -v "${HERE}/usr/src/main.py" "$@"
