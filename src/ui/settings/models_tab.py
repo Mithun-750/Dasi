@@ -1261,8 +1261,7 @@ class ModelsTab(QWidget):
                     self.settings.load_settings()
                     # Update UI
                     self.add_model_to_list(model_info)
-                    # Emit signal that models have changed
-                    self.models_changed.emit()
+                    # No need to emit signal here - Settings class already emits it
 
     def remove_model(self, model_id: str):
         """Remove a model from the list."""
@@ -1271,8 +1270,7 @@ class ModelsTab(QWidget):
             self.settings.load_settings()
             # Refresh the list
             self.load_selected_models()
-            # Emit signal that models have changed
-            self.models_changed.emit()
+            # No need to emit signal here - Settings class already emits it
 
     def remove_models_by_provider(self, provider: str):
         """Remove all models from a specific provider when its API key is cleared."""
@@ -1307,8 +1305,7 @@ class ModelsTab(QWidget):
             self.settings.load_settings()
             # Refresh the list
             self.load_selected_models()
-            # Emit signal that models have changed
-            self.models_changed.emit()
+            # No need to emit signal here - Settings class already emits it for each model removed
 
             # Log the removal
             logging.info(

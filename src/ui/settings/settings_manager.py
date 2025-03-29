@@ -124,8 +124,26 @@ class Settings(QObject):
         except (KeyError, TypeError):
             return default
 
-    def set(self, value, *keys):
-        """Set a nested setting value and save."""
+    def set(self, *args):
+        """Set a nested setting value and save.
+
+        This method can be called in two ways:
+        1. set(key1, key2, ..., value) - where the last argument is the value
+        2. set(value, key1, key2, ...) - where the first argument is the value (old implementation)
+        """
+        if not args:
+            return False
+
+        # Check how it's being called (old or new style)
+        if len(args) >= 3 and isinstance(args[0], str) and isinstance(args[1], str):
+            # Called as set(key1, key2, ..., value)
+            keys = args[:-1]
+            value = args[-1]
+        else:
+            # Called as set(value, key1, key2, ...)
+            value = args[0]
+            keys = args[1:]
+
         if not keys:
             return False
 
@@ -158,7 +176,7 @@ class Settings(QObject):
 
     def set_api_key(self, provider: str, key: str) -> bool:
         """Set API key for a specific provider."""
-        success = self.set(key, 'api_keys', provider)
+        success = self.set('api_keys', provider, key)
 
         # Emit web_search_changed signal if this is a web search provider
         if success and provider in ['google_serper', 'brave_search', 'exa_search', 'tavily_search']:
@@ -191,7 +209,7 @@ class Settings(QObject):
                 'name': display_name or model_id
             }
             current_models.append(model_info)
-            success = self.set(current_models, 'models', 'selected_models')
+            success = self.set('models', 'selected_models', current_models)
             if success:
                 # Reload settings to ensure we have latest data
                 self.load_settings()
@@ -204,7 +222,7 @@ class Settings(QObject):
         current_models = self.get_selected_models()
         filtered_models = [m for m in current_models if m['id'] != model_id]
         if len(filtered_models) != len(current_models):
-            success = self.set(filtered_models, 'models', 'selected_models')
+            success = self.set('models', 'selected_models', filtered_models)
             if success:
                 # Reload settings to ensure we have latest data
                 self.load_settings()

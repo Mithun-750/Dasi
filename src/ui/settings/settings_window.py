@@ -144,8 +144,11 @@ class SettingsWindow(QMainWindow):
 
         self.init_ui()
 
-        # Connect models tab changes to update button
-        self.models_tab.models_changed.connect(self.update_start_button)
+        # Connect directly to the settings models_changed signal
+        # This ensures we get the signal only once when models change
+        logging.info("Connecting to Settings.models_changed signal")
+        self.settings.models_changed.connect(self.handle_models_changed)
+        logging.info("Connected to Settings.models_changed signal")
 
         # Check if Dasi is already running
         self.check_dasi_running()
@@ -404,7 +407,7 @@ class SettingsWindow(QMainWindow):
     def check_dasi_running(self):
         """Check if Dasi is already running and update UI accordingly."""
         # If we already have a Dasi instance, it's running
-        if self.dasi_instance and self.hotkey_listener and self.hotkey_listener.is_active():
+        if self.dasi_instance and self.hotkey_listener and self.hotkey_listener.is_running():
             # Update button to show Stop Dasi
             self.start_dasi_btn.setText("Stop Dasi")
             self.start_dasi_btn.setEnabled(True)
@@ -476,10 +479,24 @@ class SettingsWindow(QMainWindow):
 
     def update_start_button(self):
         """Update the Start Dasi button state."""
+        # IMPORTANT: Don't change the running state when models change
+        # If we already have Dasi running, preserve that state
+
+        # Get the current button text to check if we're showing "Stop Dasi" or "Start Dasi"
+        current_button_text = self.start_dasi_btn.text()
+        already_showing_stop = current_button_text == "Stop Dasi"
+
+        # Only perform the full state check if we're not already showing "Stop Dasi"
+        # This prevents model changes from affecting the button state
+        if already_showing_stop:
+            # If we're already showing Stop Dasi, keep it that way
+            # This prevents model changes from toggling the button
+            return
+
         # Check if Dasi is running - use consistent check method
         has_instance = DasiInstanceManager.is_running()
         has_listener = self.hotkey_listener is not None
-        is_active = has_listener and self.hotkey_listener.is_active()
+        is_active = has_listener and self.hotkey_listener.is_running()
         is_running = has_instance and is_active
 
         # Log the state for debugging
@@ -721,6 +738,89 @@ class SettingsWindow(QMainWindow):
 
         # Update the window
         self.update()
+
+    def handle_models_changed(self):
+        """Handle models changed signal while preserving the running state."""
+        logging.info("Received models_changed signal")
+
+        # Check if Dasi is running (for debugging)
+        has_instance = DasiInstanceManager.is_running()
+        has_listener = self.hotkey_listener is not None
+        is_running = has_listener and self.hotkey_listener.is_running()
+
+        # IMPORTANT: Check the actual running state rather than button text
+        # This solves the icon/text mismatch issue
+        if is_running:
+            logging.info("Dasi is running - preserving Stop Dasi button state")
+
+            # Ensure consistent button state for "Stop Dasi"
+            self.start_dasi_btn.setText("Stop Dasi")
+            if hasattr(self, 'stop_icon_path') and os.path.exists(self.stop_icon_path):
+                self.start_dasi_btn.setIcon(QIcon(self.stop_icon_path))
+            self.start_dasi_btn.setEnabled(True)
+            self.start_dasi_btn.setStyleSheet("""
+                QPushButton { 
+                    text-align: center;
+                    background-color: #d35400;
+                    color: white;
+                    font-weight: bold;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #e67e22;
+                }
+            """)
+
+            # Connect to stop_dasi
+            try:
+                self.start_dasi_btn.clicked.disconnect()
+            except:
+                pass
+            self.start_dasi_btn.clicked.connect(self.stop_dasi)
+            return
+
+        # Otherwise update for "Start Dasi" state
+        logging.info(
+            "Dasi is not running - updating button for Start Dasi state")
+
+        # Update based on whether we have models
+        has_models = bool(self.settings.get_selected_models())
+        self.start_dasi_btn.setText(
+            "Start Dasi" if has_models else "Select Models First")
+        self.start_dasi_btn.setEnabled(has_models)
+
+        # Set the play icon
+        if hasattr(self, 'play_icon_path') and os.path.exists(self.play_icon_path):
+            self.start_dasi_btn.setIcon(QIcon(self.play_icon_path))
+
+        # Update styling
+        self.start_dasi_btn.setStyleSheet("""
+            QPushButton { 
+                text-align: center;
+                background-color: #e67e22;
+                color: white;
+                font-weight: bold;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #f39c12;
+            }
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #999999;
+            }
+        """)
+
+        # Connect to start_dasi
+        try:
+            self.start_dasi_btn.clicked.disconnect()
+        except:
+            pass
+        self.start_dasi_btn.clicked.connect(self.start_dasi)
 
 
 def main():
