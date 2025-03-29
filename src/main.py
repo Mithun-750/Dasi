@@ -390,6 +390,25 @@ class Dasi:
                     self.llm_handler.clear_chat_history(session_id)
                     # Don't cache this command or make an LLM call
                     return ""
+                elif query.startswith('!paste:'):
+                    # Extract the text to paste
+                    text = query[7:]  # Skip !paste:
+                    if text:
+                        # Copy to clipboard
+                        pyperclip.copy(text)
+                        # Perform paste operation
+                        pyautogui.hotkey('ctrl', 'v')
+                        logging.info(
+                            f"Pasted text via clipboard: {text[:50]}...")
+                    return ""
+                elif query.startswith('!type:'):
+                    # Extract the text to type
+                    text = query[6:]  # Skip !type:
+                    if text:
+                        # Type the text character by character with a small delay
+                        pyautogui.write(text, interval=0.01)
+                        logging.info(f"Typed text: {text[:50]}...")
+                    return ""
                 # Handle other special commands...
         except Exception as e:
             logging.error(
