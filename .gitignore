@@ -23,6 +23,8 @@ ENV/
 # AppImage files
 appimagetool-*.AppImage
 *.AppImage
+converted-*.png
+.DirIcon
 
 # Unit test / coverage reports
 *.coverage

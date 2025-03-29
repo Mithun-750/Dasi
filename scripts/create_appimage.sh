@@ -17,9 +17,9 @@
 # Usage:
 #   1. Ensure you have a working Python virtual environment with all required
 #      dependencies installed.
-#   2. Make this script executable: chmod +x create_appimage.sh
-#   3. Run the script: ./create_appimage.sh
-#   4. The AppImage will be created in the current directory
+#   2. Make this script executable: chmod +x scripts/create_appimage.sh
+#   3. Run the script: ./scripts/create_appimage.sh
+#   4. The AppImage will be created in the project root directory
 #
 # The final AppImage can be run directly:
 #   ./Dasi-x.y.z-x86_64.AppImage
@@ -29,6 +29,10 @@
 # =============================================================================
 
 set -e
+
+# Navigate to project root directory (parent of scripts folder)
+cd "$(dirname "$0")/.."
+PROJECT_ROOT=$(pwd)
 
 # Color definitions
 GREEN='\033[0;32m'
@@ -66,7 +70,7 @@ error_handler() {
 # Set up error trap
 trap 'error_handler $LINENO' ERR
 
-print_status "Starting AppImage creation process..."
+print_status "Starting AppImage creation process from: $PROJECT_ROOT"
 
 # Clean previous builds
 print_status "Cleaning previous builds..."
@@ -78,6 +82,7 @@ print_status "Creating AppDir structure..."
 mkdir -p AppDir/usr/bin
 mkdir -p AppDir/usr/share/applications
 mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+mkdir -p AppDir/usr/share/pixmaps
 mkdir -p AppDir/usr/lib/python3.10/site-packages
 
 # Copy application files
@@ -122,8 +127,25 @@ done
 # Set up icon
 print_status "Setting up application icon..."
 if [ -f "src/assets/Dasi.png" ]; then
+    # Copy the main icon
     cp src/assets/Dasi.png AppDir/dasi.png
     cp src/assets/Dasi.png AppDir/usr/share/icons/hicolor/256x256/apps/dasi.png
+    cp src/assets/Dasi.png AppDir/usr/share/pixmaps/dasi.png
+    
+    # Copy the icon to .DirIcon directly instead of using a symlink
+    cp src/assets/Dasi.png AppDir/.DirIcon
+    
+    # Try to convert icons to different sizes if ImageMagick is available
+    if command -v convert &> /dev/null; then
+        print_status "Converting icon to different sizes..."
+        for size in 16 24 32 48 64 96 128 192; do
+            mkdir -p AppDir/usr/share/icons/hicolor/${size}x${size}/apps
+            convert src/assets/Dasi.png -resize ${size}x${size} AppDir/usr/share/icons/hicolor/${size}x${size}/apps/dasi.png || print_warning "Could not convert icon to ${size}x${size}, continuing anyway"
+        done
+    else
+        print_warning "ImageMagick not available. Only using the 256x256 icon."
+    fi
+    
     print_success "Icon set successfully"
 else
     print_warning "Icon file not found at src/assets/Dasi.png"
@@ -165,6 +187,61 @@ export QML2_IMPORT_PATH="${HERE}/usr/lib/python3.10/site-packages/PyQt6/Qt6/qml"
 export XDG_CONFIG_HOME="${HOME}/.config"
 export QT_DEBUG_PLUGINS=1
 
+# Set icon path for the application to use
+export DASI_ICON_PATH="${HERE}/usr/share/icons/hicolor/256x256/apps/dasi.png"
+
+# Create a script to modify the src/main.py file to use the absolute icon path
+TEMP_SCRIPT="${HERE}/usr/src/icon_fix.py"
+cat > "${TEMP_SCRIPT}" << 'PYTHON_EOF'
+import os
+import re
+
+# Get the icon path from environment
+icon_path = os.environ.get('DASI_ICON_PATH', '')
+if not icon_path:
+    print("Warning: DASI_ICON_PATH not set, icon might not display correctly")
+    exit(0)
+
+# Read the main.py file
+main_file = os.path.join(os.path.dirname(__file__), 'main.py')
+with open(main_file, 'r') as f:
+    content = f.read()
+
+# Check if we already modified this file
+if "# APPIMAGE ICON FIX" in content:
+    print("Icon fix already applied")
+    exit(0)
+
+# Add code to use the absolute icon path when running from AppImage
+icon_fix = """
+# APPIMAGE ICON FIX
+import os
+appimage_icon = os.environ.get('DASI_ICON_PATH')
+if appimage_icon and os.path.exists(appimage_icon):
+    print(f"Using AppImage icon from: {appimage_icon}")
+    ICON_PATH = appimage_icon
+"""
+
+# Insert the fix at the beginning of the file after imports
+# Look for a suitable position to insert the code
+import_pattern = re.compile(r'((?:^|\n)import .*?(?:\n|$))', re.DOTALL)
+matches = list(import_pattern.finditer(content))
+if matches:
+    # Find the last import statement
+    last_import = matches[-1]
+    position = last_import.end()
+    # Insert the icon fix code after the last import
+    new_content = content[:position] + icon_fix + content[position:]
+    with open(main_file, 'w') as f:
+        f.write(new_content)
+    print("Icon fix applied to main.py")
+else:
+    print("Could not find a suitable position to insert icon fix")
+PYTHON_EOF
+
+# Run the icon fix script
+"${HERE}/usr/bin/python3" "${TEMP_SCRIPT}"
+
 # Run the application with verbose output for easier debugging
 exec "${HERE}/usr/bin/python3" -v "${HERE}/usr/src/main.py" "$@"
 EOF
@@ -173,10 +250,10 @@ chmod +x AppDir/AppRun
 print_success "AppRun script created"
 
 # Download appimagetool
-if [ ! -f "appimagetool-x86_64.AppImage" ]; then
+if [ ! -f "scripts/appimagetool-x86_64.AppImage" ]; then
     print_status "Downloading appimagetool..."
-    wget -c "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
-    chmod +x appimagetool-x86_64.AppImage
+    wget -c "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" -O scripts/appimagetool-x86_64.AppImage
+    chmod +x scripts/appimagetool-x86_64.AppImage
     print_success "Downloaded appimagetool"
 else
     print_status "Using existing appimagetool"
@@ -184,9 +261,9 @@ fi
 
 # Build the AppImage
 print_status "Building AppImage..."
-VERSION=$(grep -oP '(?<=version = ").*(?=")' pyproject.toml)
+VERSION=$(grep -oP '(?<=version = ").*(?=")' pyproject.toml || echo "0.1.0")
 ARCH=$(uname -m)
-./appimagetool-x86_64.AppImage AppDir "Dasi-${VERSION}-${ARCH}.AppImage"
+./scripts/appimagetool-x86_64.AppImage AppDir "Dasi-${VERSION}-${ARCH}.AppImage"
 
 print_success "AppImage created successfully!"
 ls -la Dasi-*.AppImage

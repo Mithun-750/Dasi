@@ -180,17 +180,30 @@ class Dasi:
 
             # Try multiple icon paths
             potential_icon_paths = [
+                # First check environment variable (used by AppImage)
+                os.environ.get('DASI_ICON_PATH'),
+                # Check for dedicated icon locations within the AppImage
+                '/usr/share/icons/hicolor/256x256/apps/dasi.png',
+                '/usr/share/pixmaps/dasi.png',
+                # Check standard directories
                 os.path.join(base_path, 'assets', 'Dasi.png'),
+                os.path.join(base_path, 'assets', 'icons', 'dasi.png'),
                 os.path.join(base_path, 'Dasi.png'),
                 os.path.join(os.path.dirname(base_path), 'assets', 'Dasi.png'),
+                # Check user installation directories
+                os.path.expanduser('~/.local/share/icons/dasi.png'),
+                os.path.expanduser(
+                    '~/.local/share/icons/hicolor/256x256/apps/dasi.png'),
             ]
 
             icon_path = None
             for path in potential_icon_paths:
-                logging.info(f"Trying icon path: {path}")
-                if os.path.exists(path):
+                if path and os.path.exists(path):
+                    logging.info(f"Found icon at path: {path}")
                     icon_path = path
                     break
+                elif path:
+                    logging.debug(f"Icon not found at: {path}")
 
             if icon_path is None:
                 logging.warning(
@@ -206,7 +219,21 @@ class Dasi:
                 self.tray.setIcon(QIcon(pixmap))
             else:
                 logging.info(f"Using icon from: {icon_path}")
-                self.tray.setIcon(QIcon(icon_path))
+                icon = QIcon(icon_path)
+                # Check if the icon is valid
+                if icon.isNull():
+                    logging.warning(
+                        f"Icon at {icon_path} is invalid. Using fallback icon.")
+                    pixmap = QPixmap(32, 32)
+                    pixmap.fill(Qt.GlobalColor.transparent)
+                    painter = QPainter(pixmap)
+                    painter.setPen(Qt.GlobalColor.white)
+                    painter.drawText(
+                        pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "D")
+                    painter.end()
+                    self.tray.setIcon(QIcon(pixmap))
+                else:
+                    self.tray.setIcon(icon)
 
             # Create tray menu
             menu = QMenu()

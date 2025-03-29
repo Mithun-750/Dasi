@@ -63,7 +63,7 @@ A powerful desktop copilot that provides inline LLM support using LangChain and 
 
 2. Run the installation script:
    ```bash
-   python installer.py install
+   python scripts/installer.py install
    ```
 
    This will:
@@ -121,7 +121,7 @@ This setup is recommended for:
 
 To uninstall Dasi, run:
 ```bash
-python installer.py uninstall
+python scripts/installer.py uninstall
 ```
 
 This will remove:
