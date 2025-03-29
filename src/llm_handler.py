@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Optional, Callable, List, Dict
+from typing import Optional, Callable, List, Dict, Tuple
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
@@ -24,6 +24,8 @@ class LLMHandler:
         self.llm = None
         self.settings = Settings()
         self.current_provider = None
+        # Store detected language from code blocks
+        self.detected_language = None
 
         # Initialize database path
         self.db_path = str(Path(self.settings.config_dir) / 'chat_history.db')
@@ -380,7 +382,7 @@ class LLMHandler:
             message_history = self._get_message_history(session_id)
 
             # Parse context and query
-            mode = 'chat'
+            mode = 'chat'  # Default mode
             context = {}
             actual_query = query
             web_search = False
@@ -466,9 +468,11 @@ class LLMHandler:
                     logging.info(
                         f"Link scrape requested from context: {link_to_scrape}")
 
+                # Check for mode in context
                 if "Mode:" in context_section:
                     mode = context_section.split(
-                        "Mode:", 1)[1].split("\n", 1)[0].strip()
+                        "Mode:", 1)[1].split("\n", 1)[0].strip().lower()
+                    logging.info(f"Mode detected from context: {mode}")
 
                 # Also support the new format for mode
                 if "=====MODE=====" in context_section:
@@ -477,8 +481,10 @@ class LLMHandler:
                         "=======================", 1)[0].strip()
                     # Remove the metadata part if present
                     if "<" in mode_text and ">" in mode_text:
-                        mode_text = mode_text.split(">", 1)[1].strip()
+                        mode_text = mode_text.split(">", 1)[1].strip().lower()
                     mode = mode_text
+                    logging.info(
+                        f"Mode detected from delimited context: {mode}")
 
                 # Check for web search flag in context
                 if "=====WEB_SEARCH=====" in context_section:
@@ -843,7 +849,9 @@ class LLMHandler:
                 for chunk in self.llm.stream(messages):
                     if chunk.content:
                         response_content.append(chunk.content)
+                        # Stream the raw response to the user without processing backticks
                         callback(''.join(response_content))
+                # Get the complete response after streaming is done
                 final_response = ''.join(response_content)
                 logging.info(
                     f"Streaming complete, total response length: {len(final_response)}")
@@ -854,6 +862,29 @@ class LLMHandler:
                 final_response = response.content.strip()
                 logging.info(
                     f"Response received, length: {len(final_response)}")
+
+            # Check if in compose mode for proper code block handling
+            is_compose_mode = (mode == 'compose')
+            logging.info(
+                f"Processing response in mode: {mode} (compose mode: {is_compose_mode})")
+
+            # Extract any code blocks from the response - only in compose mode
+            # This happens only after the complete response is generated
+            if is_compose_mode:
+                logging.info(
+                    f"Original response before processing: '{final_response[:50]}...'")
+                final_response, detected_language = self._extract_code_block(
+                    final_response)
+                logging.info(f"Processed response: '{final_response[:50]}...'")
+                # Store the detected language for later use
+                self.detected_language = detected_language
+                logging.info(
+                    f"Detected language from code block: {detected_language}")
+            else:
+                # For chat mode, keep the backticks (for proper markdown rendering)
+                self.detected_language = None
+                logging.info(
+                    "In chat mode - preserving code blocks with backticks for markdown rendering")
 
             # Add the exchange to history
             message_history.add_message(query_message)
@@ -883,6 +914,102 @@ class LLMHandler:
 
             return f"⚠️ Error: {error_msg}"
 
+    def _extract_code_block(self, response: str) -> Tuple[str, Optional[str]]:
+        """
+        Extract code blocks from response text.
+
+        IMPORTANT: This method is called only after the complete response is generated,
+        not during streaming, to ensure we properly detect full code blocks.
+
+        In compose mode, the backticks are removed to provide clean code.
+        In chat mode, the backticks are preserved for markdown rendering.
+
+        Args:
+            response: The complete response text from LLM
+
+        Returns:
+            Tuple containing:
+                - The response with code blocks unwrapped (if it was a single code block)
+                - The detected language if found, otherwise None
+        """
+        # Strip whitespace for more reliable pattern matching
+        stripped_response = response.strip()
+
+        # Direct method for robust detection and removal of triple backticks
+        # This should handle any formatting variations
+
+        # Check if response starts with triple backticks and ends with triple backticks
+        if stripped_response.startswith("```") and stripped_response.endswith("```"):
+            logging.info("Detected code block with backticks at start and end")
+
+            # Find the first newline to extract language
+            first_line_end = stripped_response.find("\n")
+            if first_line_end > 3:  # We have a language identifier
+                language = stripped_response[3:first_line_end].strip().lower()
+                # Remove the starting line with backticks and language
+                content = stripped_response[first_line_end+1:-3].strip()
+                logging.info(f"Extracted language: {language}")
+                return content, language
+            else:
+                # No language specified
+                content = stripped_response[4:-3].strip()
+                logging.info("No language specified in code block")
+                return content, None
+
+        # Fallback to regex for more complex patterns
+        # This pattern matches:
+        # 1. Start of string with optional whitespace
+        # 2. Three backticks followed by an optional language identifier
+        # 3. Optional whitespace and newline
+        # 4. Any content (non-greedy)
+        # 5. Three backticks at the end with optional whitespace
+        # 6. End of string
+        code_block_pattern = r'^\s*```(\w*)\s*\n([\s\S]*?)\n\s*```\s*$'
+        match = re.match(code_block_pattern, stripped_response)
+
+        if match:
+            # The entire response is a code block
+            language = match.group(1).strip().lower() or None
+            code_content = match.group(2)
+
+            logging.info(f"Detected code block with language: {language}")
+            # Return the content without backticks and the detected language
+            return code_content, language
+
+        # Additional check: if the response contains triple backticks at beginning and end
+        # but with some extra text/whitespace that the regex missed
+        if "```" in stripped_response:
+            lines = stripped_response.split("\n")
+            # Check if first line has backticks
+            if any(line.strip().startswith("```") for line in lines[:2]):
+                # Check if last line has backticks
+                if any(line.strip().endswith("```") for line in lines[-2:]):
+                    logging.info(
+                        "Detected code block with non-standard formatting")
+
+                    # Find the first line with backticks
+                    for i, line in enumerate(lines):
+                        if "```" in line:
+                            # Extract language if present
+                            language_part = line.strip()[3:].strip()
+                            # Extract remaining content after first line until last backticks
+                            content_lines = []
+                            backtick_found = False
+                            for j in range(i+1, len(lines)):
+                                if "```" in lines[j]:
+                                    backtick_found = True
+                                    break
+                                content_lines.append(lines[j])
+
+                            if backtick_found and content_lines:
+                                content = "\n".join(content_lines)
+                                return content, language_part if language_part else None
+                            break
+
+        # If we get here, it wasn't a code block or the pattern didn't match
+        logging.info("No code block detected in the response")
+        return response, None
+
     def suggest_filename(self, content: str, session_id: str = "default") -> str:
         """Suggest a filename based on content and recent query history."""
         try:
@@ -900,20 +1027,69 @@ class LLMHandler:
                         recent_query = msg.content
                         break
 
+            # Check if we have a detected language that would suggest a better extension
+            file_extension = ".md"  # Default extension
+            extension_hint = ""
+
+            if self.detected_language:
+                logging.info(
+                    f"Using detected language for filename suggestion: {self.detected_language}")
+                # Map language to file extension
+                extension_map = {
+                    "python": ".py",
+                    "py": ".py",
+                    "javascript": ".js",
+                    "js": ".js",
+                    "typescript": ".ts",
+                    "ts": ".ts",
+                    "java": ".java",
+                    "c": ".c",
+                    "cpp": ".cpp",
+                    "c++": ".cpp",
+                    "csharp": ".cs",
+                    "c#": ".cs",
+                    "go": ".go",
+                    "rust": ".rs",
+                    "ruby": ".rb",
+                    "php": ".php",
+                    "swift": ".swift",
+                    "kotlin": ".kt",
+                    "html": ".html",
+                    "css": ".css",
+                    "sql": ".sql",
+                    "shell": ".sh",
+                    "bash": ".sh",
+                    "json": ".json",
+                    "xml": ".xml",
+                    "yaml": ".yaml",
+                    "yml": ".yml",
+                    "markdown": ".md",
+                    "md": ".md",
+                    "text": ".txt",
+                    "plaintext": ".txt",
+                }
+
+                if self.detected_language.lower() in extension_map:
+                    file_extension = extension_map[self.detected_language.lower(
+                    )]
+                    extension_hint = f"(use {file_extension} extension for this {self.detected_language} code)"
+                    logging.info(
+                        f"Using file extension: {file_extension} for detected language: {self.detected_language}")
+
             # Create the prompt for filename suggestion
             filename_query = f"""Generate a concise, professional filename for this content. Follow these rules strictly:
 1. Use letters, numbers, and underscores only (no spaces)
-2. Maximum 30 characters (excluding .md extension)
+2. Maximum 30 characters (excluding file extension)
 3. Use PascalCase or snake_case for better readability
 4. Focus on the key topic/purpose
 5. No dates unless critically relevant
-6. Return ONLY the filename with .md extension, nothing else
+6. Return ONLY the filename with {file_extension} extension, nothing else {extension_hint}
 
 Examples of good filenames:
-- Api_Authentication.md
-- User_Workflow.md
-- Deployment_Strategy.md
-- System_Architecture.md
+- Api_Authentication{file_extension}
+- User_Workflow{file_extension}
+- Deployment_Strategy{file_extension}
+- System_Architecture{file_extension}
 
 User Query:
 {recent_query}
@@ -934,9 +1110,15 @@ Content:
             # Extract the content from the response
             suggested_filename = response.content.strip().strip('"').strip("'").strip()
 
-            # Ensure it has .md extension
-            if not suggested_filename.endswith('.md'):
-                suggested_filename += '.md'
+            # Ensure it has the correct extension
+            if not suggested_filename.endswith(file_extension):
+                # Remove any existing extension
+                if '.' in suggested_filename:
+                    suggested_filename = suggested_filename.split('.')[0]
+                suggested_filename += file_extension
+
+            # Reset the detected language after using it
+            self.detected_language = None
 
             return suggested_filename
 
@@ -946,4 +1128,15 @@ Content:
             # Return a default filename with timestamp
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            return f"dasi_response_{timestamp}.md"
+
+            # Use the stored language for extension if available
+            extension = ".md"
+            if self.detected_language in ["python", "py"]:
+                extension = ".py"
+            elif self.detected_language in ["javascript", "js"]:
+                extension = ".js"
+
+            # Reset the detected language
+            self.detected_language = None
+
+            return f"dasi_response_{timestamp}{extension}"

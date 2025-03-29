@@ -7,6 +7,7 @@ A powerful desktop copilot that provides inline LLM support using LangChain and 
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![PyQt](https://img.shields.io/badge/PyQt-6.0+-blue.svg)](https://www.riverbankcomputing.com/software/pyqt/)
 [![LangChain](https://img.shields.io/badge/LangChain-Latest-orange.svg)](https://python.langchain.com/)
+[![uv](https://img.shields.io/badge/uv-Latest-blueviolet.svg)](https://astral.sh/uv)
 
 [🌟 Features](#-features) • [🚀 Installation](#-installation) • [💡 Usage](#-usage) • [⚙️ Configuration](#%EF%B8%8F-configuration) • [🤝 Contributing](#-contributing)
 
@@ -49,7 +50,7 @@ A powerful desktop copilot that provides inline LLM support using LangChain and 
 
 ### Prerequisites
 - Python 3.8 or higher
-- pip package manager
+- uv package manager (follow [installation guide](https://astral.sh/uv))
 - For Windows users: `pywin32` and `winshell` packages (optional, for shortcut creation)
 
 ### Installation
@@ -62,7 +63,7 @@ A powerful desktop copilot that provides inline LLM support using LangChain and 
 
 2. Run the installation script:
    ```bash
-   python installer.py install
+   python scripts/installer.py install
    ```
 
    This will:
@@ -86,29 +87,28 @@ If you want to run Dasi locally for development:
    cd Dasi
    ```
 
-2. Create and activate a virtual environment:
+2. Install uv (if not already installed) and set up the project:
    ```bash
-   # Create virtual environment
-   python3 -m venv .venv
+   # Install uv if needed
+   curl -LsSf https://astral.sh/uv/install.sh | sh
    
-   # On Linux/macOS with bash/zsh:
-   source .venv/bin/activate
-   
-   # On Linux with fish shell:
-   source .venv/bin/activate.fish
-   
-   # On Windows:
-   .venv\Scripts\activate
+   # Install project in development mode with all dependencies
+   uv pip install -e .
    ```
 
-3. Install dependencies:
+3. Use Invoke commands to manage your development workflow:
    ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Run the application:
-   ```bash
-   python src/main.py
+   # Run the application in development mode
+   inv dev
+   
+   # Update dependencies after changing pyproject.toml
+   inv install  # This runs 'uv pip install -e .'
+   
+   # Sync dependencies with the lockfile
+   inv sync
+   
+   # Build the application
+   inv build
    ```
 
 This setup is recommended for:
@@ -121,7 +121,7 @@ This setup is recommended for:
 
 To uninstall Dasi, run:
 ```bash
-python installer.py uninstall
+python scripts/installer.py uninstall
 ```
 
 This will remove:
@@ -171,9 +171,9 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ### Development Setup
 1. Fork the repository
 2. Create a feature branch
-3. Install development dependencies:
+3. Install project dependencies:
    ```bash
-   pip install -r requirements-dev.txt
+   uv pip install -e .
    ```
 4. Make your changes
 5. Submit a pull request

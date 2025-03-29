@@ -3,14 +3,16 @@ import sys
 import logging
 import pyautogui
 import pyperclip
+import time
 from pathlib import Path
 from hotkey_listener import HotkeyListener
 from ui import CopilotUI
 from llm_handler import LLMHandler
 from ui.settings import Settings, SettingsWindow
-from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
+from cache_manager import CacheManager
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget
 from PyQt6.QtGui import QIcon, QPixmap, QPainter
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from typing import Optional, Callable
 # Import constants
 from constants import DEFAULT_CHAT_PROMPT, DEFAULT_COMPOSE_PROMPT
@@ -18,6 +20,9 @@ from constants import DEFAULT_CHAT_PROMPT, DEFAULT_COMPOSE_PROMPT
 from instance_manager import DasiInstanceManager
 # Import theme system
 from ui.assets import apply_theme
+
+# Global cache manager instance
+cache_manager = None
 
 
 def setup_logging():
@@ -72,11 +77,59 @@ def setup_logging():
 setup_logging()
 
 
+class StartupThread(QThread):
+    """Background thread for handling slow startup tasks."""
+    finished = pyqtSignal()
+
+    def __init__(self, llm_handler):
+        super().__init__()
+        self.llm_handler = llm_handler
+        self.cache_manager = cache_manager
+
+    def run(self):
+        """Execute startup tasks in background."""
+        logging.info("Starting background initialization...")
+        start_time = time.time()
+
+        # Perform any heavy initialization here
+        # For example, pre-loading models or resources
+        try:
+            # Check if we have a cached model initialization
+            if self.cache_manager:
+                # Warm up the LLM with a simple query that's cached
+                cached_response = self.cache_manager.get_from_cache(
+                    "startup_warmup", namespace="system")
+                if not cached_response:
+                    logging.info("Creating startup cache...")
+                    # Don't actually make a query, just initialize the model
+                    self.llm_handler.initialize_llm()
+                    # Create a cache entry so we know initialization completed
+                    self.cache_manager.save_to_cache(
+                        "startup_warmup",
+                        {"status": "completed", "timestamp": time.time(),
+                         "namespace": "system"},
+                        namespace="system")
+                else:
+                    logging.info("Using startup cache")
+        except Exception as e:
+            logging.error(f"Error in startup thread: {str(e)}", exc_info=True)
+
+        elapsed = time.time() - start_time
+        logging.info(f"Background initialization completed in {elapsed:.2f}s")
+        self.finished.emit()
+
+
 class Dasi:
     def __init__(self):
         """Initialize Dasi."""
         try:
             logging.info("Starting Dasi application")
+            start_time = time.time()
+
+            # Initialize cache manager first for fastest startup
+            global cache_manager
+            cache_manager = CacheManager()
+            logging.info("Cache manager initialized")
 
             # Ensure we have only one QApplication instance
             if not QApplication.instance():
@@ -123,6 +176,15 @@ class Dasi:
 
             # Initialize settings window (but don't show it)
             self.settings_window = None
+
+            # Start background initialization thread for non-critical tasks
+            self.startup_thread = StartupThread(self.llm_handler)
+            self.startup_thread.finished.connect(
+                self.on_background_init_complete)
+            self.startup_thread.start()
+
+            logging.info(
+                f"Application initialized in {time.time() - start_time:.2f}s")
 
         except Exception as e:
             logging.error(
@@ -180,17 +242,30 @@ class Dasi:
 
             # Try multiple icon paths
             potential_icon_paths = [
+                # First check environment variable (used by AppImage)
+                os.environ.get('DASI_ICON_PATH'),
+                # Check for dedicated icon locations within the AppImage
+                '/usr/share/icons/hicolor/256x256/apps/dasi.png',
+                '/usr/share/pixmaps/dasi.png',
+                # Check standard directories
                 os.path.join(base_path, 'assets', 'Dasi.png'),
+                os.path.join(base_path, 'assets', 'icons', 'dasi.png'),
                 os.path.join(base_path, 'Dasi.png'),
                 os.path.join(os.path.dirname(base_path), 'assets', 'Dasi.png'),
+                # Check user installation directories
+                os.path.expanduser('~/.local/share/icons/dasi.png'),
+                os.path.expanduser(
+                    '~/.local/share/icons/hicolor/256x256/apps/dasi.png'),
             ]
 
             icon_path = None
             for path in potential_icon_paths:
-                logging.info(f"Trying icon path: {path}")
-                if os.path.exists(path):
+                if path and os.path.exists(path):
+                    logging.info(f"Found icon at path: {path}")
                     icon_path = path
                     break
+                elif path:
+                    logging.debug(f"Icon not found at: {path}")
 
             if icon_path is None:
                 logging.warning(
@@ -206,7 +281,21 @@ class Dasi:
                 self.tray.setIcon(QIcon(pixmap))
             else:
                 logging.info(f"Using icon from: {icon_path}")
-                self.tray.setIcon(QIcon(icon_path))
+                icon = QIcon(icon_path)
+                # Check if the icon is valid
+                if icon.isNull():
+                    logging.warning(
+                        f"Icon at {icon_path} is invalid. Using fallback icon.")
+                    pixmap = QPixmap(32, 32)
+                    pixmap.fill(Qt.GlobalColor.transparent)
+                    painter = QPainter(pixmap)
+                    painter.setPen(Qt.GlobalColor.white)
+                    painter.drawText(
+                        pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "D")
+                    painter.end()
+                    self.tray.setIcon(QIcon(pixmap))
+                else:
+                    self.tray.setIcon(icon)
 
             # Create tray menu
             menu = QMenu()
@@ -248,8 +337,19 @@ class Dasi:
             if not self.settings_window:
                 from ui.settings import SettingsWindow
                 self.settings_window = SettingsWindow(dasi_instance=self)
+
+                # Apply theme again to ensure all widgets are styled properly
+                apply_theme(self.app, "dark")
+
             self.settings_window.show()
             self.settings_window.activateWindow()
+            # Force a style refresh to ensure correct appearance
+            self.settings_window.style().unpolish(self.settings_window)
+            self.settings_window.style().polish(self.settings_window)
+            # Also refresh child widgets
+            for widget in self.settings_window.findChildren(QWidget):
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
         except Exception as e:
             logging.error(f"Error showing settings: {str(e)}", exc_info=True)
 
@@ -272,110 +372,85 @@ class Dasi:
             sys.exit(1)  # Force exit if clean shutdown fails
         sys.exit(0)
 
+    def on_background_init_complete(self):
+        """Handle completion of background initialization."""
+        logging.info("Background initialization completed")
+        # Any tasks that should run after initialization
+
     def process_query(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None) -> str:
         """Process a query and return the response."""
+        start_time = time.time()
+
+        # Handle special commands
         try:
             # Handle special commands
             if query.startswith('!'):
                 if query.startswith('!clear_session:'):
                     session_id = query.split(':', 1)[1]
                     self.llm_handler.clear_chat_history(session_id)
+                    # Don't cache this command or make an LLM call
                     return ""
-                elif query.startswith('!session:'):
-                    # Extract session ID and actual query
-                    _, rest = query.split(':', 1)
-                    session_id, actual_query = rest.split('|', 1)
-                    return self.llm_handler.get_response(actual_query, callback, model, session_id)
-                elif query.startswith('!paste:'):
-                    # Handle paste command
-                    text = query[6:]  # Remove !paste: prefix
-                    # Ensure no leading colon in the text
-                    if text.startswith(':'):
-                        text = text[1:].lstrip()
-                    pyperclip.copy(text)  # Copy to clipboard
-                    pyautogui.hotkey('ctrl', 'v')  # Simulate paste
-                    return ""
-                elif query.startswith('!type:'):
-                    # Handle type command
-                    text = query[6:]  # Remove !type: prefix
-                    # Ensure no leading colon in the text
-                    if text.startswith(':'):
-                        text = text[1:].lstrip()
-                    pyautogui.write(text, interval=0.01)
-                    return ""
-                else:
-                    return "Unknown command"
-
-            # Process normal query
-            response = self.llm_handler.get_response(query, callback, model)
-
-            # Check for quota errors and enhance the error message
-            if "⚠️ Error:" in response and ("quota" in response.lower() or "rate limit" in response.lower() or "resourceexhausted" in response.lower()):
-                # Get the current provider
-                provider = "unknown"
-                if self.llm_handler.current_provider:
-                    provider = self.llm_handler.current_provider
-
-                # Add troubleshooting information based on provider
-                if provider == "google":
-                    troubleshooting = """
-                    
-To resolve this issue:
-1. Check your Google AI Studio quota at https://aistudio.google.com/app/apikey
-2. Consider upgrading to a paid plan if you're on the free tier
-3. If on a paid plan, check your billing information
-4. Try again later when your quota resets"""
-                elif provider in ["openai", "custom_openai"]:
-                    troubleshooting = """
-                    
-To resolve this issue:
-1. Check your usage at https://platform.openai.com/usage
-2. Add funds to your account if needed
-3. Consider upgrading your rate limits
-4. Try again later"""
-                else:
-                    troubleshooting = """
-                    
-To resolve this issue:
-1. Check your usage and billing information
-2. Consider upgrading your plan
-3. Try again later when your quota resets"""
-
-                # Get alternative models
-                alternative_models = []
-                try:
-                    selected_models = self.settings.get_selected_models()
-                    current_model = model
-                    if not current_model and self.llm_handler.llm:
-                        if hasattr(self.llm_handler.llm, 'model'):
-                            current_model = self.llm_handler.llm.model
-                        elif hasattr(self.llm_handler.llm, 'model_name'):
-                            current_model = self.llm_handler.llm.model_name
-
-                    # Filter out models from the current provider
-                    if current_model and provider:
-                        alternative_models = [
-                            m['name'] for m in selected_models
-                            if m['provider'] != provider
-                        ][:3]  # Limit to 3 alternatives
-                except Exception as e:
-                    logging.error(
-                        f"Error getting alternative models: {str(e)}", exc_info=True)
-
-                # Add alternative models to the message if available
-                alternatives_text = ""
-                if alternative_models:
-                    alternatives_text = "\n\nTry these alternative models:\n- " + \
-                        "\n- ".join(alternative_models)
-
-                # Enhance the error message
-                return f"{response}{troubleshooting}{alternatives_text}"
-
-            return response
-
+                # Handle other special commands...
         except Exception as e:
-            logging.error(f"Error processing query: {str(e)}", exc_info=True)
+            logging.error(
+                f"Error processing special command: {str(e)}", exc_info=True)
             return f"Error: {str(e)}"
+
+        # Check for cache if it's enabled in settings
+        use_cache = self.settings.get('general', 'use_cache', default=True)
+        session_id = "default"  # Extract session ID if present in query
+
+        # Extract session ID if this is a session-specific query
+        if query.startswith('!session:'):
+            # Extract session ID and actual query
+            _, rest = query.split(':', 1)
+            extracted_session_id, actual_query = rest.split('|', 1)
+            session_id = extracted_session_id
+            # For caching purposes, use the actual query
+            cache_query = actual_query
+        else:
+            cache_query = query
+
+        if use_cache and cache_manager:
+            # Create a cache key from the query, model AND session_id
+            cache_key = f"{session_id}:{cache_query}"
+            if model:
+                cache_key = f"{model}:{session_id}:{cache_query}"
+
+            # Try to get response from cache
+            cached_data = cache_manager.get_from_cache(cache_key, namespace="queries",
+                                                       max_age=86400)  # 24 hour cache
+
+            if cached_data and 'response' in cached_data:
+                logging.info(
+                    f"Cache hit for query (took {time.time() - start_time:.3f}s)")
+                response = cached_data['response']
+
+                # Call the callback if provided, with the full cached response
+                if callback:
+                    callback(response)
+
+                return response
+
+        # If not cached or caching disabled, call LLM handler
+        response = self.llm_handler.get_response(query, callback, model)
+
+        # Cache the response if caching is enabled (and it's not a special command)
+        if use_cache and cache_manager and response and not query.startswith('!'):
+            # Include session ID in the cache key
+            cache_key = f"{session_id}:{cache_query}"
+            if model:
+                cache_key = f"{model}:{session_id}:{cache_query}"
+
+            cache_manager.save_to_cache(
+                cache_key,
+                {"response": response, "timestamp": time.time(),
+                 "namespace": "queries", "session_id": session_id},
+                namespace="queries"
+            )
+
+        logging.info(f"Query processed in {time.time() - start_time:.3f}s")
+        return response
 
     def check_selected_models(self):
         """Check if any models are selected in the settings."""
@@ -432,8 +507,17 @@ if __name__ == "__main__":
             # Launch settings window if no models are selected
             logging.info("No models selected, launching settings window")
             app = QApplication(sys.argv)
+            # Apply theme before creating window
+            apply_theme(app, "dark")
             window = SettingsWindow()
             window.show()
+            # Force a style refresh to ensure correct appearance
+            window.style().unpolish(window)
+            window.style().polish(window)
+            # Also refresh child widgets
+            for widget in window.findChildren(QWidget):
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
             sys.exit(app.exec())
         else:
             # Launch main application

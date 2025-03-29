@@ -7,6 +7,7 @@ from PyQt6.QtGui import QTextCursor, QColor, QPen, QPainterPath, QPainter, QCurs
 import sys
 import os
 import logging
+import re
 
 from .markdown_renderer import MarkdownRenderer
 
@@ -419,6 +420,8 @@ class PreviewPanel(QWidget):
         super().__init__(parent)
         self.is_chat_mode = False  # Default to compose mode
         self._user_edit_preference = True  # Track user's edit mode preference
+        self._code_language = None  # Track detected code language
+        self._original_response = None  # Store original response with backticks
         self._setup_ui()
 
     def _setup_ui(self):
@@ -708,20 +711,31 @@ class PreviewPanel(QWidget):
                 self.preview_stack.setCurrentWidget(self.markdown_preview)
                 self.markdown_preview.set_markdown(current_text)
 
-    def set_chat_mode(self, is_chat_mode: bool):
-        """Set whether the panel is in chat mode (markdown) or compose mode (plain text)."""
+    def set_chat_mode(self, is_chat: bool):
+        """Set chat mode (True) or compose mode (False)."""
+        # Store previous mode
+        was_chat_mode = self.is_chat_mode
+        # Update mode
+        self.is_chat_mode = is_chat
+
         # If mode is changing, transfer content between widgets
-        if self.is_chat_mode != is_chat_mode:
-            if is_chat_mode:
-                # Transferring from text to markdown
+        if was_chat_mode != is_chat:
+            if is_chat:
+                # Switching to chat mode
                 current_text = self.response_preview.toPlainText()
+                # Use original text with backticks for markdown if available
+                markdown_text = self._original_response if self._original_response else current_text
+
+                # Set widget to markdown preview
                 self.preview_stack.setCurrentWidget(self.markdown_preview)
-                if current_text:
-                    self.markdown_preview.set_markdown(current_text)
+                if markdown_text:
+                    self.markdown_preview.set_markdown(markdown_text)
+
                 # Hide edit button in chat mode
                 self.edit_button.setVisible(False)
             else:
-                # Transferring from markdown to text
+                # Switching to compose mode
+                # Get text from markdown preview
                 current_text = self.markdown_preview.get_plain_text()
 
                 # Apply the user's stored edit preference
@@ -729,11 +743,19 @@ class PreviewPanel(QWidget):
                 self.edit_button.setChecked(self._user_edit_preference)
                 self.edit_button.blockSignals(False)
 
-                # Show the appropriate view based on user preference
+                # Show the text preview and process backticks
+                self.preview_stack.setCurrentWidget(self.response_preview)
+
+                # Set text using original with backticks if available
+                if self._original_response:
+                    self.response_preview.setText(self._original_response)
+                    # Process to hide backticks for display
+                    self.process_final_response()
+                else:
+                    self.response_preview.setText(current_text)
+
+                # Apply edit state based on user preference
                 if self._user_edit_preference:
-                    self.preview_stack.setCurrentWidget(self.response_preview)
-                    if current_text:
-                        self.response_preview.setText(current_text)
                     # Make text editable
                     self.response_preview.setReadOnly(False)
                     self.response_preview.setProperty("editable", True)
@@ -742,34 +764,149 @@ class PreviewPanel(QWidget):
                     self.response_preview.setPlaceholderText(
                         "You can edit this response before using...")
                 else:
-                    # Keep markdown view but update content
-                    if current_text:
-                        self.markdown_preview.set_markdown(current_text)
+                    # Keep text read-only
+                    self.response_preview.setReadOnly(True)
+                    self.response_preview.setProperty("editable", False)
+                    self.response_preview.style().unpolish(self.response_preview)
+                    self.response_preview.style().polish(self.response_preview)
 
                 # Show edit button in compose mode
                 self.edit_button.setVisible(True)
 
-        self.is_chat_mode = is_chat_mode
-
     def set_response(self, response: str):
-        """Set the response text in the preview."""
+        """Set the response text and update UI elements."""
+        # Store original response with backticks
+        self._original_response = response
+
+        # Update the appropriate widget based on mode
+        if self.is_chat_mode:
+            self.markdown_preview.set_markdown(response)
+        else:
+            self.response_preview.setText(response)
+
+        # If empty response, hide the panel
         if not response:
+            self.show_preview(False)
             return
 
-        # Update both widgets to keep content in sync
-        self.response_preview.setText(response)
-        self.markdown_preview.set_markdown(response)
+        # Show the preview
+        self.show_preview(True)
 
-        # Show the stack widget
-        self.preview_stack.show()
-
-        # Synchronize UI with user preference
-        self._sync_ui_with_preference()
+        # Detect code language
+        self._detect_code_language()
 
         # Auto-scroll to bottom if in text mode
         if not self.is_chat_mode and self.preview_stack.currentWidget() == self.response_preview:
             scrollbar = self.response_preview.verticalScrollBar()
             scrollbar.setValue(scrollbar.maximum())
+
+    def show_actions(self, show: bool):
+        """Show or hide the action frame."""
+        self.action_frame.setVisible(show)
+
+        # When showing actions, this indicates we have a complete response
+        if show:
+            # First process any final response cleanup
+            self.process_final_response()
+            # Then detect code language
+            self._detect_code_language()
+
+        # Only update edit button visibility if showing actions
+        if show and not self.is_chat_mode:
+            # Make the edit button visible
+            self.edit_button.setVisible(True)
+
+            # Ensure button state matches user preference without triggering signals
+            self.edit_button.blockSignals(True)
+            self.edit_button.setChecked(self._user_edit_preference)
+            self.edit_button.blockSignals(False)
+
+            # Also make sure the current displayed widget matches the preference
+            if self._user_edit_preference:
+                self.preview_stack.setCurrentWidget(self.response_preview)
+            else:
+                self.preview_stack.setCurrentWidget(self.markdown_preview)
+        else:
+            # Hide edit button in chat mode
+            self.edit_button.setVisible(show and not self.is_chat_mode)
+
+    def _detect_code_language(self):
+        """Detect code language from the response text if it's a code block."""
+        if not hasattr(self, 'response_preview') or not self.response_preview:
+            return
+
+        current_text = self.response_preview.toPlainText()
+        if not current_text:
+            return
+
+        # Reset code language by default
+        self._code_language = None
+
+        # First, check for original response with backticks
+        if self._original_response and self._original_response.strip().startswith("```"):
+            lines = self._original_response.strip().split("\n")
+            if len(lines) >= 1 and lines[0].startswith("```"):
+                language = lines[0][3:].strip()
+                if language:
+                    logging.info(
+                        f"Detected language from original response: {language}")
+                    self._code_language = language.lower()
+                    return
+
+        # If no original response or no language found, check current text
+        stripped_text = current_text.strip()
+        if stripped_text.startswith("```") and stripped_text.endswith("```"):
+            lines = stripped_text.split("\n")
+            if len(lines) >= 3:
+                # Extract language from the first line
+                first_line = lines[0].strip()
+                if first_line.startswith("```"):
+                    language = first_line[3:].strip()
+                    if language:
+                        logging.info(f"Detected code language: {language}")
+                        self._code_language = language.lower()
+                        return
+
+        # If still no language detected, try checking for common programming patterns
+        # This helps when backticks may have been removed but it's still code
+        code_patterns = {
+            "python": [
+                r"\bdef\s+\w+\s*\(.*\):",
+                r"\bclass\s+\w+[:(]",
+                r"\bimport\s+\w+",
+                r"\bfrom\s+\w+\s+import\s+"
+            ],
+            "javascript": [
+                r"\bfunction\s+\w+\s*\(.*\)\s*{",
+                r"\bconst\s+\w+\s*=",
+                r"\blet\s+\w+\s*=",
+                r"\bvar\s+\w+\s*="
+            ],
+            "html": [
+                r"<html",
+                r"<body",
+                r"<div",
+                r"<script"
+            ],
+            "css": [
+                r"\.\w+\s*{",
+                r"#\w+\s*{",
+                r"@media"
+            ],
+            "sql": [
+                r"SELECT\s+\w+\s+FROM",
+                r"INSERT\s+INTO",
+                r"CREATE\s+TABLE"
+            ]
+        }
+
+        # Check for language patterns
+        for lang, patterns in code_patterns.items():
+            for pattern in patterns:
+                if re.search(pattern, stripped_text, re.IGNORECASE):
+                    logging.info(f"Detected {lang} code pattern: {pattern}")
+                    self._code_language = lang
+                    return
 
     def set_editable(self, editable: bool, update_button: bool = True):
         """Set whether the response preview is editable.
@@ -815,29 +952,6 @@ class PreviewPanel(QWidget):
                 self.edit_button.setChecked(editable)
                 self.edit_button.blockSignals(False)
 
-    def show_actions(self, show: bool):
-        """Show or hide the action frame."""
-        self.action_frame.setVisible(show)
-
-        # Only update edit button visibility if showing actions
-        if show and not self.is_chat_mode:
-            # Make the edit button visible
-            self.edit_button.setVisible(True)
-
-            # Ensure button state matches user preference without triggering signals
-            self.edit_button.blockSignals(True)
-            self.edit_button.setChecked(self._user_edit_preference)
-            self.edit_button.blockSignals(False)
-
-            # Also make sure the current displayed widget matches the preference
-            if self._user_edit_preference:
-                self.preview_stack.setCurrentWidget(self.response_preview)
-            else:
-                self.preview_stack.setCurrentWidget(self.markdown_preview)
-        else:
-            # Hide edit button in chat mode
-            self.edit_button.setVisible(show and not self.is_chat_mode)
-
     def show_preview(self, show: bool):
         """Show or hide the response preview."""
         self.preview_stack.setVisible(show)
@@ -849,37 +963,30 @@ class PreviewPanel(QWidget):
         """Clear the response preview."""
         self.response_preview.clear()
         self.markdown_preview.clear()
+        self._code_language = None  # Reset stored code language
         self.show_actions(False)  # Hide actions when clearing
 
     def _handle_use(self):
         """Handle use button click."""
-        # Get response from the appropriate widget
-        if self.is_chat_mode:
-            response = self.markdown_preview.get_plain_text()
-        else:
-            response = self.response_preview.toPlainText()
-
-        if response:
-            # Remove any leading colon that might be in the response
-            if response.startswith(':'):
-                response = response[1:].lstrip()
-
-            # Get selected insertion method
-            method = self.use_split_button.get_selected_data()
-
-            # Emit signal with method and response
-            self.use_clicked.emit(method, response)
+        # For use action, we want the processed text without backticks
+        response = self.response_preview.toPlainText()
+        logging.info(
+            f"Using response with method: {self.use_split_button.get_selected_data()}")
+        self.use_clicked.emit(
+            self.use_split_button.get_selected_data(), response)
 
     def _handle_export(self):
         """Handle export button click."""
-        # Get response from the appropriate widget
-        if self.is_chat_mode:
-            response = self.markdown_preview.get_plain_text()
-        else:
-            response = self.response_preview.toPlainText()
+        # Always use the clean content from the preview
+        response = self.response_preview.toPlainText()
 
-        if response:
-            self.export_clicked.emit(response)
+        # Log for debugging
+        logging.info(
+            f"Export requested with code language: {self._code_language}")
+
+        # Just emit the clean response - the Window class will handle the file extension
+        # based on the stored _code_language
+        self.export_clicked.emit(response)
 
     def hide(self):
         """Override hide to ensure both preview widgets are hidden."""
@@ -1012,6 +1119,51 @@ class PreviewPanel(QWidget):
             self.edit_button.setChecked(self._user_edit_preference)
             self.edit_button.blockSignals(False)
             self.edit_button.setVisible(True)
+
+    def process_final_response(self):
+        """Process the final response to handle code blocks and language detection.
+        This is called after streaming is complete to prepare the response for display/export."""
+        try:
+            # Get the current text from the preview
+            text = self.response_preview.toPlainText()
+
+            # Store original response for export
+            self._original_response = text
+
+            # Reset code language
+            self._code_language = None
+
+            # Check if text is wrapped in backticks
+            stripped_text = text.strip()
+            if stripped_text.startswith("```") and stripped_text.endswith("```"):
+                # Split into lines for processing
+                lines = stripped_text.split("\n")
+
+                # Extract language from first line if present
+                if len(lines) > 0 and lines[0].startswith("```"):
+                    lang = lines[0][3:].strip()
+                    if lang:
+                        self._code_language = lang.lower()
+                        logging.info(
+                            f"Detected language from code block: {self._code_language}")
+
+                # Remove backticks and language line
+                content_lines = lines[1:-1] if len(lines) > 2 else []
+                processed_text = "\n".join(content_lines)
+
+                # Update the preview with processed text
+                self.response_preview.setPlainText(processed_text)
+                logging.info(
+                    "Removed backticks and language line from response")
+
+            # Update UI based on detected language
+            self.update_ui_mode()
+
+        except Exception as e:
+            logging.error(f"Error processing final response: {str(e)}")
+            # Keep original text on error
+            return
+
 
 # If ChatOverlay is not defined elsewhere, create a simple placeholder class
 

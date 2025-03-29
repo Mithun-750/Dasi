@@ -35,35 +35,36 @@ from PyQt6.QtCore import QDir
 # Custom style to draw a text arrow for combo boxes
 class ComboBoxStyle(QProxyStyle):
     """Custom style to draw a text arrow for combo boxes."""
+
     def __init__(self, style=None):
         super().__init__(style)
         self.arrow_color = QColor("#e67e22")  # Orange color for arrow
-        
+
     def drawPrimitive(self, element, option, painter, widget=None):
         if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown and isinstance(widget, QComboBox):
             # Draw a custom arrow
             rect = option.rect
             painter.save()
-            
+
             # Set up the arrow color
             painter.setPen(QPen(self.arrow_color, 1.5))
-            
+
             # Draw a triangle instead of text arrow for more modern look
             # Calculate the triangle points
             width = 9
             height = 6
             x = rect.center().x() - width // 2
             y = rect.center().y() - height // 2
-            
+
             path = QPainterPath()
             path.moveTo(x, y)
             path.lineTo(x + width, y)
             path.lineTo(x + width // 2, y + height)
             path.lineTo(x, y)
-            
+
             # Fill the triangle
             painter.fillPath(path, self.arrow_color)
-            
+
             painter.restore()
             return
         super().drawPrimitive(element, option, painter, widget)
@@ -74,10 +75,10 @@ class SearchableComboBox(QComboBox):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        
+
         # Apply custom arrow style
         self.setStyle(ComboBoxStyle())
-        
+
         # Style the combobox itself
         self.setStyleSheet("""
             QComboBox {
@@ -149,7 +150,7 @@ class SearchableComboBox(QComboBox):
         self.scroll.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        
+
         # Use transparent background but rely on global scrollbar styling
         self.scroll.setStyleSheet("background-color: transparent;")
         self.scroll.setProperty("class", "global-scrollbar")
@@ -270,11 +271,11 @@ class SearchableComboBox(QComboBox):
 
 class SectionFrame(QFrame):
     """A styled frame for each section in the settings."""
-    
+
     def __init__(self, title, description=None, parent=None):
         super().__init__(parent)
         self.setProperty("class", "card")
-        
+
         self.setStyleSheet("""
             QFrame.card {
                 background-color: #1e1e1e;
@@ -296,16 +297,16 @@ class SectionFrame(QFrame):
                 color: #aaaaaa;
             }
         """)
-        
+
         self.layout = QVBoxLayout(self)
         self.layout.setSpacing(12)
         self.layout.setContentsMargins(16, 16, 16, 16)
-        
+
         # Title
         self.title_label = QLabel(title)
         self.title_label.setProperty("class", "subheading")
         self.layout.addWidget(self.title_label)
-        
+
         # Description
         if description:
             self.description_label = QLabel(description)
@@ -324,7 +325,7 @@ class GeneralTab(QWidget):
         self.save_original_values()
 
     def save_original_values(self):
-        """Save the original values of all settings for comparison."""
+        """Save the original values for checking changes later."""
         self.original_values = {
             'custom_instructions': self.settings.get('general', 'custom_instructions', default=""),
             'temperature': self.settings.get('general', 'temperature', default=0.7),
@@ -337,14 +338,15 @@ class GeneralTab(QWidget):
                 'key': 'I'
             }),
             'start_on_boot': self.settings.get('general', 'start_on_boot', default=False),
-            'export_path': self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents"))
+            'export_path': self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents")),
+            'use_cache': self.settings.get('general', 'use_cache', default=True)
         }
         self.has_unsaved_changes = False
         self.update_button_visibility()
 
     def get_current_values(self):
-        """Get the current values of all settings."""
-        return {
+        """Get the current values from the form."""
+        current_values = {
             'custom_instructions': self.custom_instructions.toPlainText(),
             'temperature': self.temperature.value(),
             'hotkey': {
@@ -356,18 +358,22 @@ class GeneralTab(QWidget):
                 'key': self.key_selector.currentText()
             },
             'start_on_boot': self.startup_checkbox.isChecked(),
-            'export_path': self.export_path.text()
+            'export_path': self.export_path.text(),
+            'use_cache': self.use_cache_checkbox.isChecked()
         }
+        return current_values
 
     def check_for_changes(self):
         """Check if there are any unsaved changes."""
         current = self.get_current_values()
         self.has_unsaved_changes = any([
             current['custom_instructions'] != self.original_values['custom_instructions'],
-            abs(current['temperature'] - self.original_values['temperature']) > 0.001,
+            abs(current['temperature'] -
+                self.original_values['temperature']) > 0.001,
             current['hotkey'] != self.original_values['hotkey'],
             current['start_on_boot'] != self.original_values['start_on_boot'],
-            current['export_path'] != self.original_values['export_path']
+            current['export_path'] != self.original_values['export_path'],
+            current['use_cache'] != self.original_values['use_cache']
         ])
         self.update_button_visibility()
 
@@ -379,28 +385,33 @@ class GeneralTab(QWidget):
         # Create main layout
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(12)
-        main_layout.setContentsMargins(16, 16, 16, 16)  # Adjusted right padding
+        main_layout.setContentsMargins(
+            16, 16, 16, 16)  # Adjusted right padding
 
         # Get the checkmark path based on running mode
         if getattr(sys, 'frozen', False):
             # Running as bundled PyInstaller app
             base_path = sys._MEIPASS
-            checkmark_path = os.path.join(base_path, "assets", "icons", "checkmark.svg")
+            checkmark_path = os.path.join(
+                base_path, "assets", "icons", "checkmark.svg")
             logging.info(f"Using frozen app checkmark at: {checkmark_path}")
         else:
             # Running in development
-            app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            checkmark_path = os.path.join(app_dir, "ui", "assets", "icons", "checkmark.svg")
+            app_dir = os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))))
+            checkmark_path = os.path.join(
+                app_dir, "ui", "assets", "icons", "checkmark.svg")
             logging.info(f"Using development checkmark at: {checkmark_path}")
 
         # Create a scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("background-color: transparent;")
         scroll.setProperty("class", "global-scrollbar")
-        
+
         # Apply scrollbar styling directly
         scrollbar = scroll.verticalScrollBar()
         if scrollbar:
@@ -451,7 +462,7 @@ class GeneralTab(QWidget):
             "These instructions will influence how Dasi responds to your queries. "
             "Note: Changes require restarting the Dasi service or using the 'Save & Apply' button to take full effect."
         )
-        
+
         self.custom_instructions = QTextEdit()
         self.custom_instructions.setMinimumHeight(120)
         self.custom_instructions.setPlaceholderText(
@@ -461,10 +472,10 @@ class GeneralTab(QWidget):
         custom_instructions = self.settings.get(
             'general', 'custom_instructions', default="")
         self.custom_instructions.setText(custom_instructions)
-        
+
         # Connect textChanged signal for auto-save
         self.custom_instructions.textChanged.connect(self._on_any_change)
-        
+
         instructions_section.layout.addWidget(self.custom_instructions)
         layout.addWidget(instructions_section)
 
@@ -475,7 +486,7 @@ class GeneralTab(QWidget):
             "while higher values (1.0) make them more creative. "
             "Note: Changes require restarting the Dasi service or using the 'Save & Apply' button to take full effect."
         )
-        
+
         # Temperature setting
         temp_container = QWidget()
         temp_container.setProperty("class", "transparent-container")
@@ -485,11 +496,12 @@ class GeneralTab(QWidget):
         temp_layout.setSpacing(12)
 
         temp_label = QLabel("Temperature:")
-        
+
         # Create a slider for temperature
         self.temp_slider = QSlider(Qt.Orientation.Horizontal)
         self.temp_slider.setRange(0, 100)  # 0.0 to 1.0 with 100 steps
-        self.temp_slider.setValue(int(self.settings.get('general', 'temperature', default=0.7) * 100))
+        self.temp_slider.setValue(int(self.settings.get(
+            'general', 'temperature', default=0.7) * 100))
         self.temp_slider.setMinimumWidth(150)
         self.temp_slider.setStyleSheet("""
             QSlider {
@@ -512,21 +524,23 @@ class GeneralTab(QWidget):
                 border-radius: 2px;
             }
         """)
-        
+
         # Create a custom number entry with buttons
         value_container = QWidget()
         value_container.setFixedWidth(80)
         value_layout = QHBoxLayout(value_container)
         value_layout.setContentsMargins(0, 0, 0, 0)
         value_layout.setSpacing(4)
-        
+
         # Number display
         self.temperature = QDoubleSpinBox()
         self.temperature.setRange(0.0, 1.0)
         self.temperature.setSingleStep(0.1)
-        self.temperature.setValue(self.settings.get('general', 'temperature', default=0.7))
+        self.temperature.setValue(self.settings.get(
+            'general', 'temperature', default=0.7))
         self.temperature.setFixedWidth(60)
-        self.temperature.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)  # Hide built-in buttons
+        self.temperature.setButtonSymbols(
+            QDoubleSpinBox.ButtonSymbols.NoButtons)  # Hide built-in buttons
         self.temperature.setStyleSheet("""
             QDoubleSpinBox {
                 background-color: #2a2a2a;
@@ -539,14 +553,14 @@ class GeneralTab(QWidget):
                 border: 1px solid #444444;
             }
         """)
-        
+
         # Create custom up/down buttons in a vertical layout
         button_container = QWidget()
         button_container.setFixedWidth(20)
         button_layout = QVBoxLayout(button_container)
         button_layout.setContentsMargins(0, 0, 0, 0)
         button_layout.setSpacing(1)
-        
+
         # Up button
         up_button = QPushButton("▲")
         up_button.setFixedSize(20, 14)
@@ -567,7 +581,7 @@ class GeneralTab(QWidget):
                 background-color: #666666;
             }
         """)
-        
+
         # Down button
         down_button = QPushButton("▼")
         down_button.setFixedSize(20, 14)
@@ -588,23 +602,23 @@ class GeneralTab(QWidget):
                 background-color: #666666;
             }
         """)
-        
+
         # Add buttons to the button layout
         button_layout.addWidget(up_button)
         button_layout.addWidget(down_button)
-        
+
         # Add spinbox and buttons to the value layout
         value_layout.addWidget(self.temperature)
         value_layout.addWidget(button_container)
-        
+
         # Connect custom buttons
         up_button.clicked.connect(self._increment_temperature)
         down_button.clicked.connect(self._decrement_temperature)
-        
+
         # Connect signals for syncing slider and spin box
         self.temp_slider.valueChanged.connect(self._sync_temp_from_slider)
         self.temperature.valueChanged.connect(self._sync_temp_from_spinbox)
-        
+
         # Connect change signal
         self.temperature.valueChanged.connect(self._on_any_change)
 
@@ -636,7 +650,7 @@ class GeneralTab(QWidget):
         self.shift_checkbox = QCheckBox("Shift")
         self.super_checkbox = QCheckBox("Super")
         self.fn_checkbox = QCheckBox("Fn")
-        
+
         # Apply consistent checkbox styling
         checkbox_style = f"""
             QCheckBox {{
@@ -672,7 +686,7 @@ class GeneralTab(QWidget):
                 border: none;
             }}
         """
-        
+
         self.ctrl_checkbox.setStyleSheet(checkbox_style)
         self.alt_checkbox.setStyleSheet(checkbox_style)
         self.shift_checkbox.setStyleSheet(checkbox_style)
@@ -725,10 +739,11 @@ class GeneralTab(QWidget):
 
         self.startup_checkbox = QCheckBox("Start Dasi on system startup")
         self.startup_checkbox.setStyleSheet(checkbox_style)
-        
+
         # Load current startup setting
-        self.startup_checkbox.setChecked(self.settings.get('general', 'start_on_boot', default=False))
-        
+        self.startup_checkbox.setChecked(self.settings.get(
+            'general', 'start_on_boot', default=False))
+
         # Connect stateChanged signal for auto-save
         self.startup_checkbox.stateChanged.connect(self._on_any_change)
 
@@ -763,14 +778,15 @@ class GeneralTab(QWidget):
                 border: 1px solid #e67e22;
             }
         """)
-        
+
         # Load current export path setting
-        current_path = self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents"))
+        current_path = self.settings.get(
+            'general', 'export_path', default=os.path.expanduser("~/Documents"))
         self.export_path.setText(current_path)
-        
+
         # Connect textChanged signal for auto-save
         self.export_path.textChanged.connect(self._on_any_change)
-        
+
         browse_button = QPushButton("Browse")
         browse_button.setStyleSheet("""
             QPushButton {
@@ -794,13 +810,57 @@ class GeneralTab(QWidget):
         export_section.layout.addWidget(path_container)
         layout.addWidget(export_section)
 
+        # Create a subsection for caching settings
+        cache_section = SectionFrame(
+            "Performance & Caching",
+            "Settings that affect application performance and response caching."
+        )
+
+        cache_container = QWidget()
+        cache_container.setProperty("class", "transparent-container")
+        cache_layout = QVBoxLayout(cache_container)
+        cache_layout.setContentsMargins(0, 0, 0, 0)
+        cache_layout.setSpacing(8)
+
+        # Add use cache checkbox
+        self.use_cache_checkbox = QCheckBox("Cache query responses")
+        self.use_cache_checkbox.setChecked(self.settings.get(
+            'general', 'use_cache', default=True))
+        self.use_cache_checkbox.setStyleSheet(checkbox_style)
+        self.use_cache_checkbox.toggled.connect(self._on_any_change)
+
+        # Add cache explanation
+        cache_description = QLabel(
+            "When enabled, responses to identical queries will be cached to improve performance. "
+            "This can significantly improve response time for repeated queries."
+        )
+        cache_description.setWordWrap(True)
+        cache_description.setProperty("class", "description-text")
+
+        # Add clear cache button
+        clear_cache_button = QPushButton("Clear Cache")
+        clear_cache_button.setProperty("class", "secondary")
+        clear_cache_button.clicked.connect(self._clear_cache)
+        clear_cache_button.setFixedWidth(150)
+
+        # Add to layout
+        cache_layout.addWidget(self.use_cache_checkbox)
+        cache_layout.addWidget(cache_description)
+        cache_layout.addWidget(clear_cache_button)
+
+        # Add to section
+        cache_section.layout.addWidget(cache_container)
+
+        # Add to main layout (before the prompt customization section)
+        layout.insertWidget(1, cache_section)
+
         # Add spacing at the bottom
         layout.addStretch()
 
         # Set scroll area widget
         scroll.setWidget(content)
         main_layout.addWidget(scroll)
-        
+
         # Create button container at the bottom
         self.button_container = QWidget()
         self.button_container.setProperty("class", "transparent-container")
@@ -880,6 +940,7 @@ class GeneralTab(QWidget):
         self.key_selector.currentTextChanged.connect(self._on_any_change)
         self.startup_checkbox.stateChanged.connect(self._on_any_change)
         self.export_path.textChanged.connect(self._on_any_change)
+        self.use_cache_checkbox.toggled.connect(self._on_any_change)
 
     def _on_any_change(self):
         """Handler for any change in the settings."""
@@ -888,9 +949,10 @@ class GeneralTab(QWidget):
     def _cancel_changes(self):
         """Cancel all changes and restore original values."""
         # Restore original values
-        self.custom_instructions.setText(self.original_values['custom_instructions'])
+        self.custom_instructions.setText(
+            self.original_values['custom_instructions'])
         self.temperature.setValue(self.original_values['temperature'])
-        
+
         hotkey = self.original_values['hotkey']
         self.ctrl_checkbox.setChecked(hotkey['ctrl'])
         self.alt_checkbox.setChecked(hotkey['alt'])
@@ -898,10 +960,10 @@ class GeneralTab(QWidget):
         self.super_checkbox.setChecked(hotkey['super'])
         self.fn_checkbox.setChecked(hotkey['fn'])
         self.key_selector.setCurrentText(hotkey['key'])
-        
+
         self.startup_checkbox.setChecked(self.original_values['start_on_boot'])
         self.export_path.setText(self.original_values['export_path'])
-        
+
         self.has_unsaved_changes = False
         self.update_button_visibility()
 
@@ -909,17 +971,17 @@ class GeneralTab(QWidget):
         """Reset all settings to their default values."""
         self.custom_instructions.setText("")
         self.temperature.setValue(0.7)
-        
+
         self.ctrl_checkbox.setChecked(True)
         self.alt_checkbox.setChecked(True)
         self.shift_checkbox.setChecked(True)
         self.super_checkbox.setChecked(False)
         self.fn_checkbox.setChecked(False)
         self.key_selector.setCurrentText('I')
-        
+
         self.startup_checkbox.setChecked(False)
         self.export_path.setText(os.path.expanduser("~/Documents"))
-        
+
         self.check_for_changes()
 
     def _save_custom_instructions(self):
@@ -943,18 +1005,18 @@ class GeneralTab(QWidget):
         pass
 
     def _apply_all_settings(self):
-        """Save and apply all settings at once."""
+        """Apply all settings at once."""
         try:
             # Save custom instructions
-            self.settings.set(self.custom_instructions.toPlainText(),
-                            'general', 'custom_instructions')
+            self.settings.set('general', 'custom_instructions',
+                              self.custom_instructions.toPlainText())
             self.settings.custom_instructions_changed.emit()
-            
+
             # Save temperature
-            self.settings.set(self.temperature.value(),
-                            'general', 'temperature')
+            self.settings.set('general', 'temperature',
+                              self.temperature.value())
             self.settings.temperature_changed.emit()
-            
+
             # Save hotkey settings
             hotkey_settings = {
                 'ctrl': self.ctrl_checkbox.isChecked(),
@@ -964,22 +1026,26 @@ class GeneralTab(QWidget):
                 'fn': self.fn_checkbox.isChecked(),
                 'key': self.key_selector.currentText()
             }
-            self.settings.set(hotkey_settings, 'general', 'hotkey')
-            
+            self.settings.set('general', 'hotkey', hotkey_settings)
+
             # Save startup settings
             start_on_boot = self.startup_checkbox.isChecked()
-            self.settings.set(start_on_boot, 'general', 'start_on_boot')
+            self.settings.set('general', 'start_on_boot', start_on_boot)
             self._update_startup_file(start_on_boot)
-            
+
             # Save export path
             path = self.export_path.text()
             if '~' in path:
                 path = os.path.expanduser(path)
-            self.settings.set(path, 'general', 'export_path')
-            
+            self.settings.set('general', 'export_path', path)
+
+            # Save cache settings
+            self.settings.set('general', 'use_cache',
+                              self.use_cache_checkbox.isChecked())
+
             # Update original values and hide buttons
             self.save_original_values()
-            
+
             # Create custom message box with restart button
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle("Settings Applied")
@@ -1011,14 +1077,11 @@ class GeneralTab(QWidget):
 
             if response == QMessageBox.StandardButton.Yes:
                 self._restart_dasi_service()
-                
+
         except Exception as e:
+            logging.error(f"Error applying settings: {str(e)}", exc_info=True)
             QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to save settings: {str(e)}",
-                QMessageBox.StandardButton.Ok
-            )
+                self, "Error", f"Failed to apply settings: {str(e)}")
 
     def _restart_dasi_service(self):
         """Helper method to restart Dasi service with a single message."""
@@ -1026,15 +1089,16 @@ class GeneralTab(QWidget):
         if main_window and hasattr(main_window, 'stop_dasi') and hasattr(main_window, 'start_dasi'):
             # Stop Dasi without showing message
             main_window.stop_dasi(show_message=False)
-            
+
             # Small delay to ensure proper shutdown
-            QTimer.singleShot(500, lambda: self._start_dasi_after_stop(main_window))
+            QTimer.singleShot(
+                500, lambda: self._start_dasi_after_stop(main_window))
 
     def _start_dasi_after_stop(self, main_window):
         """Helper method to start Dasi after stopping."""
         # Start Dasi without showing message
         main_window.start_dasi(show_message=False)
-        
+
         # Show a single success message
         QMessageBox.information(
             self,
@@ -1086,27 +1150,38 @@ X-GNOME-Autostart-enabled=true
 
     def _browse_export_path(self):
         """Open a file dialog to select an export path."""
+        path = QFileDialog.getExistingDirectory(
+            self,
+            "Select Export Directory",
+            self.export_path.text() or os.path.expanduser("~/Documents"),
+            QFileDialog.Option.ShowDirsOnly
+        )
+
+        if path:
+            self.export_path.setText(path)
+
+    def _clear_cache(self):
+        """Clear the response cache."""
         try:
-            # Open a file dialog to select a directory
-            directory = QFileDialog.getExistingDirectory(self, "Select Export Location")
-            if directory:
-                self.export_path.setText(directory)
+            # Import cache manager on demand
+            from cache_manager import CacheManager
+            cache = CacheManager()
+            cache.clear_cache()
+            QMessageBox.information(
+                self, "Cache Cleared", "Query response cache has been cleared.")
         except Exception as e:
+            logging.error(f"Error clearing cache: {str(e)}", exc_info=True)
             QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to browse export path: {str(e)}",
-                QMessageBox.StandardButton.Ok
-            )
+                self, "Error", f"Failed to clear cache: {str(e)}")
 
     def _sync_temp_from_slider(self, value):
-        """Sync temperature value from slider to spin box."""
+        """Sync temperature spinbox from slider."""
         # Prevent infinite loop by blocking signals
         self.temperature.blockSignals(True)
         self.temperature.setValue(value / 100.0)
         self.temperature.blockSignals(False)
         self._on_any_change()
-        
+
     def _sync_temp_from_spinbox(self, value):
         """Sync temperature value from spin box to slider."""
         # Prevent infinite loop by blocking signals

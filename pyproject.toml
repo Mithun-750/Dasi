@@ -1,0 +1,49 @@
+[project]
+name = "dasi"
+version = "0.1.0"
+description = "A powerful desktop copilot that provides inline LLM support through a global hotkey"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "Mithun750"}
+]
+license = {text = "MIT"}
+dependencies = [
+    "beautifulsoup4>=4.12.3",
+    "duckduckgo-search>=7.5.0",
+    "exa-py>=1.0.6",
+    "invoke>=2.2.0",
+    "langchain>=0.3.19",
+    "langchain-anthropic>=0.3.8",
+    "langchain-community>=0.3.18",
+    "langchain-core>=0.3.40",
+    "langchain-deepseek>=0.1.2",
+    "langchain-google-genai>=2.0.11",
+    "langchain-groq>=0.2.4",
+    "langchain-ollama>=0.2.3",
+    "langchain-openai>=0.3.7",
+    "langchain-text-splitters>=0.3.6",
+    "langchain-together>=0.3.0",
+    "langchain-xai>=0.1.0",
+    "pyautogui>=0.9.54",
+    "pyinstaller>=6.12.0",
+    "pynput>=1.7.6",
+    "pyperclip>=1.9.0",
+    "pyqt6>=6.8.1",
+    "pyqt6-webengine>=6.8.0",
+    "pyqtdarktheme>=2.1.0",
+    "python-dotenv>=1.0.1",
+    "requests>=2.31.0",
+    "tavily-python>=0.3.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/Mithun-750/Dasi"
+Issues = "https://github.com/Mithun-750/Dasi/issues"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+dasi = "src.main:main"

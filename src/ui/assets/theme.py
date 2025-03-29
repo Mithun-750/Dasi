@@ -20,7 +20,7 @@ def load_stylesheet():
         # Running in development
         style_file = os.path.join(os.path.dirname(__file__), 'style.qss')
         logging.info(f"Looking for stylesheet at (dev): {style_file}")
-    
+
     if os.path.exists(style_file):
         file = QFile(style_file)
         file.open(QFile.OpenModeFlag.ReadOnly | QFile.OpenModeFlag.Text)
@@ -99,20 +99,20 @@ def apply_scrollbar_styles(app):
             border: none;
         }
     """
-    
+
     # Get current stylesheet
     current_stylesheet = app.styleSheet()
-    
+
     # Combine with scrollbar styles
     combined_stylesheet = current_stylesheet + "\n" + scrollbar_stylesheet
-    
+
     # Apply combined stylesheet
     app.setStyleSheet(combined_stylesheet)
 
 
 def apply_theme(app, theme="dark", use_custom_stylesheet=True):
     """Apply the theme to the application.
-    
+
     Args:
         app (QApplication): The application instance
         theme (str, optional): The theme to apply. Defaults to "dark".
@@ -120,10 +120,10 @@ def apply_theme(app, theme="dark", use_custom_stylesheet=True):
     """
     # Set fusion style for better cross-platform consistency
     app.setStyle('Fusion')
-    
+
     # Apply qdarktheme
     qdarktheme.setup_theme(theme)
-    
+
     # Apply custom stylesheet on top if requested
     if use_custom_stylesheet:
         # Get the path to the stylesheet
@@ -133,15 +133,16 @@ def apply_theme(app, theme="dark", use_custom_stylesheet=True):
             stylesheet_path = os.path.join(base_path, "assets", "style.qss")
         else:
             # Running in development
-            stylesheet_path = os.path.join(os.path.dirname(__file__), "style.qss")
-        
+            stylesheet_path = os.path.join(
+                os.path.dirname(__file__), "style.qss")
+
         # Load custom stylesheet
         with open(stylesheet_path, "r") as f:
             custom_stylesheet = f.read()
-        
+
         # Get current stylesheet and combine with custom
         current_stylesheet = app.styleSheet()
-        
+
         # Add font styling to ensure consistency across the application
         font_stylesheet = """
         /* Global font styling */
@@ -179,17 +180,18 @@ def apply_theme(app, theme="dark", use_custom_stylesheet=True):
             text-transform: uppercase;
         }
         """
-        
-        combined_stylesheet = current_stylesheet + "\n" + custom_stylesheet + "\n" + font_stylesheet
-        
+
+        combined_stylesheet = current_stylesheet + "\n" + \
+            custom_stylesheet + "\n" + font_stylesheet
+
         # Apply the combined stylesheet
         app.setStyleSheet(combined_stylesheet)
-        
+
         # Apply scrollbar styles
         apply_scrollbar_styles(app)
-        
+
         # Force stylesheet refresh
         for widget in app.allWidgets():
             widget.style().unpolish(widget)
             widget.style().polish(widget)
-            widget.update() 
+            widget.update()
