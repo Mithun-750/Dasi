@@ -34,7 +34,7 @@ class HotkeyListener:
 
     def __init__(self, callback: Callable[..., None]):
         """Initialize hotkey listener with a callback function.
-        
+
         Args:
             callback: Function to call when hotkey is pressed. The function will be called 
                      with cursor position (x, y) coordinates.
@@ -95,12 +95,12 @@ class HotkeyListener:
         try:
             logging.debug("Hotkey triggered")
             x, y = pyautogui.position()
-            
+
             # Check what arguments the callback accepts
             import inspect
             sig = inspect.signature(self.callback)
             param_count = len(sig.parameters)
-            
+
             if param_count == 0:
                 # No parameters expected
                 self.callback()
@@ -110,28 +110,28 @@ class HotkeyListener:
             else:
                 # Two or more parameters expected - pass x, y separately
                 self.callback(x, y)
-                
+
             logging.debug(f"Callback executed with position ({x}, {y})")
         except Exception as e:
             logging.error(f"Error handling hotkey: {str(e)}")
 
     def start(self):
         """Start listening for hotkeys.
-        
+
         Returns:
             bool: True if successfully started, False otherwise.
         """
         if self._running:
             logging.info("Hotkey listener already running")
             return True
-            
+
         if not self.listener:
             try:
                 self._register_hotkey()
             except Exception as e:
                 logging.error(f"Failed to register hotkey: {str(e)}")
                 return False
-                
+
         try:
             self.listener.start()
             self._running = True
@@ -144,14 +144,14 @@ class HotkeyListener:
 
     def stop(self):
         """Stop listening for hotkeys.
-        
+
         Returns:
             bool: True if successfully stopped, False otherwise.
         """
         if not self._running:
             logging.info("Hotkey listener not running")
             return True
-            
+
         try:
             if self.listener:
                 self.listener.stop()
@@ -165,19 +165,23 @@ class HotkeyListener:
     def is_running(self) -> bool:
         """Check if the hotkey listener is running."""
         return self._running
-        
+
+    def is_active(self) -> bool:
+        """Check if the hotkey listener is active. Alias for is_running()."""
+        return self.is_running()
+
     def reload_settings(self):
         """Reload hotkey settings and re-register the hotkey."""
         was_running = self._running
-        
+
         # Stop current listener if running
         if was_running:
             self.stop()
-            
+
         # Re-register with new settings
         try:
             self._register_hotkey()
-            
+
             # Restart if it was running before
             if was_running:
                 self.start()

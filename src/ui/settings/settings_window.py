@@ -129,7 +129,18 @@ class SettingsWindow(QMainWindow):
             if not DasiInstanceManager.get_instance():
                 DasiInstanceManager.set_instance(self.dasi_instance)
             # Get the hotkey listener from the instance
-            self.hotkey_listener = self.dasi_instance.hotkey_listener
+            if hasattr(self.dasi_instance, 'hotkey_listener'):
+                self.hotkey_listener = self.dasi_instance.hotkey_listener
+                logging.info(
+                    "Successfully connected to existing hotkey listener")
+        else:
+            # No instance provided, check if one is registered with the manager
+            existing_instance = DasiInstanceManager.get_instance()
+            if existing_instance:
+                self.dasi_instance = existing_instance
+                if hasattr(existing_instance, 'hotkey_listener'):
+                    self.hotkey_listener = existing_instance.hotkey_listener
+                    logging.info("Connected to registered hotkey listener")
 
         self.init_ui()
 
@@ -393,7 +404,7 @@ class SettingsWindow(QMainWindow):
     def check_dasi_running(self):
         """Check if Dasi is already running and update UI accordingly."""
         # If we already have a Dasi instance, it's running
-        if self.dasi_instance and self.hotkey_listener and self.hotkey_listener.is_running():
+        if self.dasi_instance and self.hotkey_listener and self.hotkey_listener.is_active():
             # Update button to show Stop Dasi
             self.start_dasi_btn.setText("Stop Dasi")
             self.start_dasi_btn.setEnabled(True)
@@ -429,7 +440,8 @@ class SettingsWindow(QMainWindow):
             existing_instance = DasiInstanceManager.get_instance()
             if existing_instance:
                 self.dasi_instance = existing_instance
-                self.hotkey_listener = self.dasi_instance.hotkey_listener
+                if hasattr(existing_instance, 'hotkey_listener'):
+                    self.hotkey_listener = existing_instance.hotkey_listener
 
             # Update button to show Stop Dasi
             self.start_dasi_btn.setText("Stop Dasi")
@@ -464,9 +476,15 @@ class SettingsWindow(QMainWindow):
 
     def update_start_button(self):
         """Update the Start Dasi button state."""
-        # Check if Dasi is running
-        is_running = DasiInstanceManager.is_running(
-        ) and self.hotkey_listener and self.hotkey_listener.is_active()
+        # Check if Dasi is running - use consistent check method
+        has_instance = DasiInstanceManager.is_running()
+        has_listener = self.hotkey_listener is not None
+        is_active = has_listener and self.hotkey_listener.is_active()
+        is_running = has_instance and is_active
+
+        # Log the state for debugging
+        logging.info(
+            f"Dasi state: has_instance={has_instance}, has_listener={has_listener}, is_active={is_active}, is_running={is_running}")
 
         # Update button text and icon
         if is_running:
@@ -474,11 +492,64 @@ class SettingsWindow(QMainWindow):
             if os.path.exists(self.stop_icon_path):
                 self.start_dasi_btn.setIcon(QIcon(self.stop_icon_path))
             self.start_dasi_btn.setToolTip("Stop the Dasi hotkey listener")
+
+            # Update styling for stop button
+            self.start_dasi_btn.setStyleSheet("""
+                QPushButton { 
+                    text-align: center;
+                    background-color: #d35400;
+                    color: white;
+                    font-weight: bold;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #e67e22;
+                }
+            """)
+
+            # Connect to stop_dasi
+            try:
+                self.start_dasi_btn.clicked.disconnect()
+            except:
+                pass
+            self.start_dasi_btn.clicked.connect(self.stop_dasi)
         else:
-            self.start_dasi_btn.setText("Start Dasi")
+            has_models = bool(self.settings.get_selected_models())
+            self.start_dasi_btn.setText(
+                "Start Dasi" if has_models else "Select Models First")
+            self.start_dasi_btn.setEnabled(has_models)
             if os.path.exists(self.play_icon_path):
                 self.start_dasi_btn.setIcon(QIcon(self.play_icon_path))
             self.start_dasi_btn.setToolTip("Start the Dasi hotkey listener")
+
+            # Update styling for start button
+            self.start_dasi_btn.setStyleSheet("""
+                QPushButton { 
+                    text-align: center;
+                    background-color: #e67e22;
+                    color: white;
+                    font-weight: bold;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #f39c12;
+                }
+                QPushButton:disabled {
+                    background-color: #555555;
+                    color: #999999;
+                }
+            """)
+
+            # Connect to start_dasi
+            try:
+                self.start_dasi_btn.clicked.disconnect()
+            except:
+                pass
+            self.start_dasi_btn.clicked.connect(self.start_dasi)
 
     def showEvent(self, event):
         """Called when the window becomes visible."""
