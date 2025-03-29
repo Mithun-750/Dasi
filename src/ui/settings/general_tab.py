@@ -286,15 +286,18 @@ class SectionFrame(QFrame):
                 font-family: 'Segoe UI', Arial, sans-serif;
                 font-size: 12px;
                 color: #e0e0e0;
+                background-color: transparent;
             }
             QLabel[class="subheading"] {
                 font-size: 15px;
                 font-weight: 600;
                 color: #ffffff;
+                background-color: transparent;
             }
             QLabel[class="description"] {
                 font-size: 12px;
                 color: #aaaaaa;
+                background-color: transparent;
             }
         """)
 

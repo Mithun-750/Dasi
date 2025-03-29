@@ -337,6 +337,7 @@ class SettingsWindow(QMainWindow):
 
         # Create content area with card-like appearance
         content_container = QFrame()
+        content_container.setFrameShape(QFrame.Shape.NoFrame)
         content_container.setContentsMargins(0, 0, 5, 0)
         content_layout = QVBoxLayout(content_container)
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -345,6 +346,8 @@ class SettingsWindow(QMainWindow):
         content_container.setStyleSheet("""
             QFrame {
                 background-color: #1a1a1a;
+                border: none;
+                border-radius: 0;
             }
         """)
 
@@ -353,6 +356,8 @@ class SettingsWindow(QMainWindow):
         self.content.setStyleSheet("""
             QStackedWidget {
                 background-color: #1a1a1a;
+                border: none;
+                border-radius: 0;
             }
         """)
 

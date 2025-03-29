@@ -782,7 +782,20 @@ class PreviewPanel(QWidget):
         if self.is_chat_mode:
             self.markdown_preview.set_markdown(response)
         else:
+            # In compose mode, update both widgets to ensure content is in sync
             self.response_preview.setText(response)
+
+            # Also update markdown preview if it's currently visible
+            if self.preview_stack.currentWidget() == self.markdown_preview:
+                self.markdown_preview.set_markdown(response)
+                # Make sure we show the correct widget based on edit preference
+                if self._user_edit_preference:
+                    self.preview_stack.setCurrentWidget(self.response_preview)
+                    # Set editable state
+                    self.response_preview.setReadOnly(False)
+                    self.response_preview.setProperty("editable", True)
+                    self.response_preview.style().unpolish(self.response_preview)
+                    self.response_preview.style().polish(self.response_preview)
 
         # If empty response, hide the panel
         if not response:
@@ -811,6 +824,12 @@ class PreviewPanel(QWidget):
             # Then detect code language
             self._detect_code_language()
 
+            # Ensure content is in sync between widgets
+            if not self.is_chat_mode:
+                current_text = self.response_preview.toPlainText()
+                if self.preview_stack.currentWidget() == self.markdown_preview:
+                    self.markdown_preview.set_markdown(current_text)
+
         # Only update edit button visibility if showing actions
         if show and not self.is_chat_mode:
             # Make the edit button visible
@@ -824,8 +843,16 @@ class PreviewPanel(QWidget):
             # Also make sure the current displayed widget matches the preference
             if self._user_edit_preference:
                 self.preview_stack.setCurrentWidget(self.response_preview)
+                # Also ensure editable state is set correctly
+                self.response_preview.setReadOnly(False)
+                self.response_preview.setProperty("editable", True)
+                self.response_preview.style().unpolish(self.response_preview)
+                self.response_preview.style().polish(self.response_preview)
             else:
+                # If user prefers markdown view, show it and update content
+                current_text = self.response_preview.toPlainText()
                 self.preview_stack.setCurrentWidget(self.markdown_preview)
+                self.markdown_preview.set_markdown(current_text)
         else:
             # Hide edit button in chat mode
             self.edit_button.setVisible(show and not self.is_chat_mode)
@@ -1101,18 +1128,38 @@ class PreviewPanel(QWidget):
         """Update UI components based on current mode (chat or compose)."""
         if self.is_chat_mode:
             # In chat mode, show markdown and hide edit button
+            current_text = self.response_preview.toPlainText()
             self.preview_stack.setCurrentWidget(self.markdown_preview)
+
+            # Update markdown content with current text if needed
+            if current_text:
+                self.markdown_preview.set_markdown(current_text)
+
             self.edit_button.setVisible(False)
         else:
             # In compose mode, set widget and edit state based on user preference
+            current_text = ""
+
+            # Get current text from whichever widget is visible
+            if self.preview_stack.currentWidget() == self.markdown_preview:
+                current_text = self.markdown_preview.get_plain_text()
+            else:
+                current_text = self.response_preview.toPlainText()
+
             if self._user_edit_preference:
                 self.preview_stack.setCurrentWidget(self.response_preview)
+                # Update text if needed
+                if current_text:
+                    self.response_preview.setText(current_text)
                 self.response_preview.setReadOnly(False)
                 self.response_preview.setProperty("editable", True)
                 self.response_preview.style().unpolish(self.response_preview)
                 self.response_preview.style().polish(self.response_preview)
             else:
                 self.preview_stack.setCurrentWidget(self.markdown_preview)
+                # Update markdown if needed
+                if current_text:
+                    self.markdown_preview.set_markdown(current_text)
 
             # Make edit button visible and sync with current preference
             self.edit_button.blockSignals(True)
@@ -1153,6 +1200,11 @@ class PreviewPanel(QWidget):
 
                 # Update the preview with processed text
                 self.response_preview.setPlainText(processed_text)
+
+                # Also update markdown preview if it's currently visible
+                if self.preview_stack.currentWidget() == self.markdown_preview:
+                    self.markdown_preview.set_markdown(processed_text)
+
                 logging.info(
                     "Removed backticks and language line from response")
 

@@ -14,13 +14,15 @@ from .general_tab import SectionFrame  # Import SectionFrame from general_tab
 
 class ChunkCard(QFrame):
     """A card widget representing a prompt chunk."""
+
     def __init__(self, title: str, content: str, on_click=None, parent=None):
         super().__init__(parent)
         self.title = title
         self.content = content
         self.on_click = on_click
         self.setup_ui()
-        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))  # Set cursor to pointer
+        # Set cursor to pointer
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
     def setup_ui(self):
         self.setObjectName("chunkCard")
@@ -41,17 +43,20 @@ class ChunkCard(QFrame):
                 background-color: transparent;
             }
         """)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setFixedHeight(140)  # Increased from 120 to 140 to allow more content
+        self.setSizePolicy(QSizePolicy.Policy.Expanding,
+                           QSizePolicy.Policy.Fixed)
+        # Restore original height
+        self.setFixedHeight(140)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(8)
+        layout.setSpacing(8)  # Restore original spacing
 
         # Title
         title_label = QLabel(self.title)
-        title_label.setStyleSheet("font-size: 14px; font-weight: 500; color: #ffffff; background-color: transparent;")
-        title_label.setMaximumHeight(20)
+        title_label.setStyleSheet(
+            "font-size: 14px; font-weight: 500; color: #ffffff; background-color: transparent;")
+        title_label.setMaximumHeight(20)  # Restore original height
         layout.addWidget(title_label)
 
         # Preview of content
@@ -63,13 +68,21 @@ class ChunkCard(QFrame):
             padding-bottom: 4px;
             background-color: transparent;
         """)
-        content_label.setMaximumHeight(90)  # Increased from 70 to 90
-        
-        # Elide text if too long - improved approach
-        preview = self.content[:400]  # Take more characters
+
+        # Set for original layout but allow more text to be visible
+        content_label.setMaximumHeight(90)
+
+        # Keep the truncation improvements
+        if len(self.content) > 500:
+            preview = self.content[:500] + "..."
+        else:
+            preview = self.content
+
         # Set the text directly and let wordwrap handle display
         content_label.setText(preview)
-        
+        content_label.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
         layout.addWidget(content_label)
 
     def mousePressEvent(self, event):
@@ -79,10 +92,13 @@ class ChunkCard(QFrame):
 
 class CreateCard(ChunkCard):
     """A special card for creating new chunks."""
+
     def __init__(self, on_click=None, parent=None):
-        super().__init__("Create New Chunk", "Click to create a new prompt chunk", on_click, parent)
+        super().__init__("Create New Chunk",
+                         "Click to create a new prompt chunk", on_click, parent)
         self.setObjectName("createCard")
-        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))  # Set cursor to pointer
+        # Set cursor to pointer
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.setStyleSheet("""
             #createCard {
                 background-color: #e67e22;
@@ -100,19 +116,22 @@ class CreateCard(ChunkCard):
                 background-color: transparent;
             }
         """)
-        
+
         # Override the child labels' styles directly
         for i in range(self.layout().count()):
             widget = self.layout().itemAt(i).widget()
             if isinstance(widget, QLabel):
                 if i == 0:  # Title label
-                    widget.setStyleSheet("font-size: 14px; font-weight: 600; color: #ffffff; background-color: transparent;")
+                    widget.setStyleSheet(
+                        "font-size: 14px; font-weight: 600; color: #ffffff; background-color: transparent;")
                 else:  # Content label
-                    widget.setStyleSheet("color: #ffffff; font-size: 12px; padding-bottom: 4px; background-color: transparent;")
+                    widget.setStyleSheet(
+                        "color: #ffffff; font-size: 12px; padding-bottom: 4px; background-color: transparent;")
 
 
 class ChunkEditor(QWidget):
     """Editor widget for a prompt chunk."""
+
     def __init__(self, title: str, content: str, on_save, on_delete, on_back, parent=None):
         super().__init__(parent)
         self.original_title = title
@@ -125,7 +144,8 @@ class ChunkEditor(QWidget):
         """Format title in real-time to be URL-friendly."""
         cursor_pos = self.title_input.cursorPosition()
         # Remove any non-alphanumeric characters (except underscores)
-        clean_text = ''.join(c for c in text if c.isalnum() or c == '_' or c.isspace())
+        clean_text = ''.join(c for c in text if c.isalnum()
+                             or c == '_' or c.isspace())
         # Replace spaces with underscores and convert to lowercase
         formatted_text = clean_text.replace(' ', '_').lower()
         # Set the formatted text
@@ -155,7 +175,8 @@ class ChunkEditor(QWidget):
 
         self.title_input = QLineEdit(title)
         self.title_input.setPlaceholderText("Enter chunk title...")
-        self.title_input.textChanged.connect(self._format_title_input)  # Connect the formatting function
+        self.title_input.textChanged.connect(
+            self._format_title_input)  # Connect the formatting function
         self.title_input.setStyleSheet("""
             QLineEdit {
                 border: none;
@@ -175,7 +196,8 @@ class ChunkEditor(QWidget):
 
         # Editor
         self.editor = QTextEdit()
-        self.editor.setPlaceholderText("Enter your prompt chunk content here...")
+        self.editor.setPlaceholderText(
+            "Enter your prompt chunk content here...")
         self.editor.setText(content)
         self.editor.setStyleSheet("""
             QTextEdit {
@@ -272,6 +294,7 @@ class PromptChunksTab(QWidget):
         self.settings = settings
         self.chunks_dir = Path(self.settings.config_dir) / 'prompt_chunks'
         self.chunks_dir.mkdir(parents=True, exist_ok=True)
+        self.setStyleSheet("background-color: transparent; border: none;")
         self.init_ui()
         self.load_chunks()
 
@@ -282,9 +305,13 @@ class PromptChunksTab(QWidget):
 
         # Create stacked widget for main content
         self.stack = QStackedWidget()
+        self.stack.setStyleSheet(
+            "background-color: transparent; border: none;")
 
         # Create and set up the chunks list page
         self.chunks_page = QWidget()
+        self.chunks_page.setStyleSheet(
+            "background-color: transparent; border: none;")
         chunks_layout = QVBoxLayout(self.chunks_page)
         chunks_layout.setSpacing(12)
         chunks_layout.setContentsMargins(0, 0, 0, 0)
@@ -294,6 +321,16 @@ class PromptChunksTab(QWidget):
             "Prompt Chunks",
             "Create and manage prompt templates that can be invoked using @mentions in your conversations."
         )
+        chunks_section.setStyleSheet("""
+            QFrame.card {
+                background-color: transparent;
+                border: none;
+                border-radius: 0;
+            }
+            QLabel {
+                background-color: transparent;
+            }
+        """)
 
         # Search container
         search_container = QWidget()
@@ -304,6 +341,7 @@ class PromptChunksTab(QWidget):
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search chunks...")
+        self.search_input.setClearButtonEnabled(True)  # Add clear button
         self.search_input.setStyleSheet("""
             QLineEdit {
                 background-color: #2a2a2a;
@@ -317,9 +355,18 @@ class PromptChunksTab(QWidget):
                 border: 1px solid #e67e22;
             }
         """)
+
+        # Explicitly disconnect any existing connections to prevent duplicates
+        try:
+            self.search_input.textChanged.disconnect()
+        except:
+            pass
+
+        # Connect the signal
         self.search_input.textChanged.connect(self.filter_chunks)
 
-        search_layout.addWidget(self.search_input, 1)  # Add stretch factor 1 to make it take full width
+        # Add stretch factor 1 to make it take full width
+        search_layout.addWidget(self.search_input, 1)
 
         chunks_section.layout.addWidget(search_container)
 
@@ -327,16 +374,48 @@ class PromptChunksTab(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("""
             QScrollArea {
                 border: none;
                 background-color: transparent;
             }
+            QScrollBar:vertical {
+                background-color: #1a1a1a !important;
+                width: 10px !important;
+                margin: 0px 0px 0px 8px !important;
+                border-radius: 5px !important;
+                border: none !important;
+            }
+            
+            QScrollBar::handle:vertical {
+                background-color: #333333 !important;
+                min-height: 30px !important;
+                border-radius: 5px !important;
+                border: none !important;
+            }
+            
+            QScrollBar::handle:vertical:hover {
+                background-color: #e67e22 !important;
+            }
+            
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px !important;
+                border: none !important;
+                background: none !important;
+            }
+            
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none !important;
+                border: none !important;
+            }
         """)
 
         # Container for cards
         self.cards_container = QWidget()
+        self.cards_container.setStyleSheet(
+            "background-color: transparent; border: none;")
         self.cards_layout = QVBoxLayout(self.cards_container)
         self.cards_layout.setSpacing(8)
         self.cards_layout.setContentsMargins(0, 0, 0, 0)
@@ -344,7 +423,7 @@ class PromptChunksTab(QWidget):
 
         scroll.setWidget(self.cards_container)
         chunks_section.layout.addWidget(scroll)
-        
+
         chunks_layout.addWidget(chunks_section)
 
         # Add chunks page to stack
@@ -352,6 +431,8 @@ class PromptChunksTab(QWidget):
 
         # Create editor page (will be populated when needed)
         self.editor_page = QWidget()
+        self.editor_page.setStyleSheet(
+            "background-color: transparent; border: none;")
         self.editor_layout = QVBoxLayout(self.editor_page)
         self.editor_layout.setContentsMargins(0, 0, 0, 0)
         self.stack.addWidget(self.editor_page)
@@ -385,17 +466,46 @@ class PromptChunksTab(QWidget):
 
     def filter_chunks(self, search_text: str):
         """Filter chunks based on search text."""
-        search_text = search_text.lower()
+        search_text = search_text.lower().strip()
+
+        # Log for debugging
+        logging.info(f"Filtering chunks with search text: '{search_text}'")
+
+        # Counter for visible cards (excluding create card)
+        visible_count = 0
+
         for i in range(self.cards_layout.count()):
             item = self.cards_layout.itemAt(i)
             if item and item.widget():
                 widget = item.widget()
+
+                # Handle the create card
                 if isinstance(widget, CreateCard):
                     widget.setVisible(True)  # Always show create card
-                elif isinstance(widget, ChunkCard):
-                    matches = (search_text in widget.title.lower() or 
-                             search_text in widget.content.lower())
+                    continue
+
+                # Handle chunk cards
+                if isinstance(widget, ChunkCard):
+                    # Empty search shows all
+                    if not search_text:
+                        widget.setVisible(True)
+                        visible_count += 1
+                        continue
+
+                    # Check if search text matches title or content
+                    title_match = search_text in widget.title.lower()
+                    content_match = search_text in widget.content.lower()
+                    matches = title_match or content_match
+
                     widget.setVisible(matches)
+                    if matches:
+                        visible_count += 1
+
+                    logging.debug(
+                        f"Chunk '{widget.title}': visible={matches}, title_match={title_match}, content_match={content_match}")
+
+        # Log total visible
+        logging.info(f"Total visible chunks after filtering: {visible_count}")
 
     def create_new_chunk(self):
         """Show editor for creating a new chunk."""
@@ -438,16 +548,19 @@ class PromptChunksTab(QWidget):
         """Save a chunk with potential title change."""
         try:
             if not new_title:
-                QMessageBox.warning(self, "Error", "Please enter a chunk title.")
+                QMessageBox.warning(
+                    self, "Error", "Please enter a chunk title.")
                 return
 
             new_title = self.sanitize_title(new_title)
             new_file_path = self.chunks_dir / f"{new_title}.md"
-            old_file_path = self.chunks_dir / f"{old_title}.md" if old_title else None
+            old_file_path = self.chunks_dir / \
+                f"{old_title}.md" if old_title else None
 
             # Check if we're creating a new file or renaming
             if old_file_path and old_file_path != new_file_path and new_file_path.exists():
-                QMessageBox.warning(self, "Error", "A chunk with this title already exists.")
+                QMessageBox.warning(
+                    self, "Error", "A chunk with this title already exists.")
                 return
 
             # Save content to new file
@@ -460,10 +573,12 @@ class PromptChunksTab(QWidget):
             # Reload chunks and go back to list
             self.load_chunks()
             self.stack.setCurrentIndex(0)
-            QMessageBox.information(self, "Success", "Chunk saved successfully.")
+            QMessageBox.information(
+                self, "Success", "Chunk saved successfully.")
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save chunk: {str(e)}")
+            QMessageBox.critical(
+                self, "Error", f"Failed to save chunk: {str(e)}")
 
     def delete_chunk(self, title: str):
         """Delete a chunk."""
@@ -477,7 +592,7 @@ class PromptChunksTab(QWidget):
             "Are you sure you want to delete this chunk?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        
+
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 file_path = self.chunks_dir / f"{title}.md"
@@ -486,4 +601,5 @@ class PromptChunksTab(QWidget):
                 self.load_chunks()
                 self.stack.setCurrentIndex(0)
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to delete chunk: {str(e)}") 
+                QMessageBox.critical(
+                    self, "Error", f"Failed to delete chunk: {str(e)}")
