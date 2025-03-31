@@ -197,20 +197,29 @@ find .venv/lib/python3.10/site-packages/PyQt6/Qt6/plugins -name "*.so" -exec cp 
 # Copy shared libraries
 print_status "Copying shared libraries..."
 mkdir -p AppDir/usr/lib
-ldd AppDir/usr/bin/python3 | grep "=> /" | awk '{print $3}' | sort | uniq | xargs -I '{}' cp -v '{}' AppDir/usr/lib/ 2>/dev/null || print_warning "Failed to copy some Python libraries"
 
-# Try to copy Qt libraries if available
+# Define a list of libraries to exclude (common system libraries)
+EXCLUDE_LIBS="libc.so|libpthread.so|libdl.so|librt.so|libm.so|ld-linux-x86-64.so|libgcc_s.so|libstdc++.so|libcrypt.so|libnss_|libnsl.so|libresolv.so|libBrokenLocale.so|libanl.so|libcidn.so|libutil.so"
+
+print_status "Copying Python dependencies..."
+ldd AppDir/usr/bin/python3 | grep "=> /" | awk '{print $3}' | grep -vE "($EXCLUDE_LIBS)" | sort | uniq | xargs -I '{}' cp -vL '{}' AppDir/usr/lib/ 2>/dev/null || print_warning "Failed to copy some Python libraries"
+
+# Try to copy Qt libraries if available (also exclude system libs)
 if [ -d ".venv/lib/python3.10/site-packages/PyQt6/Qt6/plugins/platforms" ]; then
-    ldd .venv/lib/python3.10/site-packages/PyQt6/Qt6/plugins/platforms/libqxcb.so 2>/dev/null | grep "=> /" | awk '{print $3}' | sort | uniq | xargs -I '{}' cp -v '{}' AppDir/usr/lib/ || print_warning "Failed to copy some Qt libraries"
+    print_status "Copying Qt platform plugin dependencies..."
+    ldd .venv/lib/python3.10/site-packages/PyQt6/Qt6/plugins/platforms/libqxcb.so 2>/dev/null | grep "=> /" | awk '{print $3}' | grep -vE "($EXCLUDE_LIBS)" | sort | uniq | xargs -I '{}' cp -vL '{}' AppDir/usr/lib/ || print_warning "Failed to copy some Qt libraries"
 else
     print_warning "Qt platform plugins not found, this may not be a PyQt application"
 fi
 
-# Also include additional dependencies that might be needed
+# Also include additional dependencies that might be needed (excluding system libs)
 print_status "Resolving additional dependencies..."
-for lib in $(find AppDir/usr/lib -name "*.so*"); do
-    ldd $lib 2>/dev/null | grep "=> /" | awk '{print $3}' | sort | uniq | xargs -I '{}' cp -v '{}' AppDir/usr/lib/ || true
+find AppDir/usr/lib AppDir/usr/plugins -type f -name "*.so*" -print0 | while IFS= read -r -d $'\0' lib; do
+    ldd "$lib" 2>/dev/null | grep "=> /" | awk '{print $3}' | grep -vE "($EXCLUDE_LIBS)" | sort | uniq | xargs -I '{}' cp -nvL '{}' AppDir/usr/lib/ || true
 done
+
+# Copy specific required libraries that might not be found by ldd sometimes
+# Example: cp /usr/lib/x86_64-linux-gnu/libfontconfig.so.1 AppDir/usr/lib/ || true
 
 # Set up icon
 print_status "Setting up application icon..."
@@ -357,38 +366,16 @@ export DASI_DEFAULT_CHUNKS_PATH="${HERE}/usr/defaults/prompt_chunks"
 # Initialize prompt chunks only the first time or if they don't exist yet
 PROMPT_CHUNKS_DIR="${HOME}/.config/dasi/prompt_chunks"
 if [ ! -d "$PROMPT_CHUNKS_DIR" ] || [ -z "$(ls -A "$PROMPT_CHUNKS_DIR")" ]; then
-    mkdir -p "$PROMPT_CHUNKS_DIR"
-    # Copy default chunks directly
-    echo "Initializing default prompt chunks..."
-    for chunk_file in "${HERE}/usr/defaults/prompt_chunks/"*.md; do
-        cp "$chunk_file" "$PROMPT_CHUNKS_DIR/"
-    done
-fi
-
-# Apply icon fix directly to main.py if needed
-MAIN_FILE="${HERE}/usr/src/main.py"
-if ! grep -q "# APPIMAGE ICON FIX" "$MAIN_FILE"; then
-    # Create a temp file with the icon fix
-    TMP_FILE=$(mktemp)
-    cat > "$TMP_FILE" << 'ICONFIX'
-# APPIMAGE ICON FIX
-import os
-appimage_icon = os.environ.get('DASI_ICON_PATH')
-if appimage_icon and os.path.exists(appimage_icon):
-    ICON_PATH = appimage_icon
-ICONFIX
-    
-    # Insert it after imports
-    awk -v icon_fix="$(cat $TMP_FILE)" '
-        /^import / { imports = 1 }
-        /^[^#]/ && imports && !/^import / { 
-            imports = 0
-            print icon_fix
-        }
-        { print }
-    ' "$MAIN_FILE" > "${MAIN_FILE}.new"
-    mv "${MAIN_FILE}.new" "$MAIN_FILE"
-    rm "$TMP_FILE"
+    # Check if we can write to the config directory before proceeding
+    if mkdir -p "$PROMPT_CHUNKS_DIR" 2>/dev/null; then
+        echo "Initializing default prompt chunks in $PROMPT_CHUNKS_DIR ..."
+        for chunk_file in "${HERE}/usr/defaults/prompt_chunks/"*.md; do
+            # Use -n to avoid overwriting existing files, just in case
+            cp -n "$chunk_file" "$PROMPT_CHUNKS_DIR/" 2>/dev/null || echo "Warning: Could not copy default chunk $(basename "$chunk_file")"
+        done
+    else
+        echo "Warning: Cannot write to $PROMPT_CHUNKS_DIR. Skipping default prompt chunk initialization."
+    fi
 fi
 
 # Preload common Python modules for faster startup (if this is first run)
