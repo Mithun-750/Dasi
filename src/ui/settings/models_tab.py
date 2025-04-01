@@ -1232,7 +1232,7 @@ class ModelsTab(QWidget):
     def set_default_model(self, model_id: str):
         """Set a model as the default model."""
         # Save the default model in settings
-        self.settings.set(model_id, 'models', 'default_model')
+        self.settings.set('models', 'default_model', model_id)
 
         # Refresh the list to update the UI
         self.load_selected_models()
