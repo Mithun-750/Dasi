@@ -1119,16 +1119,41 @@ class GeneralTab(QWidget):
             desktop_file = os.path.join(config_dir, 'dasi.desktop')
 
             if enable:
-                # Get the executable path
-                if getattr(sys, 'frozen', False):
-                    # If we're running as a bundled app
+                # Determine if running as AppImage
+                is_appimage = False
+                appimage_path = os.environ.get('APPIMAGE', '')
+
+                if appimage_path and os.path.exists(appimage_path):
+                    is_appimage = True
+                    exec_path = appimage_path
+                    logging.info(f"Detected AppImage path: {exec_path}")
+                elif getattr(sys, 'frozen', False):
+                    # If we're running as a bundled app (non-AppImage)
                     exec_path = sys.executable
+                    logging.info(f"Running as bundled app: {exec_path}")
                 else:
                     # If we're running in development
                     exec_path = os.path.abspath(sys.argv[0])
+                    logging.info(f"Running in development: {exec_path}")
 
                 # Create desktop entry content
-                content = f"""[Desktop Entry]
+                if is_appimage:
+                    # Special handling for AppImage
+                    # Add '--no-sandbox' option if needed and use appropriate environment variables
+                    content = f"""[Desktop Entry]
+Type=Application
+Name=Dasi
+Comment=Desktop AI Assistant
+Exec="{exec_path}"
+Icon=dasi
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true
+StartupNotify=true
+"""
+                else:
+                    # Normal executable
+                    content = f"""[Desktop Entry]
 Type=Application
 Name=Dasi
 Comment=Desktop AI Assistant
@@ -1142,13 +1167,19 @@ X-GNOME-Autostart-enabled=true
                 with open(desktop_file, 'w') as f:
                     f.write(content)
                 os.chmod(desktop_file, 0o755)
+
+                # Log the creation of autostart file
+                logging.info(f"Created autostart file: {desktop_file}")
+                logging.info(f"Content: {content}")
             else:
                 # Remove the desktop entry file if it exists
                 if os.path.exists(desktop_file):
                     os.remove(desktop_file)
+                    logging.info(f"Removed autostart file: {desktop_file}")
 
         except Exception as e:
-            logging.error(f"Failed to update startup file: {str(e)}")
+            logging.error(
+                f"Failed to update startup file: {str(e)}", exc_info=True)
             raise
 
     def _browse_export_path(self):
