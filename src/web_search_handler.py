@@ -3,6 +3,7 @@ from langchain_community.document_loaders import WebBaseLoader
 import os
 import logging
 import sys
+import re
 from typing import List, Dict, Any, Optional
 from langchain_core.documents import Document
 from langchain_community.utilities.google_serper import GoogleSerperAPIWrapper
@@ -59,9 +60,10 @@ except ImportError:
 class WebSearchHandler:
     """Handler for web search functionality."""
 
-    def __init__(self):
+    def __init__(self, llm_handler):
         """Initialize web search handler."""
         self.settings = Settings()
+        self.llm_handler = llm_handler  # Store the passed LLM handler
         self.search_providers = {}
         self.initialize_search_providers()
         self._cancellation_requested = False
@@ -147,6 +149,12 @@ class WebSearchHandler:
     def _initialize_provider(self, provider: str):
         """Initialize a specific search provider."""
         try:
+            # Get max_results from settings once for all providers
+            max_results = self.settings.get(
+                'web_search', 'max_results', default=3)
+            logging.info(
+                f"Initializing provider {provider} with max_results={max_results}")
+
             if provider == 'google_serper':
                 api_key = self.settings.get_api_key('google_serper')
                 if api_key:
@@ -179,9 +187,13 @@ class WebSearchHandler:
                 else:
                     # Fall back to the LangChain wrapper if DDGS is not available
                     try:
+                        # Get max_results from settings
+                        max_results = self.settings.get(
+                            'web_search', 'max_results', default=3)
+
                         # Set reasonable defaults with more conservative settings to avoid rate limiting
                         ddg_wrapper = DuckDuckGoSearchAPIWrapper(
-                            max_results=5,  # Lower default max results to avoid rate limiting
+                            max_results=max_results,  # Use configured max_results value
                             region="wt-wt",  # Default region (worldwide)
                             safesearch="moderate",  # Default safe search
                             time=None,  # Default time (all time)
@@ -189,7 +201,7 @@ class WebSearchHandler:
                         )
                         # Add it to available providers without testing
                         logging.info(
-                            "Adding DuckDuckGo search wrapper to available providers")
+                            f"Adding DuckDuckGo search wrapper to available providers with max_results={max_results}")
                         self.search_providers['ddg_search'] = ddg_wrapper
                     except Exception as e:
                         logging.error(
@@ -216,9 +228,11 @@ class WebSearchHandler:
                         # Validate the API key before initializing
                         if self._is_valid_tavily_api_key(api_key):
                             if TavilyWrapper == TavilySearchResults:
-                                # New implementation
+                                # New implementation - use max_results from settings
                                 self.search_providers['tavily_search'] = TavilyWrapper(
-                                    max_results=5)
+                                    max_results=max_results)
+                                logging.info(
+                                    f"Tavily search provider initialized with max_results={max_results}")
                             else:
                                 # Old implementation
                                 self.search_providers['tavily_search'] = TavilyWrapper(
@@ -270,9 +284,10 @@ class WebSearchHandler:
             import time
             time.sleep(0.8)  # 800ms delay
 
-            # Check if LLM handler is available
-            from llm_handler import LLMHandler
-            llm_handler = LLMHandler()
+            # Use the stored LLM handler instance
+            if not self.llm_handler:
+                logging.error("LLM Handler not available in WebSearchHandler")
+                return user_query
 
             # Check if the user_query already contains the template text (recursive case)
             template_start = "You are an AI assistant designed to generate effective search queries."
@@ -326,9 +341,19 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
 
             prompt += "OPTIMIZED SEARCH QUERY:"
 
-            # Get the optimized query from the LLM
-            optimized_query = llm_handler.get_response(
-                prompt, session_id="web_search_optimization")
+            # Get the model currently used by the main LLM Handler instance
+            model = None
+            if self.llm_handler.llm:
+                if hasattr(self.llm_handler.llm, 'model'):
+                    model = self.llm_handler.llm.model
+                elif hasattr(self.llm_handler.llm, 'model_name'):
+                    model = self.llm_handler.llm.model_name
+            logging.info(
+                f"Using model {model} from main LLM handler for search query optimization")
+
+            # Get the optimized query from the stored LLM handler
+            optimized_query = self.llm_handler.get_response(
+                prompt, session_id="web_search_optimization", model=model)
 
             # Clean up the response (remove quotes, explanation text, etc.)
             optimized_query = optimized_query.strip()
@@ -931,7 +956,7 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
 
         return documents
 
-    def search_and_scrape(self, query: str, provider: Optional[str] = None, max_results: Optional[int] = None, optimize_query: bool = True, selected_text: str = None) -> Dict[str, Any]:
+    def search_and_scrape(self, query: str, provider: Optional[str] = None, max_results: Optional[int] = None, optimize_query: bool = True, selected_text: str = None, model: Optional[str] = None) -> Dict[str, Any]:
         """
         Perform a web search and scrape content from the results.
 
@@ -941,6 +966,7 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
             max_results: Maximum number of results to return
             optimize_query: Whether to optimize the query using LLM before searching
             selected_text: Optional selected text to incorporate into the query optimization
+            model: Optional model to use for query optimization (passed from UI) - This parameter might be redundant now but kept for safety
 
         Returns:
             Dictionary containing search results and scraped content
@@ -952,8 +978,8 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
         original_query = query
         if optimize_query:
             try:
-
-                # Optimize the query, including selected text if available
+                # Optimize the query using the generate_optimized_search_query method
+                # which now uses the correct LLM handler instance
                 query = self.generate_optimized_search_query(
                     query, selected_text)
 
@@ -965,9 +991,9 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
                 query = original_query
                 logging.info(f"Falling back to original query: {query}")
 
-        # Check if scraping is enabled
-        scrape_content = self.settings.get(
-            'web_search', 'scrape_content', default=True)
+        # Check if scraping is enabled - Simplified, always True now?
+        # Re-evaluate if we need the scrape_content setting at all
+        scrape_content = True  # Assuming scraping is always on now
 
         # Perform search
         search_results = self.search(query, provider, max_results)
@@ -995,3 +1021,224 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
             'original_query': original_query,
             'optimized_query': query if optimize_query else original_query
         }
+
+    def process_query_context(self, query: str, context: dict = None) -> dict:
+        """
+        Process the query and context to determine if web search or link scraping is needed.
+
+        Args:
+            query: The raw query from the user
+            context: Optional context dictionary containing selected text, etc.
+
+        Returns:
+            Dictionary containing:
+            - mode: 'web_search', 'link_scrape', or None
+            - query: The processed query (for web search)
+            - url: The URL to scrape (for link scrape)
+            - original_query: The original unmodified query
+        """
+        result = {
+            'mode': None,
+            'query': query,
+            'url': None,
+            'original_query': query
+        }
+
+        # Direct URL detection
+        url_pattern = r'(https?://[^\s]+)'
+        url_match = re.search(url_pattern, query)
+        if url_match:
+            potential_url = url_match.group(1)
+            if len(potential_url) > 15 and ('.' in potential_url):
+                result['mode'] = 'link_scrape'
+                result['url'] = potential_url
+                logging.info(f"Detected direct URL in query: {potential_url}")
+                return result
+
+        # Check for #URL format
+        hash_url_pattern = r'#(https?://[^\s]+)'
+        hash_url_match = re.search(hash_url_pattern, query)
+        if hash_url_match:
+            hash_url = hash_url_match.group(1)
+            result['mode'] = 'link_scrape'
+            result['url'] = hash_url
+            result['query'] = query.replace(f"#{hash_url}", "", 1).strip()
+            logging.info(f"Detected #URL pattern: {hash_url}")
+            return result
+
+        # Check for web search commands
+        if query.strip().startswith('#web '):
+            result['mode'] = 'web_search'
+            result['query'] = query.replace('#web ', '', 1).strip()
+            logging.info(f"Web search requested (prefix): {result['query']}")
+            return result
+
+        if "#web" in query:
+            result['mode'] = 'web_search'
+            result['query'] = query.replace("#web", "").strip()
+            logging.info(f"Web search requested (inline): {result['query']}")
+            return result
+
+        # Check context if provided
+        if context:
+            # Check for link scrape info in context
+            if context.get('is_link_scrape') and context.get('link_to_scrape'):
+                result['mode'] = 'link_scrape'
+                result['url'] = context['link_to_scrape']
+                logging.info(
+                    f"Link scrape requested from context: {result['url']}")
+                return result
+
+            # Check for web search flag in context
+            if context.get('web_search'):
+                result['mode'] = 'web_search'
+                logging.info("Web search requested from context")
+                return result
+
+        return result
+
+    def execute_search_or_scrape(self, process_result: dict, selected_text: str = None) -> dict:
+        """
+        Execute the determined search or scrape operation and format results for LLM consumption.
+
+        Args:
+            process_result: Dictionary from process_query_context
+            selected_text: Optional selected text for query optimization
+
+        Returns:
+            Dictionary containing:
+            - status: 'success' or 'error'
+            - query: The final query to send to LLM
+            - system_instruction: Optional system instruction block for LLM
+            - error: Error message if status is 'error'
+        """
+        result = {
+            'status': 'success',
+            'query': process_result['query'],
+            'system_instruction': None,
+            'error': None
+        }
+
+        try:
+            # Try to get the selected model from the UI
+            model = None
+            # Removed UI lookup for model, as the main LLM handler should have the correct model
+            # try:
+            #     from instance_manager import DasiInstanceManager
+            #     dasi_instance = DasiInstanceManager.get_instance()
+            #     if dasi_instance and dasi_instance.ui and hasattr(dasi_instance.ui, 'popup') and hasattr(dasi_instance.ui.popup, 'input_panel'):
+            #         model_info = dasi_instance.ui.popup.input_panel.get_selected_model()
+            #         if model_info and 'id' in model_info:
+            #             model = model_info['id']
+            #             logging.info(f"Using model from UI for web search: {model}")
+            # except Exception as e:
+            #     logging.error(f"Error getting model from UI: {str(e)}")
+            #     model = None
+
+            if process_result['mode'] == 'web_search':
+                # Get the currently active model from the main LLM handler instance
+                if self.llm_handler and self.llm_handler.llm:
+                    if hasattr(self.llm_handler.llm, 'model'):
+                        model = self.llm_handler.llm.model
+                    elif hasattr(self.llm_handler.llm, 'model_name'):
+                        model = self.llm_handler.llm.model_name
+                logging.info(f"Passing model {model} to search_and_scrape")
+
+                # Perform web search and scraping with the correct model
+                search_results = self.search_and_scrape(
+                    process_result['query'],
+                    optimize_query=True,
+                    selected_text=selected_text,
+                    model=model  # Pass the model determined from the handler
+                )
+
+                if not search_results['search_results']:
+                    result['status'] = 'error'
+                    result['error'] = "No search results found."
+                    return result
+
+                # Format search results for LLM
+                search_results_text = "=====WEB_SEARCH_RESULTS=====<results from web search>\n"
+
+                # Add original and optimized query information
+                if search_results['original_query'] != search_results['optimized_query']:
+                    search_results_text += f"Original Query: {search_results['original_query']}\n"
+                    search_results_text += f"Optimized Query: {search_results['optimized_query']}\n\n"
+
+                # Add search results
+                search_results_text += "Search Results:\n"
+                for i, sr in enumerate(search_results['search_results']):
+                    search_results_text += f"{i+1}. {sr['title']}\n"
+                    search_results_text += f"   URL: {sr['link']}\n"
+                    search_results_text += f"   Snippet: {sr['snippet']}\n\n"
+
+                # Add scraped content if available
+                if search_results['scraped_content']:
+                    search_results_text += "Scraped Content:\n"
+                    for i, doc in enumerate(search_results['scraped_content']):
+                        search_results_text += f"Document {i+1} from {doc.metadata.get('source', 'unknown')}:\n"
+                        content = doc.page_content
+                        if len(content) > 2000:
+                            content = content[:2000] + \
+                                "... (content truncated)"
+                        search_results_text += f"{content}\n\n"
+
+                search_results_text += "=======================\n\n"
+
+                # Add search results to the query
+                result['query'] = f"{search_results_text}Based on the web search results above, please answer: {process_result['original_query']}"
+
+                # Add web search instruction
+                result['system_instruction'] = """=====WEB_SEARCH_INSTRUCTIONS=====<instructions for handling web search results>
+                You have been provided with web search results to help answer the user's query. Use this information to enhance your response, but do not rely on it exclusively.
+                When using this information:
+                1. Treat the search results as supplementary information to your own knowledge base.
+                2. Synthesize information from the search results and your internal knowledge to provide the most comprehensive and accurate answer possible.
+                3. If the search results do not seem relevant or helpful for the user's query, state that clearly and proceed to answer the query using your own knowledge. DO NOT simply say the search failed.
+                4. Focus on the most relevant information from the search results if they are useful.
+                5. If the information seems outdated or contradictory (either within the results or with your knowledge), note this potential discrepancy to the user.
+                6. If both original and optimized queries are shown, consider how the query optimization may have affected the search results.
+                7. IMPORTANT: DO NOT include any citations or reference numbers (like [1], [2]) in your response.
+                ======================="""
+
+            elif process_result['mode'] == 'link_scrape':
+                # Scrape content from the URL
+                scraped_docs = self.scrape_content([process_result['url']])
+
+                if not scraped_docs:
+                    result['status'] = 'error'
+                    result['error'] = f"No content could be scraped from the URL: {process_result['url']}"
+                    return result
+
+                # Format scraped content for LLM
+                scraped_content_text = "=====SCRAPED_CONTENT=====<content from the provided URL>\n"
+
+                for i, doc in enumerate(scraped_docs):
+                    scraped_content_text += f"Content from {doc.metadata.get('source', process_result['url'])}:\n"
+                    content = doc.page_content
+                    if len(content) > 10000:
+                        content = content[:10000] + "... (content truncated)"
+                    scraped_content_text += f"{content}\n\n"
+
+                scraped_content_text += "=======================\n\n"
+
+                # Add scraped content to the query
+                result['query'] = f"{scraped_content_text}Based on the scraped content above from {process_result['url']}, please answer: {process_result['query']}"
+
+                # Add scraped content instruction
+                result['system_instruction'] = """=====SCRAPED_CONTENT_INSTRUCTIONS=====<instructions for handling scraped content>
+                You have been provided with content scraped from a specific URL.
+                When using this information:
+                1. Provide a comprehensive analysis of the content
+                2. Extract key information and present it in a clear, organized manner
+                3. If the content appears incomplete or doesn't contain information relevant to the query, acknowledge this
+                4. If the content has been truncated, note that your analysis is based on partial information
+                5. IMPORTANT: DO NOT include any citations or reference numbers (like [1], [2]) in your response
+                ======================="""
+
+        except Exception as e:
+            result['status'] = 'error'
+            result['error'] = str(e)
+            logging.error(f"Error in execute_search_or_scrape: {str(e)}")
+
+        return result
