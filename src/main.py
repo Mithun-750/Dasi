@@ -15,7 +15,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QPainter
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from typing import Optional, Callable
 # Import constants
-from constants import DEFAULT_CHAT_PROMPT, DEFAULT_COMPOSE_PROMPT
+
 # Import instance manager
 from instance_manager import DasiInstanceManager
 # Import theme system
@@ -157,14 +157,6 @@ class Dasi:
             # Initialize LLM handler
             logging.info("Initializing LLM handler")
             self.llm_handler = LLMHandler()
-
-            # Make default prompts available to LLMHandler
-            # This is a workaround to avoid modifying llm_handler.py
-            import llm_handler
-            if not hasattr(llm_handler, 'DEFAULT_CHAT_PROMPT'):
-                llm_handler.DEFAULT_CHAT_PROMPT = DEFAULT_CHAT_PROMPT
-            if not hasattr(llm_handler, 'DEFAULT_COMPOSE_PROMPT'):
-                llm_handler.DEFAULT_COMPOSE_PROMPT = DEFAULT_COMPOSE_PROMPT
 
             # Initialize UI
             logging.info("Initializing UI")
