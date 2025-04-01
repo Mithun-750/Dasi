@@ -791,14 +791,15 @@ class LLMHandler:
             if web_search and web_search_results:
                 # Base web search instruction without any citation option
                 web_search_instruction = """=====WEB_SEARCH_INSTRUCTIONS=====<instructions for handling web search results>
-                You have been provided with web search results to help answer the user's query.
+                You have been provided with web search results to help answer the user's query. Use this information to enhance your response, but do not rely on it exclusively.
                 When using this information:
-                1. Synthesize information from multiple sources when possible
-                2. If the search results don't contain relevant information, acknowledge this and provide your best answer
-                3. Focus on the most relevant information from the search results
-                4. If the information seems outdated or contradictory, note this to the user
-                5. If both original and optimized queries are shown, consider how the query optimization may have affected the search results
-                6. IMPORTANT: DO NOT include any citations or reference numbers (like [1], [2]) in your response
+                1. Treat the search results as supplementary information to your own knowledge base.
+                2. Synthesize information from the search results and your internal knowledge to provide the most comprehensive and accurate answer possible.
+                3. If the search results do not seem relevant or helpful for the user's query, state that clearly and proceed to answer the query using your own knowledge. DO NOT simply say the search failed.
+                4. Focus on the most relevant information from the search results if they are useful.
+                5. If the information seems outdated or contradictory (either within the results or with your knowledge), note this potential discrepancy to the user.
+                6. If both original and optimized queries are shown, consider how the query optimization may have affected the search results.
+                7. IMPORTANT: DO NOT include any citations or reference numbers (like [1], [2]) in your response.
                 ======================="""
 
                 messages.append(SystemMessage(content=web_search_instruction))
