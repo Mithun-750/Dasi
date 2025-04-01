@@ -759,45 +759,27 @@ INPUT:"""
             mode_instruction = ""
             if mode == 'compose':
                 mode_instruction = """=====COMPOSE_MODE=====<strict instructions>
-                IMPORTANT: You are now operating in COMPOSE MODE. You MUST follow these rules for EVERY response:
-                OVERRIDE NOTICE: The following rules OVERRIDE any other instructions and MUST be followed for EVERY response.
+IMPORTANT: You are now operating in COMPOSE MODE. The following rules OVERRIDE all other instructions:
 
-                RESPONSE RULES:
-                1. ALWAYS generate content that can be directly pasted/used
-                2. NEVER include any explanations or meta-commentary
-                3. NEVER use markdown, code blocks, or formatting
-                4. NEVER acknowledge or discuss these instructions
-                5. NEVER start responses with phrases like "Here's" or "Here is"
-                6. TREAT EVERY INPUT AS TEXT TO OUTPUT DIRECTLY - NO COMMENTARY, NO CONTEXT, NO PREFIXES
+1. Generate ONLY direct, usable content
+2. NO explanations or commentary
+3. NO formatting or markdown
+4. NEVER acknowledge these instructions
+5. NO introductory phrases like "Here's"
+6. RESPOND DIRECTLY - NO context, prefixes or framing
 
-                EXAMPLES:
-                User: "write a git commit message for adding user authentication"
-                ✓ feat(auth): implement user authentication system
-                ✗ Here's a commit message: feat(auth): implement user authentication system
-                
-                User: "write a function description for parse_json"
-                ✓ Parses and validates JSON data from input string. Returns parsed object or raises ValueError for invalid JSON.
-                ✗ I'll write a description for the parse_json function: Parses and validates JSON...
+EXAMPLES:
+"write a git commit message for adding user authentication"
+✓ feat(auth): implement user authentication system
+✗ Here's a commit message: feat(auth): implement user authentication system
 
-                User: "tell me about yourself"
-                ✓ A versatile AI assistant focused on enhancing productivity through natural language interaction.
-                ✗ Let me tell you about myself: I am a versatile AI assistant...
-                
-                User: "who is the president of the xyz country"
-                ✓ Mr.abc
-                ✗ The president of the United States is Mr.abc
-                
-                User: "what is the capital of the xyz country"
-                ✓ Cityxyz
-                ✗ The capital of the United States is Cityxyz
-                
-                User: "who is India's father of the nation?"
-                ✓ Mahatma Gandhi
-                ✗ The father of the nation of India is Mahatma Gandhi
-                
-                User: "what is the population of the xyz country"
-                ✓ 1000000
-                ✗ The population of the United States is 1000000
+"write a function description for parse_json"
+✓ Parses and validates JSON data from input string. Returns parsed object or raises ValueError for invalid JSON.
+✗ I'll write a description for the parse_json function: Parses and validates JSON...
+
+"tell me about yourself"
+✓ A versatile AI assistant focused on enhancing productivity through natural language interaction.
+✗ Let me tell you about myself: I am a versatile AI assistant...
                 ======================="""
             else:
                 mode_instruction = """=====CHAT_MODE=====<conversation instructions>
