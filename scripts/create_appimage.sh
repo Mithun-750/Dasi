@@ -199,7 +199,7 @@ print_status "Copying shared libraries..."
 mkdir -p AppDir/usr/lib
 
 # Define a list of libraries to exclude (common system libraries)
-EXCLUDE_LIBS="libc.so|libpthread.so|libdl.so|librt.so|libm.so|ld-linux-x86-64.so|libgcc_s.so|libstdc++.so|libcrypt.so|libnss_|libnsl.so|libresolv.so|libBrokenLocale.so|libanl.so|libcidn.so|libutil.so"
+EXCLUDE_LIBS="libc.so|libpthread.so|libdl.so|librt.so|libm.so|ld-linux-x86-64.so|libgcc_s.so|libstdc++.so|libcrypt.so|libnss_|libnsl.so|libresolv.so|libBrokenLocale.so|libanl.so|libcidn.so|libutil.so|libEGL_mesa.so|libwayland-client.so"
 
 print_status "Copying Python dependencies..."
 ldd AppDir/usr/bin/python3 | grep "=> /" | awk '{print $3}' | grep -vE "($EXCLUDE_LIBS)" | sort | uniq | xargs -I '{}' cp -vL '{}' AppDir/usr/lib/ 2>/dev/null || print_warning "Failed to copy some Python libraries"
