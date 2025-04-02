@@ -190,21 +190,46 @@ INPUT:"""
             model_ids = [m['id'] for m in selected_models]
             logging.info(f"Available model IDs: {model_ids}")
 
-            # Find the model by exact ID match
-            model_info = next(
-                (m for m in selected_models if m['id'] == model_name), None)
+            # Check if this is a vision model and requires special handling
+            vision_model_id = self.settings.get('models', 'vision_model')
 
-            # If not found, try to find by partial match (for backward compatibility)
-            if not model_info and '/' in model_name:
-                # Try to match without the path components
-                base_name = model_name.split('/')[-1]
-                logging.info(f"Trying to match with base name: {base_name}")
-                for m in selected_models:
-                    if m['id'].endswith(f"/{base_name}"):
-                        model_info = m
-                        logging.info(
-                            f"Found model by partial match: {m['id']}")
-                        break
+            # Special case for vision models: allow partial matching
+            if model_name == vision_model_id:
+                logging.info(f"Using vision model: {model_name}")
+                # Find the model by exact ID match or by partial match
+                model_info = next(
+                    (m for m in selected_models if m['id'] == model_name), None)
+                if not model_info:
+                    # Try to match by base name for vision models
+                    base_name = model_name.split(
+                        '/')[-1] if '/' in model_name else model_name
+                    logging.info(
+                        f"Trying to match vision model with base name: {base_name}")
+                    for m in selected_models:
+                        model_id = m['id']
+                        if base_name in model_id or model_id in model_name:
+                            model_info = m
+                            logging.info(
+                                f"Found vision model by partial match: {m['id']}")
+                            break
+            else:
+                # Regular matching for non-vision models
+                # Find the model by exact ID match
+                model_info = next(
+                    (m for m in selected_models if m['id'] == model_name), None)
+
+                # If not found, try to find by partial match (for backward compatibility)
+                if not model_info and '/' in model_name:
+                    # Try to match without the path components
+                    base_name = model_name.split('/')[-1]
+                    logging.info(
+                        f"Trying to match with base name: {base_name}")
+                    for m in selected_models:
+                        if m['id'].endswith(f"/{base_name}"):
+                            model_info = m
+                            logging.info(
+                                f"Found model by partial match: {m['id']}")
+                            break
 
             if not model_info:
                 logging.error(
@@ -230,12 +255,24 @@ INPUT:"""
                     temperature=temperature,
                 )
             elif provider == 'openai':
-                self.llm = ChatOpenAI(
-                    model=model_id,
-                    temperature=temperature,
-                    streaming=True,
-                    openai_api_key=self.settings.get_api_key('openai'),
-                )
+                # For GPT-4o and vision models, explicitly add vision capability
+                if 'gpt-4o' in model_id.lower() or 'vision' in model_id.lower():
+                    self.llm = ChatOpenAI(
+                        model=model_id,
+                        temperature=temperature,
+                        streaming=True,
+                        openai_api_key=self.settings.get_api_key('openai'),
+                        max_tokens=4096,  # Set a reasonable limit for vision models
+                    )
+                    logging.info(
+                        f"Initialized OpenAI model with vision capabilities: {model_id}")
+                else:
+                    self.llm = ChatOpenAI(
+                        model=model_id,
+                        temperature=temperature,
+                        streaming=True,
+                        openai_api_key=self.settings.get_api_key('openai'),
+                    )
             elif provider == 'ollama':
                 self.llm = ChatOllama(
                     model=model_id,
@@ -249,12 +286,26 @@ INPUT:"""
                     temperature=temperature,
                 )
             elif provider == 'anthropic':
-                self.llm = ChatAnthropic(
-                    model=model_id,
-                    anthropic_api_key=self.settings.get_api_key('anthropic'),
-                    temperature=temperature,
-                    streaming=True,
-                )
+                # For Claude models, explicitly support multimodal for Claude 3 models
+                if 'claude-3' in model_id.lower():
+                    self.llm = ChatAnthropic(
+                        model=model_id,
+                        anthropic_api_key=self.settings.get_api_key(
+                            'anthropic'),
+                        temperature=temperature,
+                        streaming=True,
+                        max_tokens=4096,  # Set a reasonable limit for vision requests
+                    )
+                    logging.info(
+                        f"Initialized Claude model with vision capabilities: {model_id}")
+                else:
+                    self.llm = ChatAnthropic(
+                        model=model_id,
+                        anthropic_api_key=self.settings.get_api_key(
+                            'anthropic'),
+                        temperature=temperature,
+                        streaming=True,
+                    )
             elif provider == 'deepseek':
                 api_key = self.settings.get_api_key('deepseek')
                 # Set environment variable for Deepseek
@@ -280,8 +331,7 @@ INPUT:"""
                 logging.info(f"Successfully initialized xAI model: {model_id}")
             elif provider == 'custom_openai' or provider.startswith('custom_openai_'):
                 # Get custom OpenAI settings
-                base_url = self.settings.get(
-                    'models', provider, 'base_url')
+                base_url = self.settings.get('models', provider, 'base_url')
                 if not base_url:
                     logging.error(
                         f"Base URL not found for custom OpenAI provider: {provider}")
@@ -408,6 +458,8 @@ INPUT:"""
             mode = 'chat'  # Default mode
             context = {}
             actual_query = query
+            has_image = False
+            image_data = None
 
             if "Context:" in query:
                 context_section, actual_query = query.split("\n\nQuery:\n", 1)
@@ -431,6 +483,17 @@ INPUT:"""
                     if "<" in selected_text and ">" in selected_text:
                         selected_text = selected_text.split(">", 1)[1].strip()
                     context['selected_text'] = selected_text
+
+                # Check for image data in context
+                if "=====IMAGE_DATA=====" in context_section:
+                    image_data_text = context_section.split(
+                        "=====IMAGE_DATA=====", 1)[1]
+                    image_data_text = image_data_text.split(
+                        "=======================", 1)[0].strip()
+                    image_data = image_data_text
+                    context['image_data'] = image_data
+                    has_image = True
+                    logging.info("Image data found in context")
 
                 # Check for mode in context
                 if "Mode:" in context_section:
@@ -494,13 +557,6 @@ EXAMPLES:
             messages.append(SystemMessage(content=mode_instruction))
 
             # Process web search and link scraping using WebSearchHandler
-            # No longer need to initialize it here, it's done in __init__
-            # if self.web_search_handler is None:
-            #     from web_search_handler import WebSearchHandler
-            #     self.web_search_handler = WebSearchHandler()
-            #     logging.info("Web search handler initialized")
-
-            # Process the query and context to determine if web search/scrape is needed
             process_result = self.web_search_handler.process_query_context(
                 actual_query, context)
 
@@ -523,12 +579,100 @@ EXAMPLES:
             ]
             messages.extend(history_messages)
 
-            # Format user query with selected text if available
-            if 'selected_text' in context:
-                actual_query = f"{actual_query}\n\n=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n======================="
+            # Check if we have an image in context and this is a multimodal request
+            if has_image and image_data:
+                # Get the vision model ID from settings
+                vision_model_id = self.settings.get('models', 'vision_model')
 
-            # Add current query
-            query_message = HumanMessage(content=actual_query)
+                # Get the current model's ID
+                current_model_id = None
+                if hasattr(self.llm, 'model'):
+                    current_model_id = self.llm.model
+                elif hasattr(self.llm, 'model_name'):
+                    current_model_id = self.llm.model_name
+
+                # If a specific vision model is configured, try to use it
+                if vision_model_id and vision_model_id != current_model_id:
+                    logging.info(
+                        f"Switching to configured vision model: {vision_model_id}")
+                    result = self.initialize_llm(vision_model_id)
+
+                    if not result:
+                        # If the exact vision model wasn't found, try to infer a compatible model
+                        logging.info(
+                            "Trying to find a compatible vision model")
+                        selected_models = self.settings.get_selected_models()
+
+                        # Check current provider for compatible vision models
+                        provider = self.current_provider
+                        compatible_model = None
+
+                        # Detect models capable of vision by provider and keywords
+                        for m in selected_models:
+                            if m['provider'] == provider:
+                                model_id = m['id'].lower()
+                                model_name = m['name'].lower()
+
+                                # Check for vision capabilities by provider and model ID
+                                if ((provider == 'openai' and ('gpt-4-vision' in model_id or 'gpt-4o' in model_id)) or
+                                    (provider == 'google' and 'gemini' in model_id) or
+                                    (provider == 'anthropic' and 'claude-3' in model_id) or
+                                    any(keyword in model_id or keyword in model_name
+                                        for keyword in ['vision', 'multimodal', 'visual'])):
+                                    compatible_model = m
+                                    break
+
+                        if compatible_model:
+                            logging.info(
+                                f"Found compatible vision model: {compatible_model['id']}")
+                            if not self.initialize_llm(compatible_model['id']):
+                                logging.error(
+                                    f"Failed to initialize compatible vision model")
+                                return "⚠️ Found a compatible vision model but failed to initialize it. Please check your API key settings."
+                        else:
+                            logging.warning(
+                                f"No compatible vision model found for provider {provider}")
+                            # Add a warning message - we'll still try with the current model
+                            messages.append(SystemMessage(content="""
+                            The user has included an image, but I cannot find a configured vision model.
+                            Please inform them that they should set up a vision model in the settings
+                            to properly process images. Common vision-capable models include:
+                            - OpenAI: GPT-4o or GPT-4 Vision
+                            - Google: Gemini models
+                            - Anthropic: Claude 3 models
+                            """))
+
+                # Create multimodal message content
+                if image_data:
+                    # Format selected text if available
+                    if 'selected_text' in context:
+                        final_query = f"{actual_query}\n\nText context: {context['selected_text']}"
+                    else:
+                        final_query = actual_query
+
+                    # Create multimodal message content using content blocks
+                    content_blocks = [
+                        {"type": "text", "text": final_query},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{image_data}"}
+                        }
+                    ]
+
+                    # Create human message with multimodal content
+                    query_message = HumanMessage(content=content_blocks)
+                else:
+                    # Fallback to text-only if something went wrong with the image
+                    query_message = HumanMessage(content=actual_query)
+            else:
+                # Format user query with selected text if available (text-only case)
+                if 'selected_text' in context:
+                    actual_query = f"{actual_query}\n\n=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n======================="
+
+                # Add current query as text-only
+                query_message = HumanMessage(content=actual_query)
+
+            # Add the message to the messages list
             messages.append(query_message)
 
             # Log the request
@@ -540,6 +684,8 @@ EXAMPLES:
                 model_name = self.llm.model_name
 
             logging.info(f"Sending request to {provider} model: {model_name}")
+            if has_image:
+                logging.info("Request includes an image")
 
             # Get response
             if callback:

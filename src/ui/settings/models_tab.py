@@ -846,12 +846,63 @@ class ModelsTab(QWidget):
         models_section.layout.addWidget(self.models_list)
         content_layout.addWidget(models_section)
 
+        # Vision Models Section
+        vision_models_section = SectionFrame(
+            "Vision Models",
+            "Select one model to handle image processing in multimodal conversations. Only select models that support image analysis."
+        )
+
+        # Vision model selection container
+        vision_model_container = QWidget()
+        vision_model_container.setProperty("class", "transparent-container")
+        vision_model_layout = QVBoxLayout(vision_model_container)
+        vision_model_layout.setContentsMargins(0, 0, 0, 0)
+        vision_model_layout.setSpacing(8)
+
+        # Create label
+        vision_model_label = QLabel("Selected Vision Model:")
+        vision_model_label.setStyleSheet("""
+            color: #e0e0e0;
+            font-size: 14px;
+            font-weight: 500;
+        """)
+
+        # Create vision model dropdown
+        self.vision_model_dropdown = SearchableComboBox()
+        self.vision_model_dropdown.setMinimumWidth(300)
+
+        # Add "None" option
+        self.vision_model_dropdown.addItem("None (No Vision Support)")
+
+        # Add model selector and label to container
+        vision_model_layout.addWidget(vision_model_label)
+        vision_model_layout.addWidget(self.vision_model_dropdown)
+
+        # Description label
+        vision_model_description = QLabel(
+            "Only models with vision capabilities (like GPT-4o, Gemini, Claude 3) will properly process images."
+        )
+        vision_model_description.setStyleSheet("""
+            color: #aaaaaa;
+            font-size: 12px;
+            margin-top: 4px;
+        """)
+        vision_model_description.setWordWrap(True)
+        vision_model_layout.addWidget(vision_model_description)
+
+        vision_models_section.layout.addWidget(vision_model_container)
+        content_layout.addWidget(vision_models_section)
+
         # Set scroll area widget
         scroll.setWidget(content)
         layout.addWidget(scroll)
 
         # Load selected models
         self.load_selected_models()
+
+        # Connect vision model dropdown signal
+        self.vision_model_dropdown.currentIndexChanged.connect(
+            self.on_vision_model_changed)
 
     def showEvent(self, event):
         """Called when the tab becomes visible."""
@@ -983,6 +1034,10 @@ class ModelsTab(QWidget):
         """Handle successful model fetch."""
         self.available_models = models
         self.model_dropdown.clear()
+        self.vision_model_dropdown.clear()
+
+        # Add "None" option to vision model dropdown
+        self.vision_model_dropdown.addItem("None (No Vision Support)")
 
         # Check for custom OpenAI models
         # First check the original custom_openai model
@@ -1024,7 +1079,13 @@ class ModelsTab(QWidget):
             # Store the full model info in the item data
             self.model_dropdown.addItem(display_text, model)
 
+            # Check if model supports vision capabilities
+            if self._is_vision_capable(model):
+                vision_display_text = f"{model['name']} ({model['provider']})"
+                self.vision_model_dropdown.addItem(vision_display_text, model)
+
         self.model_dropdown.setEnabled(True)
+        self.vision_model_dropdown.setEnabled(True)
         self.progress_bar.hide()
         self.fetch_worker = None
 
@@ -1032,6 +1093,56 @@ class ModelsTab(QWidget):
         if hasattr(self, 'refresh_button'):
             self.refresh_button.setEnabled(True)
             self.refresh_button.setText("⟳")
+
+        # Load saved vision model selection
+        self.load_vision_model()
+
+    def _is_vision_capable(self, model):
+        """Check if a model is likely to support vision capabilities."""
+        provider = model['provider']
+        model_id = model['id'].lower()
+        model_name = model['name'].lower()
+
+        # Models known to support vision
+        if provider == 'openai' and ('gpt-4-vision' in model_id or 'gpt-4o' in model_id or 'gpt-4-turbo' in model_id):
+            return True
+        elif provider == 'google' and ('gemini' in model_id):
+            return True
+        elif provider == 'anthropic' and ('claude-3' in model_id):
+            return True
+        elif provider == 'custom_openai' and ('gpt-4-vision' in model_id or 'gpt-4o' in model_id):
+            return True
+
+        # Check for known model names
+        vision_keywords = ['vision', 'multimodal', 'image',
+                           'visual', 'gpt-4o', 'gemini', 'claude-3']
+        for keyword in vision_keywords:
+            if keyword in model_id or keyword in model_name:
+                return True
+
+        return False
+
+    def load_vision_model(self):
+        """Load the saved vision model from settings."""
+        vision_model_id = self.settings.get('models', 'vision_model')
+
+        if not vision_model_id:
+            # No vision model set, default to None
+            self.vision_model_dropdown.setCurrentIndex(0)
+            return
+
+        # Find the model in the dropdown
+        for i in range(1, self.vision_model_dropdown.count()):
+            model_info = self.vision_model_dropdown.itemData(i)
+            if model_info and model_info['id'] == vision_model_id:
+                self.vision_model_dropdown.setCurrentIndex(i)
+                return
+
+        # If we got here, the saved model wasn't found in the list
+        # This could happen if the model was removed or is no longer available
+        # Reset to None
+        self.vision_model_dropdown.setCurrentIndex(0)
+        self.settings.set('models', 'vision_model', '')
 
     def _on_fetch_error(self, error):
         """Handle model fetch error."""
@@ -1336,3 +1447,19 @@ class ModelsTab(QWidget):
                 f"Removed {len(models_to_remove)} models from {display_provider} because the API key was cleared.",
                 QMessageBox.StandardButton.Ok
             )
+
+    def on_vision_model_changed(self, index):
+        """Handle vision model selection change."""
+        if index == 0:
+            # "None" selected
+            self.settings.set('models', 'vision_model', '')
+            logging.info("Vision model set to None")
+            return
+
+        # Get the selected model info
+        model_info = self.vision_model_dropdown.itemData(index)
+        if model_info:
+            # Save the model ID to settings
+            self.settings.set('models', 'vision_model', model_info['id'])
+            logging.info(
+                f"Vision model set to: {model_info['name']} ({model_info['id']})")
