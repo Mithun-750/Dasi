@@ -183,37 +183,73 @@ INPUT:"""
                     else:
                         return False
 
-            # Get model info from settings
-            selected_models = self.settings.get_selected_models()
-
-            # Log all available models for debugging
-            model_ids = [m['id'] for m in selected_models]
-            logging.info(f"Available model IDs: {model_ids}")
-
-            # Check if this is a vision model and requires special handling
+            # Check if this is the specifically configured vision model
             vision_model_id = self.settings.get('models', 'vision_model')
+            is_vision_model = (
+                model_name == vision_model_id and vision_model_id is not None)
 
-            # Special case for vision models: allow partial matching
-            if model_name == vision_model_id:
-                logging.info(f"Using vision model: {model_name}")
-                # Find the model by exact ID match or by partial match
-                model_info = next(
-                    (m for m in selected_models if m['id'] == model_name), None)
-                if not model_info:
-                    # Try to match by base name for vision models
-                    base_name = model_name.split(
-                        '/')[-1] if '/' in model_name else model_name
+            provider = None
+            model_id = None
+
+            if is_vision_model:
+                # This is the specifically configured vision model - initialize directly
+                # We need to determine the provider from the model ID
+                logging.info(
+                    f"Initializing specifically configured vision model: {model_name}")
+                model_id = model_name
+
+                # Determine provider from model ID patterns
+                if model_id.startswith("models/gemini"):
+                    provider = "google"
                     logging.info(
-                        f"Trying to match vision model with base name: {base_name}")
-                    for m in selected_models:
-                        model_id = m['id']
-                        if base_name in model_id or model_id in model_name:
-                            model_info = m
+                        f"Detected Google Gemini model from ID: {model_id}")
+                elif "gpt-4" in model_id.lower() or model_id.startswith("openai/"):
+                    provider = "openai"
+                    # Remove openai/ prefix if present
+                    if model_id.startswith("openai/"):
+                        model_id = model_id[7:]
+                    logging.info(f"Detected OpenAI model from ID: {model_id}")
+                elif "claude" in model_id.lower() or model_id.startswith("anthropic/"):
+                    provider = "anthropic"
+                    # Remove anthropic/ prefix if present
+                    if model_id.startswith("anthropic/"):
+                        model_id = model_id[10:]
+                    logging.info(
+                        f"Detected Anthropic model from ID: {model_id}")
+                else:
+                    # Try to check if it's a custom endpoint
+                    custom_providers = [p for p in self.settings.get_all_providers()
+                                        if p.startswith("custom_openai")]
+                    for custom_provider in custom_providers:
+                        # Check if the model ID contains the custom provider's name or base URL
+                        base_url = self.settings.get(
+                            'models', custom_provider, 'base_url', default="")
+                        if (custom_provider.lower() in model_id.lower() or
+                                (base_url and base_url.split("//")[-1].split(".")[0] in model_id.lower())):
+                            provider = custom_provider
                             logging.info(
-                                f"Found vision model by partial match: {m['id']}")
+                                f"Detected custom provider {provider} for vision model: {model_id}")
                             break
+
+                if not provider:
+                    # Last resort - use the current provider if we have one
+                    if self.current_provider:
+                        provider = self.current_provider
+                        logging.info(
+                            f"Using current provider {provider} for vision model: {model_id}")
+                    else:
+                        logging.error(
+                            f"Could not determine provider for vision model: {model_id}")
+                        return False
             else:
-                # Regular matching for non-vision models
+                # For non-vision models or when vision model isn't explicitly configured,
+                # find the model in the selected models list
+                selected_models = self.settings.get_selected_models()
+
+                # Log all available models for debugging
+                model_ids = [m['id'] for m in selected_models]
+                logging.info(f"Available model IDs: {model_ids}")
+
                 # Find the model by exact ID match
                 model_info = next(
                     (m for m in selected_models if m['id'] == model_name), None)
@@ -231,13 +267,13 @@ INPUT:"""
                                 f"Found model by partial match: {m['id']}")
                             break
 
-            if not model_info:
-                logging.error(
-                    f"Model {model_name} not found in selected models")
-                return False
+                if not model_info:
+                    logging.error(
+                        f"Model {model_name} not found in selected models")
+                    return False
 
-            provider = model_info['provider']
-            model_id = model_info['id']
+                provider = model_info['provider']
+                model_id = model_info['id']
 
             logging.info(
                 f"Initializing LLM with provider: {provider}, model: {model_id}")
