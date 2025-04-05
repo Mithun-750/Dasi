@@ -225,23 +225,20 @@ class WebSearchHandler:
                         # Set the environment variable for Tavily
                         os.environ["TAVILY_API_KEY"] = api_key
 
-                        # Validate the API key before initializing
-                        if self._is_valid_tavily_api_key(api_key):
-                            if TavilyWrapper == TavilySearchResults:
-                                # New implementation - use max_results from settings
-                                self.search_providers['tavily_search'] = TavilyWrapper(
-                                    max_results=max_results)
-                                logging.info(
-                                    f"Tavily search provider initialized with max_results={max_results}")
-                            else:
-                                # Old implementation
-                                self.search_providers['tavily_search'] = TavilyWrapper(
-                                    api_key=api_key)
+                        # Initialize directly without validation
+                        if TavilyWrapper == TavilySearchResults:
+                            # New implementation - use max_results from settings
+                            self.search_providers['tavily_search'] = TavilyWrapper(
+                                max_results=max_results)
                             logging.info(
-                                "Tavily search provider initialized successfully")
+                                f"Tavily search provider initialized with max_results={max_results}")
                         else:
-                            logging.error(
-                                "Failed to initialize Tavily search provider: Invalid API key")
+                            # Old implementation
+                            self.search_providers['tavily_search'] = TavilyWrapper(
+                                api_key=api_key)
+                        logging.info(
+                            "Tavily search provider initialized successfully")
+
                     except Exception as e:
                         logging.error(
                             f"Error initializing Tavily search provider: {str(e)}")
