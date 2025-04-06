@@ -17,8 +17,9 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from pathlib import Path
 import re
 
-# Import WebSearchHandler here to allow passing self to its constructor
+# Import WebSearchHandler and ImageHandler
 from web_search_handler import WebSearchHandler
+from image_handler import ImageHandler
 
 
 class LLMHandler:
@@ -42,6 +43,9 @@ class LLMHandler:
 
         # Initialize web search handler, passing this LLMHandler instance
         self.web_search_handler = WebSearchHandler(self)
+
+        # Initialize Image Handler
+        self.image_handler = ImageHandler(self.settings)
 
         # Fixed system prompt
         self.system_prompt = """# IDENTITY and PURPOSE
@@ -634,85 +638,115 @@ EXAMPLES:
 
             messages.extend(typed_history)  # Use the typed history
 
-            # Check if we have an image in context and this is a multimodal request
+            # ---> Image Handling Logic <---
+            generated_image_description = None
             if has_image and image_data:
-                # Get the configured vision model info from settings
+                # Get vision model and current model info
                 vision_model_info = self.settings.get_vision_model_info()
 
-                # Get the current model's ID
-                current_model_id = None
-                if self.llm:
-                    if hasattr(self.llm, 'model'):
-                        current_model_id = self.llm.model
-                    elif hasattr(self.llm, 'model_name'):
-                        current_model_id = self.llm.model_name
-
-                # If a specific vision model is configured, try to switch to it if necessary
-                if vision_model_info and isinstance(vision_model_info, dict):
-                    vision_model_id = vision_model_info.get('id')
-                    if vision_model_id and vision_model_id != current_model_id:
-                        logging.info(
-                            f"Switching to configured vision model: {vision_model_id}")
-                        # Initialize using the full model info
-                        if not self.initialize_llm(model_info=vision_model_info):
-                            logging.error(
-                                f"Failed to initialize vision model: {vision_model_id}. Image will not be processed.")
-                            # Reset has_image flag so we proceed with text only
-                            has_image = False
-                            image_data = None
-                            # Add a note to the query? Or just rely on error log?
-                            actual_query += "\n(Note: Failed to switch to vision model, image ignored)"
-                        else:
-                            # Update current_model_info after successful switch
+                # Ensure current_model_info is set (it should be at this point)
+                if not current_model_info:
+                    logging.error(
+                        "LLMHandler: Could not determine current model info before image handling.")
+                    # Fallback? Maybe try to get it again?
+                    current_model_id = self.llm.model if hasattr(
+                        self.llm, 'model') else getattr(self.llm, 'model_name', None)
+                    if current_model_id:
+                        selected_models = self.settings.get_selected_models()
+                        current_model_info = next(
+                            (m for m in selected_models if m['id'] == current_model_id), None)
+                        if not current_model_info and vision_model_info and vision_model_info.get('id') == current_model_id:
                             current_model_info = vision_model_info
-                    elif not vision_model_id:
-                        logging.warning(
-                            "Vision model configured in settings has no ID. Image ignored.")
+
+                use_image_handler = False
+                if vision_model_info and isinstance(vision_model_info, dict) and current_model_info and isinstance(current_model_info, dict):
+                    if vision_model_info.get('id') != current_model_info.get('id'):
+                        use_image_handler = True
+                        logging.info(
+                            f"Vision model ({vision_model_info.get('id')}) differs from main LLM ({current_model_info.get('id')}). Using ImageHandler.")
+                    else:
+                        logging.info(
+                            f"Vision model and main LLM are the same ({vision_model_info.get('id')}). Will attempt direct multimodal call.")
+                elif not vision_model_info:
+                    logging.info(
+                        "No dedicated vision model configured. Will attempt direct multimodal call with main LLM.")
+                else:  # current_model_info is missing?
+                    logging.warning(
+                        "Could not compare vision model and main LLM. Defaulting to direct multimodal call if possible.")
+
+                # Scenario 1: Use ImageHandler to get description first
+                if use_image_handler:
+                    logging.info(
+                        "Generating detailed image description using ImageHandler...")
+                    description = self.image_handler.get_detailed_image_description(
+                        image_data_base64=image_data,
+                        prompt_hint=actual_query  # Pass user query as hint
+                    )
+                    if description:
+                        generated_image_description = description
+                        # Prepare for text-only call to main LLM
                         has_image = False
                         image_data = None
-                    else:
                         logging.info(
-                            f"Already using the configured vision model: {vision_model_id}")
-                        # Ensure current_model_info reflects the vision model
-                        if not current_model_info or current_model_info.get('id') != vision_model_id:
-                            current_model_info = vision_model_info
-
-                else:
-                    # No vision model configured or info is invalid
-                    logging.warning(
-                        "Image provided, but no valid vision model is configured in settings. Image will be ignored.")
-                    has_image = False  # Treat as text-only request
-                    image_data = None
-
-                # Create multimodal message content ONLY if we successfully switched/verified the vision model
-                if has_image and image_data:  # Re-check has_image as it might be reset above
-                    # Format selected text if available
-                    if 'selected_text' in context:
-                        final_query = f"{actual_query}\n\nText context: {context['selected_text']}"
+                            "Successfully generated image description.")
                     else:
-                        final_query = actual_query
+                        # Failed to get description, proceed as text-only but add a note
+                        logging.error(
+                            "Failed to generate image description from ImageHandler.")
+                        actual_query += "\n\n=====SYSTEM_NOTE=====\n(Failed to process the provided image.)\n====================="
+                        has_image = False
+                        image_data = None
 
-                    # Create multimodal message content using content blocks
-                    content_blocks = [
-                        {"type": "text", "text": final_query},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{image_data}"}
-                        }
-                    ]
-
-                    # Create human message with multimodal content
-                    query_message = HumanMessage(content=content_blocks)
+                # Scenario 2: Direct multimodal call (Vision model is same as main, or none is set)
                 else:
-                    # Fallback to text-only if something went wrong with the image
-                    query_message = HumanMessage(content=actual_query)
-            else:
-                # Format user query with selected text if available (text-only case)
-                if 'selected_text' in context:
-                    actual_query = f"{actual_query}\n\n=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n======================="
+                    logging.info(
+                        "Proceeding with direct multimodal message construction.")
+                    # We keep has_image = True and image_data as is
+                    # Need to ensure the current LLM can handle it; Langchain models usually do if underlying API supports it.
+                    # If current_model_info exists, we could add an explicit capability check here if needed,
+                    # but for now, we rely on Langchain/API handling.
+                    pass  # No changes needed here, the multimodal message will be constructed below if has_image is still True
 
-                # Add current query as text-only
-                query_message = HumanMessage(content=actual_query)
+            # --- End Image Handling Logic ---
+
+            # Construct the final query message based on whether we have image data or description
+            if has_image and image_data:
+                # Direct Multimodal Message (Scenario 2 or original flow)
+                # Format selected text if available
+                query_text_part = actual_query
+                if 'selected_text' in context:
+                    query_text_part = f"{actual_query}\n\nText context: {context['selected_text']}"
+
+                # Ensure base64 data is clean
+                if image_data.startswith('data:'):
+                    image_data = image_data.split(',', 1)[-1]
+
+                content_blocks = [
+                    {"type": "text", "text": query_text_part},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{image_data}"}
+                    }
+                ]
+                query_message = HumanMessage(content=content_blocks)
+                logging.info("Constructed direct multimodal query message.")
+
+            else:
+                # Text-Only Message (No image initially, or ImageHandler used)
+                final_query_text = actual_query
+                # Append selected text if present
+                if 'selected_text' in context:
+                    final_query_text += f"\n\n=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n======================="
+                # Append generated image description if available (from Scenario 1)
+                if generated_image_description:
+                    final_query_text += f"\n\n=====IMAGE_DESCRIPTION=====<description generated by vision model>\n{generated_image_description}\n======================="
+
+                query_message = HumanMessage(content=final_query_text)
+                if generated_image_description:
+                    logging.info(
+                        "Constructed text query message including generated image description.")
+                else:
+                    logging.info("Constructed standard text query message.")
 
             # Add the message to the messages list
             messages.append(query_message)
