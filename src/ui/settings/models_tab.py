@@ -162,6 +162,7 @@ class ModelFetchWorker(QThread):
             )
             response.raise_for_status()
             models = response.json().get('models', [])
+            print(models)
 
             # Filter for models that support text generation
             text_models = []
@@ -859,13 +860,11 @@ class ModelsTab(QWidget):
         vision_model_layout.setContentsMargins(0, 0, 0, 0)
         vision_model_layout.setSpacing(8)
 
-        # Create label
-        vision_model_label = QLabel("Selected Vision Model:")
-        vision_model_label.setStyleSheet("""
-            color: #e0e0e0;
-            font-size: 14px;
-            font-weight: 500;
-        """)
+        # Create selection row container
+        selection_row = QWidget()
+        selection_row_layout = QHBoxLayout(selection_row)
+        selection_row_layout.setContentsMargins(0, 0, 0, 0)
+        selection_row_layout.setSpacing(8)
 
         # Create vision model dropdown
         self.vision_model_dropdown = SearchableComboBox()
@@ -874,9 +873,49 @@ class ModelsTab(QWidget):
         # Add "None" option
         self.vision_model_dropdown.addItem("None (No Vision Support)")
 
-        # Add model selector and label to container
-        vision_model_layout.addWidget(vision_model_label)
-        vision_model_layout.addWidget(self.vision_model_dropdown)
+        # Add Vision Model button with modern styling
+        add_vision_button = QPushButton("Add Vision Model")
+        add_vision_button.setProperty("class", "primary")
+        add_vision_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e67e22;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #d35400;
+            }
+            QPushButton:pressed {
+                background-color: #a04000;
+            }
+            QPushButton:disabled {
+                background-color: #666666;
+                color: #999999;
+            }
+        """)
+        add_vision_button.clicked.connect(self.add_vision_model)
+
+        # Add dropdown and button to selection row
+        selection_row_layout.addWidget(self.vision_model_dropdown)
+        selection_row_layout.addWidget(add_vision_button)
+        selection_row_layout.addStretch()
+
+        # Add selection row to container
+        vision_model_layout.addWidget(selection_row)
+
+        # Create container for displaying the selected vision model
+        self.vision_model_display = QWidget()
+        self.vision_model_display.setProperty("class", "transparent-container")
+        self.vision_model_display.setVisible(False)  # Hide initially
+        vision_model_display_layout = QVBoxLayout(self.vision_model_display)
+        vision_model_display_layout.setContentsMargins(0, 8, 0, 0)
+        vision_model_display_layout.setSpacing(0)
+
+        # Add the display container to the main layout
+        vision_model_layout.addWidget(self.vision_model_display)
 
         # Description label
         vision_model_description = QLabel(
@@ -900,9 +939,8 @@ class ModelsTab(QWidget):
         # Load selected models
         self.load_selected_models()
 
-        # Connect vision model dropdown signal
-        self.vision_model_dropdown.currentIndexChanged.connect(
-            self.on_vision_model_changed)
+        # Load vision model
+        self.load_vision_model()
 
     def showEvent(self, event):
         """Called when the tab becomes visible."""
@@ -1072,17 +1110,15 @@ class ModelsTab(QWidget):
                 index += 1
             else:
                 break
-
         # Add models to dropdown with provider info
         for model in models:
             display_text = f"{model['name']} ({model['provider']})"
             # Store the full model info in the item data
             self.model_dropdown.addItem(display_text, model)
 
-            # Check if model supports vision capabilities
-            if self._is_vision_capable(model):
-                vision_display_text = f"{model['name']} ({model['provider']})"
-                self.vision_model_dropdown.addItem(vision_display_text, model)
+            # Always add all models to the vision dropdown
+            vision_display_text = f"{model['name']} ({model['provider']})"
+            self.vision_model_dropdown.addItem(vision_display_text, model)
 
         self.model_dropdown.setEnabled(True)
         self.vision_model_dropdown.setEnabled(True)
@@ -1097,106 +1133,175 @@ class ModelsTab(QWidget):
         # Load saved vision model selection
         self.load_vision_model()
 
-    def _is_vision_capable(self, model):
-        """Check if a model is likely to support vision capabilities."""
-        provider = model['provider']
-        # Normalize model ID and name to lowercase for case-insensitive matching
-        model_id = model['id'].lower()
-        model_name = model['name'].lower()
-
-        # Models known to support vision explicitly
-        # OpenAI vision models
-        if provider == 'openai' and ('gpt-4-vision' in model_id or 'gpt-4o' in model_id or 'gpt-4-turbo' in model_id):
-            return True
-        # Google vision models (check for 'gemini' and 'vision' keywords)
-        elif provider == 'google' and ('gemini' in model_id and 'vision' in model_id):
-            return True
-        # Anthropic vision models (Claude 3 series)
-        elif provider == 'anthropic' and ('claude-3' in model_id):
-            return True
-        # Custom OpenAI vision models
-        elif provider.startswith('custom_openai') and ('gpt-4-vision' in model_id or 'gpt-4o' in model_id):
-            return True
-
-        # General keyword check for broader compatibility (less reliable)
-        # Check common keywords in model ID or name
-        vision_keywords = ['vision', 'multimodal', 'image',
-                           'visual', 'gpt-4o', 'gemini', 'claude-3']
-        for keyword in vision_keywords:
-            # Match keywords more robustly (e.g., ensuring 'gemini' matches 'gemini-pro-vision')
-            if f"-{keyword}" in model_id or f"/{keyword}" in model_id or keyword == model_id:
-                logging.info(
-                    f"Identified {model['id']} as vision capable based on keyword '{keyword}' in ID.")
-                return True
-            if keyword in model_name:
-                logging.info(
-                    f"Identified {model['id']} as vision capable based on keyword '{keyword}' in name.")
-                return True
-
-        # Add specific known vision model IDs if keyword matching fails
-        known_vision_ids = [
-            'google/gemini-pro-vision',
-            'openai/gpt-4-turbo',  # This often includes vision
-            'anthropic/claude-3-opus-20240229',
-            'anthropic/claude-3-sonnet-20240229',
-            'anthropic/claude-3-haiku-20240307',
-        ]
-        if model['id'] in known_vision_ids:
-            logging.info(
-                f"Identified {model['id']} as vision capable based on known ID list.")
-            return True
-
-        # Log if model was not identified as vision capable
-        # logging.debug(f"Model {model['id']} ({model['name']}) not identified as vision capable.")
-        return False
-
     def load_vision_model(self):
         """Load the saved vision model from settings."""
-        # Use the new method to get the full info dictionary
+        # Get the saved vision model info
         vision_model_info = self.settings.get_vision_model_info()
 
-        if not vision_model_info or not isinstance(vision_model_info, dict):
-            # No vision model set or invalid data, default to None
-            self.vision_model_dropdown.setCurrentIndex(0)
-            logging.info(
-                "No valid vision model info found in settings. Setting to None.")
-            return
+        # Update the display regardless of dropdown state
+        self.update_vision_model_display()
 
-        # Find the model in the dropdown by comparing the full info dictionary
-        found = False
-        for i in range(1, self.vision_model_dropdown.count()):
-            item_data = self.vision_model_dropdown.itemData(i)
-            # Compare the dictionaries directly
-            if isinstance(item_data, dict) and item_data == vision_model_info:
-                self.vision_model_dropdown.setCurrentIndex(i)
+        # Only try to set the dropdown if we have models loaded
+        if self.vision_model_dropdown.count() > 1:  # More than just the "None" option
+            if not vision_model_info:
+                self.vision_model_dropdown.setCurrentIndex(0)
+                return
+
+            # Find the model in the dropdown
+            found = False
+            for i in range(1, self.vision_model_dropdown.count()):
+                item_data = self.vision_model_dropdown.itemData(i)
+                if isinstance(item_data, dict) and item_data == vision_model_info:
+                    self.vision_model_dropdown.setCurrentIndex(i)
+                    found = True
+                    break
+
+            if not found:
+                # If the saved model isn't in the current dropdown, just show it in display
+                # but set dropdown to "None"
+                self.vision_model_dropdown.setCurrentIndex(0)
                 logging.info(
-                    f"Loaded vision model from settings: {vision_model_info['name']}")
-                found = True
-                break
+                    f"Saved vision model {vision_model_info.get('id', 'N/A')} not found in current model list, but keeping configuration."
+                )
 
-        # If the saved model wasn't found in the dropdown list
-        if not found:
-            logging.warning(
-                f"Saved vision model {vision_model_info.get('id', 'N/A')} not found in available models list. Resetting to None.")
-            self.vision_model_dropdown.setCurrentIndex(0)
-            # Clear the invalid setting
+    def add_vision_model(self):
+        """Add the selected vision model to settings."""
+        current_index = self.vision_model_dropdown.currentIndex()
+        if current_index <= 0:  # 0 is "None"
+            # Clear vision model
             self.settings.set_vision_model_info(None)
             self.settings.save_settings()
+            self.update_vision_model_display()
+            QMessageBox.information(
+                self,
+                "Vision Model Updated",
+                "Vision support has been disabled.",
+                QMessageBox.StandardButton.Ok
+            )
+            return
 
-    def _on_fetch_error(self, error):
-        """Handle model fetch error."""
-        self.model_dropdown.clear()
-        self.model_dropdown.addItem("Failed to fetch models")
-        self.model_dropdown.setEnabled(False)
-        self.progress_bar.hide()
-        self.fetch_worker = None
+        # Get the full model info dictionary from the dropdown
+        model_info = self.vision_model_dropdown.itemData(current_index)
+        if not model_info or not isinstance(model_info, dict):
+            logging.error(f"Invalid vision model data: {model_info}")
+            return
 
-        # Reset refresh button
-        if hasattr(self, 'refresh_button'):
-            self.refresh_button.setEnabled(True)
-            self.refresh_button.setText("⟳")
+        # Save the model info
+        self.settings.set_vision_model_info(model_info)
+        self.settings.save_settings()
 
-        QMessageBox.warning(self, "Error", f"Failed to fetch models: {error}")
+        # Update the display
+        self.update_vision_model_display()
+
+        # Show confirmation
+        QMessageBox.information(
+            self,
+            "Vision Model Updated",
+            f"Vision model set to: {model_info['name']}.\nThis model will be used for image processing.",
+            QMessageBox.StandardButton.Ok
+        )
+
+    def update_vision_model_display(self):
+        """Update the vision model display area."""
+        # Clear existing widgets from display
+        for i in reversed(range(self.vision_model_display.layout().count())):
+            widget = self.vision_model_display.layout().itemAt(i).widget()
+            if widget:
+                widget.deleteLater()
+
+        # Get current vision model info
+        vision_model_info = self.settings.get_vision_model_info()
+
+        if not vision_model_info:
+            self.vision_model_display.setVisible(False)
+            return
+
+        # Create a widget similar to the model list items but for a single model
+        model_widget = QWidget()
+        model_widget.setObjectName("visionModelItem")
+        model_widget.setStyleSheet("""
+            #visionModelItem {
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 8px;
+            }
+        """)
+
+        layout = QHBoxLayout(model_widget)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(16)
+
+        # Content layout for text
+        content_layout = QVBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(4)
+
+        # Create name and provider labels
+        name_label = QLabel(vision_model_info['name'])
+        name_label.setStyleSheet("""
+            font-size: 14px;
+            font-weight: 500;
+            color: #ffffff;
+            background-color: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
+        """)
+
+        provider_label = QLabel(f"Provider: {vision_model_info['provider']}")
+        provider_label.setStyleSheet("""
+            font-size: 12px;
+            color: #aaaaaa;
+            background-color: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
+        """)
+
+        # Add labels to content layout
+        content_layout.addWidget(name_label)
+        content_layout.addWidget(provider_label)
+
+        # Add content layout to main layout
+        layout.addLayout(content_layout, 1)
+
+        # Create actions layout
+        actions_layout = QHBoxLayout()
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(10)
+        actions_layout.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        # Add "Vision Model" indicator label
+        vision_label = RoundLabel("Vision Model")
+        actions_layout.addWidget(vision_label)
+
+        # Remove button
+        remove_btn = RoundButton("×")
+        remove_btn.setFixedSize(28, 28)
+        remove_btn.clicked.connect(self.remove_vision_model)
+        actions_layout.addWidget(remove_btn)
+
+        # Add actions layout to main layout
+        layout.addLayout(actions_layout)
+
+        # Add the model widget to the display layout
+        self.vision_model_display.layout().addWidget(model_widget)
+        self.vision_model_display.setVisible(True)
+
+    def remove_vision_model(self):
+        """Remove the current vision model."""
+        self.settings.set_vision_model_info(None)
+        self.settings.save_settings()
+        self.update_vision_model_display()
+        # Reset dropdown to "None"
+        self.vision_model_dropdown.setCurrentIndex(0)
+        QMessageBox.information(
+            self,
+            "Vision Model Removed",
+            "Vision support has been disabled.",
+            QMessageBox.StandardButton.Ok
+        )
 
     def load_selected_models(self):
         """Load selected models into the list."""
@@ -1498,40 +1603,17 @@ class ModelsTab(QWidget):
                 QMessageBox.StandardButton.Ok
             )
 
-    def on_vision_model_changed(self, index):
-        """Handle vision model selection change."""
-        model_info = None
-        if index == 0:
-            # "None" selected
-            self.settings.set_vision_model_info(None)
-            log_message = "Vision model set to None."
-            user_message = "Vision support has been disabled."
-        else:
-            # Get the full selected model info dictionary
-            model_info = self.vision_model_dropdown.itemData(index)
-            if model_info and isinstance(model_info, dict):
-                # Save the entire dictionary
-                self.settings.set_vision_model_info(model_info)
-                log_message = f"Vision model set to: {model_info['name']} ({model_info['id']})"
-                user_message = f"Vision model set to: {model_info['name']}."
-            else:
-                # Should not happen, but handle gracefully
-                self.settings.set_vision_model_info(None)
-                self.vision_model_dropdown.setCurrentIndex(0)  # Reset dropdown
-                log_message = "Error setting vision model: Invalid data selected. Resetting to None."
-                user_message = "An error occurred setting the vision model. Vision support disabled."
-                logging.error(
-                    f"Invalid model data at index {index}: {model_info}")
+    def _on_fetch_error(self, error):
+        """Handle model fetch error."""
+        self.model_dropdown.clear()
+        self.model_dropdown.addItem("Failed to fetch models")
+        self.model_dropdown.setEnabled(False)
+        self.progress_bar.hide()
+        self.fetch_worker = None
 
-        # Save settings immediately
-        self.settings.save_settings()
-        logging.info(log_message)
+        # Reset refresh button
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setEnabled(True)
+            self.refresh_button.setText("⟳")
 
-        # Notify the user (only if a model was actually selected or deselected)
-        if index >= 0:  # Avoid showing message if dropdown is initially populated
-            QMessageBox.information(
-                self,
-                "Vision Model Updated",
-                f"{user_message}\nThis model will be used for image processing.",
-                QMessageBox.StandardButton.Ok
-            )
+        QMessageBox.warning(self, "Error", f"Failed to fetch models: {error}")
