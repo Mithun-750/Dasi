@@ -17,9 +17,9 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from pathlib import Path
 import re
 
-# Import WebSearchHandler and ImageHandler
+# Import WebSearchHandler and VisionHandler
 from web_search_handler import WebSearchHandler
-from image_handler import ImageHandler
+from vision_handler import VisionHandler
 
 
 class LLMHandler:
@@ -44,8 +44,8 @@ class LLMHandler:
         # Initialize web search handler, passing this LLMHandler instance
         self.web_search_handler = WebSearchHandler(self)
 
-        # Initialize Image Handler
-        self.image_handler = ImageHandler(self.settings)
+        # Initialize Vision Handler
+        self.vision_handler = VisionHandler(self.settings)
 
         # Fixed system prompt
         self.system_prompt = """# IDENTITY and PURPOSE
@@ -638,8 +638,8 @@ EXAMPLES:
 
             messages.extend(typed_history)  # Use the typed history
 
-            # ---> Image Handling Logic <---
-            generated_image_description = None
+            # ---> Vision Handling Logic <---
+            generated_visual_description = None
             if has_image and image_data:
                 # Get vision model and current model info
                 vision_model_info = self.settings.get_vision_model_info()
@@ -647,7 +647,7 @@ EXAMPLES:
                 # Ensure current_model_info is set (it should be at this point)
                 if not current_model_info:
                     logging.error(
-                        "LLMHandler: Could not determine current model info before image handling.")
+                        "LLMHandler: Could not determine current model info before vision handling.")
                     # Fallback? Maybe try to get it again?
                     current_model_id = self.llm.model if hasattr(
                         self.llm, 'model') else getattr(self.llm, 'model_name', None)
@@ -658,12 +658,12 @@ EXAMPLES:
                         if not current_model_info and vision_model_info and vision_model_info.get('id') == current_model_id:
                             current_model_info = vision_model_info
 
-                use_image_handler = False
+                use_vision_handler = False
                 if vision_model_info and isinstance(vision_model_info, dict) and current_model_info and isinstance(current_model_info, dict):
                     if vision_model_info.get('id') != current_model_info.get('id'):
-                        use_image_handler = True
+                        use_vision_handler = True
                         logging.info(
-                            f"Vision model ({vision_model_info.get('id')}) differs from main LLM ({current_model_info.get('id')}). Using ImageHandler.")
+                            f"Vision model ({vision_model_info.get('id')}) differs from main LLM ({current_model_info.get('id')}). Using VisionHandler.")
                     else:
                         logging.info(
                             f"Vision model and main LLM are the same ({vision_model_info.get('id')}). Will attempt direct multimodal call.")
@@ -674,26 +674,26 @@ EXAMPLES:
                     logging.warning(
                         "Could not compare vision model and main LLM. Defaulting to direct multimodal call if possible.")
 
-                # Scenario 1: Use ImageHandler to get description first
-                if use_image_handler:
+                # Scenario 1: Use VisionHandler to get description first
+                if use_vision_handler:
                     logging.info(
-                        "Generating detailed image description using ImageHandler...")
-                    description = self.image_handler.get_detailed_image_description(
+                        "Generating detailed visual description using VisionHandler...")
+                    description = self.vision_handler.get_visual_description(
                         image_data_base64=image_data,
                         prompt_hint=actual_query  # Pass user query as hint
                     )
                     if description:
-                        generated_image_description = description
+                        generated_visual_description = description
                         # Prepare for text-only call to main LLM
                         has_image = False
                         image_data = None
                         logging.info(
-                            "Successfully generated image description.")
+                            "Successfully generated visual description.")
                     else:
                         # Failed to get description, proceed as text-only but add a note
                         logging.error(
-                            "Failed to generate image description from ImageHandler.")
-                        actual_query += "\n\n=====SYSTEM_NOTE=====\n(Failed to process the provided image.)\n====================="
+                            "Failed to generate visual description from VisionHandler.")
+                        actual_query += "\n\n=====SYSTEM_NOTE=====\n(Failed to process the provided visual input.)\n====================="
                         has_image = False
                         image_data = None
 
@@ -707,7 +707,7 @@ EXAMPLES:
                     # but for now, we rely on Langchain/API handling.
                     pass  # No changes needed here, the multimodal message will be constructed below if has_image is still True
 
-            # --- End Image Handling Logic ---
+            # --- End Vision Handling Logic ---
 
             # Construct the final query message based on whether we have image data or description
             if has_image and image_data:
@@ -732,19 +732,19 @@ EXAMPLES:
                 logging.info("Constructed direct multimodal query message.")
 
             else:
-                # Text-Only Message (No image initially, or ImageHandler used)
+                # Text-Only Message (No image initially, or VisionHandler used)
                 final_query_text = actual_query
                 # Append selected text if present
                 if 'selected_text' in context:
                     final_query_text += f"\n\n=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n======================="
-                # Append generated image description if available (from Scenario 1)
-                if generated_image_description:
-                    final_query_text += f"\n\n=====IMAGE_DESCRIPTION=====<description generated by vision model>\n{generated_image_description}\n======================="
+                # Append generated visual description if available (from Scenario 1)
+                if generated_visual_description:
+                    final_query_text += f"\n\n=====VISUAL_DESCRIPTION=====<description generated by vision model>\n{generated_visual_description}\n======================="
 
                 query_message = HumanMessage(content=final_query_text)
-                if generated_image_description:
+                if generated_visual_description:
                     logging.info(
-                        "Constructed text query message including generated image description.")
+                        "Constructed text query message including generated visual description.")
                 else:
                     logging.info("Constructed standard text query message.")
 

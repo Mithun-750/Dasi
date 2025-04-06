@@ -15,8 +15,8 @@ from langchain_anthropic import ChatAnthropic
 from ui.settings import Settings
 
 
-class ImageHandler:
-    """Handles generating detailed text descriptions from images using a dedicated vision model."""
+class VisionHandler:
+    """Handles generating detailed text descriptions from visual input using a dedicated vision model."""
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -33,7 +33,7 @@ class ImageHandler:
         self.vision_model_info = self.settings.get_vision_model_info()
         if not self.vision_model_info or not isinstance(self.vision_model_info, dict):
             logging.error(
-                "ImageHandler: No valid vision model configured in settings.")
+                "VisionHandler: No valid vision model configured in settings.")
             self.vision_llm = None
             self._is_initialized = True  # Mark as initialized (failed)
             return False
@@ -55,7 +55,7 @@ class ImageHandler:
 
         if not provider or not model_id:
             logging.error(
-                f"ImageHandler: Vision model info is incomplete: {self.vision_model_info}")
+                f"VisionHandler: Vision model info is incomplete: {self.vision_model_info}")
             self.vision_llm = None
             self._is_initialized = True  # Mark as initialized (failed)
             return False
@@ -63,7 +63,7 @@ class ImageHandler:
         # Ollama might not need a key
         if not api_key and provider not in ['ollama']:
             logging.error(
-                f"ImageHandler: API key for vision provider '{api_key_provider}' not found.")
+                f"VisionHandler: API key for vision provider '{api_key_provider}' not found.")
             self.vision_llm = None
             self._is_initialized = True
             return False
@@ -74,7 +74,7 @@ class ImageHandler:
 
         try:
             logging.info(
-                f"ImageHandler: Initializing vision LLM - Provider: {provider}, Model: {model_id}")
+                f"VisionHandler: Initializing vision LLM - Provider: {provider}, Model: {model_id}")
 
             if provider == 'google':
                 self.vision_llm = ChatGoogleGenerativeAI(
@@ -102,7 +102,7 @@ class ImageHandler:
                 base_url = self.settings.get('models', provider, 'base_url')
                 if not base_url:
                     logging.error(
-                        f"ImageHandler: Base URL for custom OpenAI provider '{provider}' not found.")
+                        f"VisionHandler: Base URL for custom OpenAI provider '{provider}' not found.")
                     self.vision_llm = None
                     self._is_initialized = True
                     return False
@@ -122,60 +122,60 @@ class ImageHandler:
             #     )
             else:
                 logging.error(
-                    f"ImageHandler: Vision provider '{provider}' is not supported for image description.")
+                    f"VisionHandler: Vision provider '{provider}' is not supported for visual analysis.")
                 self.vision_llm = None
                 self._is_initialized = True
                 return False
 
             logging.info(
-                f"ImageHandler: Successfully initialized vision LLM: {model_id}")
+                f"VisionHandler: Successfully initialized vision LLM: {model_id}")
             self._is_initialized = True
             return True
 
         except Exception as e:
             logging.error(
-                f"ImageHandler: Error initializing vision LLM '{model_id}': {str(e)}", exc_info=True)
+                f"VisionHandler: Error initializing vision LLM '{model_id}': {str(e)}", exc_info=True)
             self.vision_llm = None
             self._is_initialized = True  # Mark as initialized (failed)
             return False
 
-    def get_detailed_image_description(self, image_data_base64: str, prompt_hint: Optional[str] = None) -> Optional[str]:
+    def get_visual_description(self, image_data_base64: str, prompt_hint: Optional[str] = None) -> Optional[str]:
         """
-        Generates a detailed text description of the image using the configured vision model.
+        Generates a detailed text description of the visual input using the configured vision model.
 
         Args:
             image_data_base64: The base64 encoded image data (without prefix).
             prompt_hint: Optional text from the user's query to guide the description focus.
 
         Returns:
-            A detailed text description of the image, or None if an error occurs.
+            A detailed text description of the visual input, or None if an error occurs.
         """
         if not self._is_initialized:
-            logging.info("ImageHandler: First use, initializing vision LLM.")
+            logging.info("VisionHandler: First use, initializing vision LLM.")
             if not self._initialize_vision_llm():
                 logging.error(
-                    "ImageHandler: Failed to initialize vision LLM for description.")
+                    "VisionHandler: Failed to initialize vision LLM for description.")
                 return None
 
         if not self.vision_llm:
-            logging.error("ImageHandler: Vision LLM is not available.")
+            logging.error("VisionHandler: Vision LLM is not available.")
             return None
 
         # Craft the prompt for the vision model
-        system_prompt = """You are an expert image analyst. Your sole task is to describe the provided image in objective, extensive detail. Focus on:
+        system_prompt = """You are an expert visual analyst. Your sole task is to describe the provided visual input in objective, extensive detail. Focus on:
 
 - Objects: Identify all significant objects, their appearance, and positions.
 - People: Describe appearance, expressions, actions, and relationships(if any).
 - Text: Transcribe any visible text accurately.
 - Setting: Describe the environment, location, and time of day(if discernible).
 - Colors and Lighting: Describe dominant colors, overall palette, and lighting conditions.
-- Composition: Briefly mention the layout and focus of the image.
-- Mood/Atmosphere: Describe the overall feeling conveyed by the image(e.g., cheerful, somber, busy).
+- Composition: Briefly mention the layout and focus of the visual.
+- Mood/Atmosphere: Describe the overall feeling conveyed(e.g., cheerful, somber, busy).
 - Action/Interaction: Describe any ongoing actions or interactions.
 
 Be as specific and thorough as possible. Do NOT add any conversational filler, commentary, or interpretation beyond objective description. Output only the description."""
 
-        user_prompt_text = "Describe the image provided in comprehensive detail according to the system instructions."
+        user_prompt_text = "Describe the provided visual input in comprehensive detail according to the system instructions."
         # Add hint from user query if provided
         if prompt_hint:
             # Limit hint length
@@ -201,22 +201,23 @@ Be as specific and thorough as possible. Do NOT add any conversational filler, c
 
         try:
             logging.info(
-                f"ImageHandler: Sending image to vision model '{self.vision_model_info.get('id')}' for description.")
+                f"VisionHandler: Sending visual input to vision model '{self.vision_model_info.get('id')}' for analysis.")
             # Use invoke for a single response
             response = self.vision_llm.invoke(messages_for_vision_model)
+
             description = response.content.strip()
 
             if not description:
                 logging.warning(
-                    f"ImageHandler: Vision model '{self.vision_model_info.get('id')}' returned an empty description.")
+                    f"VisionHandler: Vision model '{self.vision_model_info.get('id')}' returned an empty description.")
                 return None
 
             logging.info(
-                f"ImageHandler: Received description (length {len(description)}). Preview: {description[:100]}...")
+                f"VisionHandler: Received description (length {len(description)}). Preview: {description[:100]}...")
             return description
 
         except Exception as e:
             logging.error(
-                f"ImageHandler: Error getting description from vision model '{self.vision_model_info.get('id')}': {str(e)}", exc_info=True)
+                f"VisionHandler: Error getting description from vision model '{self.vision_model_info.get('id')}': {str(e)}", exc_info=True)
             # Potentially provide a more specific error? For now, just None.
             return None
