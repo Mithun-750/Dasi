@@ -48,8 +48,8 @@ class VisionModelsComponent(QWidget):
         self.vision_model_dropdown = SearchableComboBox()
         self.vision_model_dropdown.setMinimumWidth(300)
 
-        # Add "None" option
-        self.vision_model_dropdown.addItem("None (No Vision Support)")
+        # Set initial loading state
+        self.set_loading_state()
 
         # Add Vision Model button with modern styling
         add_vision_button = QPushButton("Add Vision Model")
@@ -75,6 +75,7 @@ class VisionModelsComponent(QWidget):
             }
         """)
         add_vision_button.clicked.connect(self.add_vision_model)
+        self.add_vision_button = add_vision_button
 
         # Add dropdown and button to selection row
         selection_row_layout.addWidget(self.vision_model_dropdown)
@@ -110,11 +111,24 @@ class VisionModelsComponent(QWidget):
         self.vision_section.layout.addWidget(vision_model_container)
         layout.addWidget(self.vision_section)
 
+        # Load vision model display immediately, without waiting for models to be fetched
+        self.update_vision_model_display()
+
+    def set_loading_state(self):
+        """Set the dropdown to loading state."""
+        self.vision_model_dropdown.clear()
+        self.vision_model_dropdown.addItem("Loading models...")
+        self.vision_model_dropdown.setEnabled(False)
+        if hasattr(self, 'add_vision_button'):
+            self.add_vision_button.setEnabled(False)
+
     def populate_models(self, models):
         """Populate the vision models dropdown with models."""
-        # Keep the "None" option at index 0
-        while self.vision_model_dropdown.count() > 1:
-            self.vision_model_dropdown.removeItem(1)
+        # Clear the dropdown entirely
+        self.vision_model_dropdown.clear()
+
+        # Add "None" option at index 0
+        self.vision_model_dropdown.addItem("None (No Vision Support)")
 
         # Add all models to the vision dropdown
         for model in models:
@@ -123,11 +137,16 @@ class VisionModelsComponent(QWidget):
             self.vision_model_dropdown.addItem(display_text, model)
 
             # Create and set tooltip for the item
-            from ..models.model_fetcher import create_model_tooltip
+            from .model_fetcher import create_model_tooltip
             tooltip = create_model_tooltip(model)
             index = self.vision_model_dropdown.count() - 1
             self.vision_model_dropdown.setItemData(
                 index, tooltip, 3)  # 3 is ToolTipRole
+
+        # Enable the dropdown and button now that models are loaded
+        self.vision_model_dropdown.setEnabled(True)
+        if hasattr(self, 'add_vision_button'):
+            self.add_vision_button.setEnabled(True)
 
         # Load current selected vision model
         self.load_vision_model()
@@ -230,6 +249,11 @@ class VisionModelsComponent(QWidget):
             }
         """)
 
+        # Create tooltip for the vision model
+        from .model_fetcher import create_model_tooltip
+        tooltip = create_model_tooltip(vision_model_info)
+        model_widget.setToolTip(tooltip)
+
         layout = QHBoxLayout(model_widget)
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(16)
@@ -264,56 +288,6 @@ class VisionModelsComponent(QWidget):
         # Add labels to content layout
         content_layout.addWidget(name_label)
         content_layout.addWidget(provider_label)
-
-        # Add additional model information if available
-        if 'description' in vision_model_info:
-            desc_label = QLabel(vision_model_info['description'])
-            desc_label.setStyleSheet("""
-                font-size: 12px;
-                color: #aaaaaa;
-                background-color: transparent;
-                border: none;
-                padding: 0;
-                margin: 0;
-            """)
-            desc_label.setWordWrap(True)
-            content_layout.addWidget(desc_label)
-
-        # Add token limits if available
-        token_info = []
-        if 'inputTokenLimit' in vision_model_info:
-            token_info.append(
-                f"Input: {vision_model_info['inputTokenLimit']} tokens")
-        if 'outputTokenLimit' in vision_model_info:
-            token_info.append(
-                f"Output: {vision_model_info['outputTokenLimit']} tokens")
-
-        if token_info:
-            token_label = QLabel(" | ".join(token_info))
-            token_label.setStyleSheet("""
-                font-size: 11px;
-                color: #aaaaaa;
-                background-color: transparent;
-                border: none;
-                padding: 0;
-                margin: 0;
-            """)
-            content_layout.addWidget(token_label)
-
-        # Add supported methods if available
-        if 'supportedMethods' in vision_model_info and vision_model_info['supportedMethods']:
-            methods_text = f"Capabilities: {', '.join(vision_model_info['supportedMethods'])}"
-            methods_label = QLabel(methods_text)
-            methods_label.setStyleSheet("""
-                font-size: 11px;
-                color: #aaaaaa;
-                background-color: transparent;
-                border: none;
-                padding: 0;
-                margin: 0;
-            """)
-            methods_label.setWordWrap(True)
-            content_layout.addWidget(methods_label)
 
         # Add content layout to main layout
         layout.addLayout(content_layout, 1)

@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt, QEvent, QObject, pyqtSignal
 
 from ..general_tab import SectionFrame
 from .ui_components import RoundLabel, RoundButton
+from .model_fetcher import create_model_tooltip
 
 
 class HoverEventFilter(QObject):
@@ -132,6 +133,10 @@ class SelectedModelsComponent(QWidget):
                 border-radius: 8px;
             }
         """)
+
+        # Create tooltip for the model
+        tooltip = create_model_tooltip(model_info)
+        widget.setToolTip(tooltip)
 
         # Use a single horizontal layout
         layout = QHBoxLayout(widget)
