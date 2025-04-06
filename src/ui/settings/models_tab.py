@@ -20,9 +20,24 @@ from PyQt6.QtWidgets import (
     QStyleOption,
     QStyle,
     QProxyStyle,
+    QMenu,
+    QAbstractItemView,
+    QDialog,
+    QDialogButtonBox,
+    QPlainTextEdit,
+    QCheckBox,
+    QStylePainter,
+    QStyleOptionButton
 )
-from PyQt6.QtCore import Qt, QEvent, QThread, pyqtSignal, QObject, QRectF
-from PyQt6.QtGui import QPalette, QPainter, QPainterPath, QColor, QFont, QFontMetrics, QPen
+from PyQt6.QtCore import (
+    Qt, QEvent, QThread, pyqtSignal, QObject, QRectF,
+    QStringListModel, QSortFilterProxyModel, QSize,
+    QModelIndex, QRect, QPoint
+)
+from PyQt6.QtGui import (
+    QPalette, QPainter, QPainterPath, QColor, QFont, QFontMetrics, QPen,
+    QIcon, QAction, QCursor, QPixmap, QKeySequence
+)
 from .settings_manager import Settings
 from .general_tab import SectionFrame
 
@@ -162,7 +177,6 @@ class ModelFetchWorker(QThread):
             )
             response.raise_for_status()
             models = response.json().get('models', [])
-            print(models)
 
             # Filter for models that support text generation
             text_models = []
@@ -174,6 +188,17 @@ class ModelFetchWorker(QThread):
                         'provider': 'google',
                         'name': model.get('displayName', model['name'])
                     }
+
+                    # Preserve additional model attributes that might be useful
+                    if 'description' in model:
+                        model_info['description'] = model['description']
+                    if 'inputTokenLimit' in model:
+                        model_info['inputTokenLimit'] = model['inputTokenLimit']
+                    if 'outputTokenLimit' in model:
+                        model_info['outputTokenLimit'] = model['outputTokenLimit']
+                    if 'supportedGenerationMethods' in model:
+                        model_info['supportedMethods'] = model['supportedGenerationMethods']
+
                     text_models.append(model_info)
             return text_models
         except Exception as e:
@@ -210,6 +235,23 @@ class ModelFetchWorker(QThread):
                         'provider': 'openrouter',
                         'name': model.get('name', model['id'])
                     }
+
+                    # Store additional model info
+                    if 'context_length' in model:
+                        model_info['inputTokenLimit'] = model['context_length']
+                    if 'pricing' in model:
+                        model_info['pricing'] = model['pricing']
+                    if 'description' in model:
+                        model_info['description'] = model['description']
+                    if 'mantained_by' in model:
+                        model_info['maintainedBy'] = model['mantained_by']
+                    if 'architecture' in model and isinstance(model['architecture'], dict):
+                        arch = model['architecture']
+                        if 'vision' in arch and arch['vision']:
+                            model_info['hasVision'] = True
+                        if 'features' in arch:
+                            model_info['features'] = arch['features']
+
                     text_models.append(model_info)
             return text_models
         except Exception as e:
@@ -267,6 +309,15 @@ class ModelFetchWorker(QThread):
                     # Use ID as name since that's what Groq provides
                     'name': model.get('id')
                 }
+
+                # Store additional info
+                if 'created' in model:
+                    model_info['created'] = model['created']
+                if 'owned_by' in model:
+                    model_info['ownedBy'] = model['owned_by']
+                if 'context_window' in model:
+                    model_info['inputTokenLimit'] = model['context_window']
+
                 text_models.append(model_info)
             return text_models
         except Exception as e:
@@ -291,6 +342,7 @@ class ModelFetchWorker(QThread):
             )
             response.raise_for_status()
             models = response.json().get('data', [])
+            print(models)
 
             # Filter for chat models
             text_models = []
@@ -301,6 +353,15 @@ class ModelFetchWorker(QThread):
                         'provider': 'openai',
                         'name': model['id']
                     }
+
+                    # Store additional info when available
+                    if 'created' in model:
+                        model_info['created'] = model['created']
+                    if 'owned_by' in model:
+                        model_info['ownedBy'] = model['owned_by']
+                    if 'capabilities' in model:
+                        model_info['capabilities'] = model['capabilities']
+
                     text_models.append(model_info)
             return text_models
         except Exception as e:
@@ -326,14 +387,25 @@ class ModelFetchWorker(QThread):
 
             if response.status_code == 200:
                 models = response.json().get('data', [])
-                text_models = [
-                    {
+                text_models = []
+                for model in models:
+                    model_info = {
                         'id': model['id'],
                         'provider': 'anthropic',
                         'name': model.get('display_name', model['id'])
                     }
-                    for model in models
-                ]
+
+                    # Store additional info
+                    if 'description' in model:
+                        model_info['description'] = model['description']
+                    if 'max_tokens' in model:
+                        model_info['outputTokenLimit'] = model['max_tokens']
+                    if 'context_window' in model:
+                        model_info['inputTokenLimit'] = model['context_window']
+                    if 'capabilities' in model:
+                        model_info['capabilities'] = model['capabilities']
+
+                    text_models.append(model_info)
                 return text_models
             else:
                 logging.error(
@@ -612,24 +684,24 @@ class SearchableComboBox(QComboBox):
                     border-radius: 5px !important;
                     border: none !important;
                 }
-                
+
                 QScrollBar::handle:vertical {
                     background-color: #333333 !important;
                     min-height: 30px !important;
                     border-radius: 5px !important;
                     border: none !important;
                 }
-                
+
                 QScrollBar::handle:vertical:hover {
                     background-color: #e67e22 !important;
                 }
-                
+
                 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
                     height: 0px !important;
                     border: none !important;
                     background: none !important;
                 }
-                
+
                 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                     background: none !important;
                     border: none !important;
@@ -661,6 +733,13 @@ class SearchableComboBox(QComboBox):
         self.list_widget.clear()
         for i in range(self.count()):
             item = QListWidgetItem(self.itemText(i))
+            # Transfer item data including tooltip
+            tooltip = self.itemData(i, 3)  # 3 is ToolTipRole
+            if tooltip:
+                item.setToolTip(tooltip)
+            # Transfer user data
+            item.setData(Qt.ItemDataRole.UserRole,
+                         self.itemData(i, Qt.ItemDataRole.UserRole))
             self.list_widget.addItem(item)
 
         self.popup.show()
@@ -1116,9 +1195,18 @@ class ModelsTab(QWidget):
             # Store the full model info in the item data
             self.model_dropdown.addItem(display_text, model)
 
+            # Create descriptive tooltip for the model
+            tooltip = self._create_model_tooltip(model)
+            # Set tooltip for the item
+            self.model_dropdown.setItemData(
+                self.model_dropdown.count()-1, tooltip, 3)  # 3 is ToolTipRole
+
             # Always add all models to the vision dropdown
             vision_display_text = f"{model['name']} ({model['provider']})"
             self.vision_model_dropdown.addItem(vision_display_text, model)
+            # Set the same tooltip for vision dropdown item
+            self.vision_model_dropdown.setItemData(
+                self.vision_model_dropdown.count()-1, tooltip, 3)  # 3 is ToolTipRole
 
         self.model_dropdown.setEnabled(True)
         self.vision_model_dropdown.setEnabled(True)
@@ -1145,16 +1233,16 @@ class ModelsTab(QWidget):
         if self.vision_model_dropdown.count() > 1:  # More than just the "None" option
             if not vision_model_info:
                 self.vision_model_dropdown.setCurrentIndex(0)
-                return
+            return
 
-            # Find the model in the dropdown
-            found = False
-            for i in range(1, self.vision_model_dropdown.count()):
-                item_data = self.vision_model_dropdown.itemData(i)
-                if isinstance(item_data, dict) and item_data == vision_model_info:
-                    self.vision_model_dropdown.setCurrentIndex(i)
-                    found = True
-                    break
+        # Find the model in the dropdown
+        found = False
+        for i in range(1, self.vision_model_dropdown.count()):
+            item_data = self.vision_model_dropdown.itemData(i)
+            if isinstance(item_data, dict) and item_data == vision_model_info:
+                self.vision_model_dropdown.setCurrentIndex(i)
+                found = True
+                break
 
             if not found:
                 # If the saved model isn't in the current dropdown, just show it in display
@@ -1261,6 +1349,56 @@ class ModelsTab(QWidget):
         # Add labels to content layout
         content_layout.addWidget(name_label)
         content_layout.addWidget(provider_label)
+
+        # Add additional model information if available
+        if 'description' in vision_model_info:
+            desc_label = QLabel(vision_model_info['description'])
+            desc_label.setStyleSheet("""
+                font-size: 12px;
+                color: #aaaaaa;
+                background-color: transparent;
+                border: none;
+                padding: 0;
+                margin: 0;
+            """)
+            desc_label.setWordWrap(True)
+            content_layout.addWidget(desc_label)
+
+        # Add token limits if available
+        token_info = []
+        if 'inputTokenLimit' in vision_model_info:
+            token_info.append(
+                f"Input: {vision_model_info['inputTokenLimit']} tokens")
+        if 'outputTokenLimit' in vision_model_info:
+            token_info.append(
+                f"Output: {vision_model_info['outputTokenLimit']} tokens")
+
+        if token_info:
+            token_label = QLabel(" | ".join(token_info))
+            token_label.setStyleSheet("""
+                font-size: 11px;
+                color: #aaaaaa;
+                background-color: transparent;
+                border: none;
+                padding: 0;
+                margin: 0;
+            """)
+            content_layout.addWidget(token_label)
+
+        # Add supported methods if available
+        if 'supportedMethods' in vision_model_info and vision_model_info['supportedMethods']:
+            methods_text = f"Capabilities: {', '.join(vision_model_info['supportedMethods'])}"
+            methods_label = QLabel(methods_text)
+            methods_label.setStyleSheet("""
+                font-size: 11px;
+                color: #aaaaaa;
+                background-color: transparent;
+                border: none;
+                padding: 0;
+                margin: 0;
+            """)
+            methods_label.setWordWrap(True)
+            content_layout.addWidget(methods_label)
 
         # Add content layout to main layout
         layout.addLayout(content_layout, 1)
@@ -1617,3 +1755,65 @@ class ModelsTab(QWidget):
             self.refresh_button.setText("⟳")
 
         QMessageBox.warning(self, "Error", f"Failed to fetch models: {error}")
+
+    def _create_model_tooltip(self, model):
+        """Create a descriptive tooltip from model information."""
+        # Start with basic model info
+        tooltip_parts = [
+            f"<b>{model['name']}</b>",
+            f"Provider: {model['provider']}",
+            f"ID: {model['id']}"
+        ]
+
+        # Add description if available
+        if 'description' in model and model['description']:
+            # Truncate long descriptions
+            desc = model['description']
+            if len(desc) > 300:
+                desc = desc[:300] + "..."
+            tooltip_parts.append(f"Description: {desc}")
+
+        # Add token limits if available
+        if 'inputTokenLimit' in model:
+            tooltip_parts.append(
+                f"Input token limit: {model['inputTokenLimit']}")
+        if 'outputTokenLimit' in model:
+            tooltip_parts.append(
+                f"Output token limit: {model['outputTokenLimit']}")
+
+        # Add capabilities if available
+        if 'supportedMethods' in model and model['supportedMethods']:
+            methods = ', '.join(model['supportedMethods'])
+            tooltip_parts.append(f"Capabilities: {methods}")
+        if 'capabilities' in model and model['capabilities']:
+            if isinstance(model['capabilities'], list):
+                capabilities = ', '.join(model['capabilities'])
+            elif isinstance(model['capabilities'], dict):
+                capabilities = ', '.join(model['capabilities'].keys())
+            else:
+                capabilities = str(model['capabilities'])
+            tooltip_parts.append(f"Features: {capabilities}")
+
+        # Add vision capability if explicitly noted
+        if 'hasVision' in model and model['hasVision']:
+            tooltip_parts.append("<b>Supports vision/images</b>")
+
+        # Add creation date if available
+        if 'created' in model:
+            # Try to format the timestamp if it's a number
+            try:
+                from datetime import datetime
+                created_date = datetime.fromtimestamp(
+                    model['created']).strftime('%Y-%m-%d')
+                tooltip_parts.append(f"Created: {created_date}")
+            except:
+                tooltip_parts.append(f"Created: {model['created']}")
+
+        # Add ownership info if available
+        if 'ownedBy' in model:
+            tooltip_parts.append(f"Owned by: {model['ownedBy']}")
+        if 'maintainedBy' in model:
+            tooltip_parts.append(f"Maintained by: {model['maintainedBy']}")
+
+        # Join all parts with HTML line breaks for proper formatting
+        return "<br>".join(tooltip_parts)
