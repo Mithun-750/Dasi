@@ -166,100 +166,33 @@ INPUT:"""
             except Exception as e:
                 logging.error(f"Error updating temperature: {str(e)}")
 
-    def initialize_llm(self, model_name: str = None) -> bool:
-        """Initialize the LLM with the current API key and specified model. Returns True if successful."""
+    def initialize_llm(self, model_name: str = None, model_info: dict = None) -> bool:
+        """Initialize the LLM with the current API key and specified model/info. Returns True if successful."""
         try:
             # Reload settings to ensure we have the latest data
             self.settings.load_settings()
 
-            # If no model specified, use default model from settings
-            if model_name is None:
-                model_name = self.settings.get('models', 'default_model')
-                if not model_name:
-                    # If no default model set, use first available model
-                    selected_models = self.settings.get_selected_models()
-                    if selected_models:
-                        model_name = selected_models[0]['id']
-                    else:
-                        return False
-
-            # Check if this is the specifically configured vision model
-            vision_model_id = self.settings.get('models', 'vision_model')
-            is_vision_model = (
-                model_name == vision_model_id and vision_model_id is not None)
-
-            provider = None
-            model_id = None
-
-            if is_vision_model:
-                # This is the specifically configured vision model - initialize directly
-                # We need to determine the provider from the model ID
+            # If model_info is provided, use it directly
+            if model_info and isinstance(model_info, dict):
                 logging.info(
-                    f"Initializing specifically configured vision model: {model_name}")
-                model_id = model_name
-
-                # Determine provider from model ID patterns
-                if model_id.startswith("models/gemini"):
-                    provider = "google"
-                    logging.info(
-                        f"Detected Google Gemini model from ID: {model_id}")
-                elif "gpt-4" in model_id.lower() or model_id.startswith("openai/"):
-                    provider = "openai"
-                    # Remove openai/ prefix if present
-                    if model_id.startswith("openai/"):
-                        model_id = model_id[7:]
-                    logging.info(f"Detected OpenAI model from ID: {model_id}")
-                elif "claude" in model_id.lower() or model_id.startswith("anthropic/"):
-                    provider = "anthropic"
-                    # Remove anthropic/ prefix if present
-                    if model_id.startswith("anthropic/"):
-                        model_id = model_id[10:]
-                    logging.info(
-                        f"Detected Anthropic model from ID: {model_id}")
-                else:
-                    # Try to check if it's a custom endpoint
-                    custom_providers = [p for p in self.settings.get_all_providers()
-                                        if p.startswith("custom_openai")]
-                    for custom_provider in custom_providers:
-                        # Check if the model ID contains the custom provider's name or base URL
-                        base_url = self.settings.get(
-                            'models', custom_provider, 'base_url', default="")
-                        if (custom_provider.lower() in model_id.lower() or
-                                (base_url and base_url.split("//")[-1].split(".")[0] in model_id.lower())):
-                            provider = custom_provider
-                            logging.info(
-                                f"Detected custom provider {provider} for vision model: {model_id}")
-                            break
-
-                if not provider:
-                    # Last resort - use the current provider if we have one
-                    if self.current_provider:
-                        provider = self.current_provider
-                        logging.info(
-                            f"Using current provider {provider} for vision model: {model_id}")
-                    else:
-                        logging.error(
-                            f"Could not determine provider for vision model: {model_id}")
-                        return False
-            else:
-                # For non-vision models or when vision model isn't explicitly configured,
-                # find the model in the selected models list
+                    f"Initializing LLM using provided model info: {model_info.get('id', 'N/A')}")
+            # If no model_info, try to find model by name
+            elif model_name:
+                # Get model info from settings based on model_name
                 selected_models = self.settings.get_selected_models()
-
-                # Log all available models for debugging
                 model_ids = [m['id'] for m in selected_models]
-                logging.info(f"Available model IDs: {model_ids}")
+                logging.info(
+                    f"Available selected model IDs for lookup: {model_ids}")
 
                 # Find the model by exact ID match
                 model_info = next(
                     (m for m in selected_models if m['id'] == model_name), None)
 
-                # If not found, try to find by partial match (for backward compatibility)
+                # If not found, try partial match (backward compatibility)
                 if not model_info and '/' in model_name:
-                    # Try to match without the path components
                     base_name = model_name.split('/')[-1]
                     logging.info(
-                        f"Trying to match with base name: {base_name}")
+                        f"Model '{model_name}' not found by exact match. Trying base name: {base_name}")
                     for m in selected_models:
                         if m['id'].endswith(f"/{base_name}"):
                             model_info = m
@@ -269,11 +202,45 @@ INPUT:"""
 
                 if not model_info:
                     logging.error(
-                        f"Model {model_name} not found in selected models")
+                        f"Model '{model_name}' not found in selected models.")
                     return False
+            # If neither model_name nor model_info is provided, use the default model
+            else:
+                default_model_id = self.settings.get('models', 'default_model')
+                if not default_model_id:
+                    # If no default model set, try first available selected model
+                    selected_models = self.settings.get_selected_models()
+                    if selected_models:
+                        # Use the first one's info
+                        model_info = selected_models[0]
+                        logging.info(
+                            f"No model specified, using first selected model: {model_info['id']}")
+                    else:
+                        logging.error(
+                            "No default model set and no models selected.")
+                        return False
+                else:
+                    # Find the default model's info in the selected list
+                    selected_models = self.settings.get_selected_models()
+                    model_info = next(
+                        (m for m in selected_models if m['id'] == default_model_id), None)
+                    if not model_info:
+                        logging.error(
+                            f"Default model '{default_model_id}' not found in the selected models list.")
+                        # Fallback: Try using the first selected model if available
+                        if selected_models:
+                            model_info = selected_models[0]
+                            logging.warning(
+                                f"Default model not found, falling back to first selected model: {model_info['id']}")
+                        else:
+                            return False
+                    else:
+                        logging.info(
+                            f"Using default model: {default_model_id}")
 
-                provider = model_info['provider']
-                model_id = model_info['id']
+            # Proceed with initialization using the determined model_info
+            provider = model_info['provider']
+            model_id = model_info['id']
 
             logging.info(
                 f"Initializing LLM with provider: {provider}, model: {model_id}")
@@ -460,31 +427,67 @@ INPUT:"""
 
     def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default") -> str:
         """Get response from LLM for the given query. If callback is provided, stream the response."""
-        # Initialize with specified model if provided
+        current_model_info = None  # Store the info of the model being used
+
+        # Initialize with specified model if provided (by name/ID)
         if model:
             needs_init = True
             if self.llm:
-                current_model = None
+                current_model_id = None
                 if hasattr(self.llm, 'model'):
-                    current_model = self.llm.model
+                    current_model_id = self.llm.model
                 elif hasattr(self.llm, 'model_name'):
-                    current_model = self.llm.model_name
+                    current_model_id = self.llm.model_name
 
-                if current_model:
-                    needs_init = model != current_model
+                if current_model_id:
+                    needs_init = (model != current_model_id)
                     logging.info(
-                        f"Model comparison: requested={model}, current={current_model}, needs_init={needs_init}")
+                        f"Model comparison: requested={model}, current={current_model_id}, needs_init={needs_init}")
 
             if needs_init:
-                logging.info(f"Initializing new model: {model}")
-                if not self.initialize_llm(model):
+                logging.info(f"Initializing specified model by name: {model}")
+                # Initialize by name, model_info will be looked up inside initialize_llm
+                if not self.initialize_llm(model_name=model):
                     logging.error(f"Failed to initialize model: {model}")
-                    return "⚠️ Please add the appropriate API key in settings to use this model."
+                    return "⚠️ Please ensure the requested model is selected and its API key is configured in settings."
+                else:
+                    # Successfully initialized, store its info (we might need provider later)
+                    # Find the info from selected models again (a bit redundant, but necessary)
+                    selected_models = self.settings.get_selected_models()
+                    current_model_info = next(
+                        (m for m in selected_models if m['id'] == model), None)
 
-        if not self.llm and not self.initialize_llm():
-            logging.error(
-                "No LLM initialized and failed to initialize default LLM")
-            return "⚠️ Please add your API key in settings to use Dasi."
+        # If no specific model requested or initialization failed, ensure default is loaded
+        if not self.llm:
+            logging.info(
+                "No LLM active or specified model failed, initializing default LLM.")
+            if not self.initialize_llm():  # Initialize default (or first selected)
+                logging.error("Failed to initialize default LLM")
+                return "⚠️ Please add your API key and select a model in settings to use Dasi."
+            else:
+                # Get the info of the model that was just initialized (default or first selected)
+                if hasattr(self.llm, 'model'):
+                    current_model_id = self.llm.model
+                elif hasattr(self.llm, 'model_name'):
+                    current_model_id = self.llm.model_name
+                selected_models = self.settings.get_selected_models()
+                current_model_info = next(
+                    (m for m in selected_models if m['id'] == current_model_id), None)
+
+        # If we still don't have model info, try to get it from the active LLM instance
+        if not current_model_info and self.llm:
+            if hasattr(self.llm, 'model'):
+                current_model_id = self.llm.model
+            elif hasattr(self.llm, 'model_name'):
+                current_model_id = self.llm.model_name
+            # Try finding info in selected models OR vision model info
+            selected_models = self.settings.get_selected_models()
+            vision_model_info = self.settings.get_vision_model_info()
+
+            current_model_info = next(
+                (m for m in selected_models if m['id'] == current_model_id), None)
+            if not current_model_info and vision_model_info and vision_model_info.get('id') == current_model_id:
+                current_model_info = vision_model_info  # It might be the vision model
 
         try:
             # Get message history for this session
@@ -613,73 +616,76 @@ EXAMPLES:
             # Add chat history (limited to configured number of messages)
             history_messages = message_history.messages[-self.history_limit:] if message_history.messages else [
             ]
-            messages.extend(history_messages)
+            # Make sure history messages are correctly typed
+            typed_history = []
+            for msg in history_messages:
+                if isinstance(msg, HumanMessage):
+                    typed_history.append(msg)
+                elif isinstance(msg, AIMessage):
+                    typed_history.append(msg)
+                elif isinstance(msg, SystemMessage):  # Shouldn't happen here, but check
+                    typed_history.append(msg)
+                # Handle dict representation maybe?
+                elif hasattr(msg, 'type') and hasattr(msg, 'content'):
+                    if msg.type == 'human':
+                        typed_history.append(HumanMessage(content=msg.content))
+                    elif msg.type == 'ai':
+                        typed_history.append(AIMessage(content=msg.content))
+
+            messages.extend(typed_history)  # Use the typed history
 
             # Check if we have an image in context and this is a multimodal request
             if has_image and image_data:
-                # Get the vision model ID from settings
-                vision_model_id = self.settings.get('models', 'vision_model')
+                # Get the configured vision model info from settings
+                vision_model_info = self.settings.get_vision_model_info()
 
                 # Get the current model's ID
                 current_model_id = None
-                if hasattr(self.llm, 'model'):
-                    current_model_id = self.llm.model
-                elif hasattr(self.llm, 'model_name'):
-                    current_model_id = self.llm.model_name
+                if self.llm:
+                    if hasattr(self.llm, 'model'):
+                        current_model_id = self.llm.model
+                    elif hasattr(self.llm, 'model_name'):
+                        current_model_id = self.llm.model_name
 
-                # If a specific vision model is configured, try to use it
-                if vision_model_id and vision_model_id != current_model_id:
-                    logging.info(
-                        f"Switching to configured vision model: {vision_model_id}")
-                    result = self.initialize_llm(vision_model_id)
-
-                    if not result:
-                        # If the exact vision model wasn't found, try to infer a compatible model
+                # If a specific vision model is configured, try to switch to it if necessary
+                if vision_model_info and isinstance(vision_model_info, dict):
+                    vision_model_id = vision_model_info.get('id')
+                    if vision_model_id and vision_model_id != current_model_id:
                         logging.info(
-                            "Trying to find a compatible vision model")
-                        selected_models = self.settings.get_selected_models()
-
-                        # Check current provider for compatible vision models
-                        provider = self.current_provider
-                        compatible_model = None
-
-                        # Detect models capable of vision by provider and keywords
-                        for m in selected_models:
-                            if m['provider'] == provider:
-                                model_id = m['id'].lower()
-                                model_name = m['name'].lower()
-
-                                # Check for vision capabilities by provider and model ID
-                                if ((provider == 'openai' and ('gpt-4-vision' in model_id or 'gpt-4o' in model_id)) or
-                                    (provider == 'google' and 'gemini' in model_id) or
-                                    (provider == 'anthropic' and 'claude-3' in model_id) or
-                                    any(keyword in model_id or keyword in model_name
-                                        for keyword in ['vision', 'multimodal', 'visual'])):
-                                    compatible_model = m
-                                    break
-
-                        if compatible_model:
-                            logging.info(
-                                f"Found compatible vision model: {compatible_model['id']}")
-                            if not self.initialize_llm(compatible_model['id']):
-                                logging.error(
-                                    f"Failed to initialize compatible vision model")
-                                return "⚠️ Found a compatible vision model but failed to initialize it. Please check your API key settings."
+                            f"Switching to configured vision model: {vision_model_id}")
+                        # Initialize using the full model info
+                        if not self.initialize_llm(model_info=vision_model_info):
+                            logging.error(
+                                f"Failed to initialize vision model: {vision_model_id}. Image will not be processed.")
+                            # Reset has_image flag so we proceed with text only
+                            has_image = False
+                            image_data = None
+                            # Add a note to the query? Or just rely on error log?
+                            actual_query += "\n(Note: Failed to switch to vision model, image ignored)"
                         else:
-                            logging.warning(
-                                f"No compatible vision model found for provider {provider}")
-                            # Add a warning message - we'll still try with the current model
-                            messages.append(SystemMessage(content="""
-                            The user has included an image, but I cannot find a configured vision model.
-                            Please inform them that they should set up a vision model in the settings
-                            to properly process images. Common vision-capable models include:
-                            - OpenAI: GPT-4o or GPT-4 Vision
-                            - Google: Gemini models
-                            - Anthropic: Claude 3 models
-                            """))
+                            # Update current_model_info after successful switch
+                            current_model_info = vision_model_info
+                    elif not vision_model_id:
+                        logging.warning(
+                            "Vision model configured in settings has no ID. Image ignored.")
+                        has_image = False
+                        image_data = None
+                    else:
+                        logging.info(
+                            f"Already using the configured vision model: {vision_model_id}")
+                        # Ensure current_model_info reflects the vision model
+                        if not current_model_info or current_model_info.get('id') != vision_model_id:
+                            current_model_info = vision_model_info
 
-                # Create multimodal message content
-                if image_data:
+                else:
+                    # No vision model configured or info is invalid
+                    logging.warning(
+                        "Image provided, but no valid vision model is configured in settings. Image will be ignored.")
+                    has_image = False  # Treat as text-only request
+                    image_data = None
+
+                # Create multimodal message content ONLY if we successfully switched/verified the vision model
+                if has_image and image_data:  # Re-check has_image as it might be reset above
                     # Format selected text if available
                     if 'selected_text' in context:
                         final_query = f"{actual_query}\n\nText context: {context['selected_text']}"
@@ -712,12 +718,19 @@ EXAMPLES:
             messages.append(query_message)
 
             # Log the request
-            provider = self.current_provider if self.current_provider else "unknown"
+            provider = "unknown"
             model_name = "unknown"
-            if hasattr(self.llm, 'model'):
-                model_name = self.llm.model
-            elif hasattr(self.llm, 'model_name'):
-                model_name = self.llm.model_name
+            if current_model_info:  # Use the stored info
+                provider = current_model_info.get('provider', 'unknown')
+                model_name = current_model_info.get('id', 'unknown')
+            elif self.llm:  # Fallback to getting from llm instance if info somehow missing
+                if hasattr(self.llm, 'model'):
+                    model_name = self.llm.model
+                elif hasattr(self.llm, 'model_name'):
+                    model_name = self.llm.model_name
+                # Provider might be harder to get directly, use self.current_provider if set
+                if self.current_provider:
+                    provider = self.current_provider
 
             logging.info(f"Sending request to {provider} model: {model_name}")
             if has_image:

@@ -1100,49 +1100,88 @@ class ModelsTab(QWidget):
     def _is_vision_capable(self, model):
         """Check if a model is likely to support vision capabilities."""
         provider = model['provider']
+        # Normalize model ID and name to lowercase for case-insensitive matching
         model_id = model['id'].lower()
         model_name = model['name'].lower()
 
-        # Models known to support vision
+        # Models known to support vision explicitly
+        # OpenAI vision models
         if provider == 'openai' and ('gpt-4-vision' in model_id or 'gpt-4o' in model_id or 'gpt-4-turbo' in model_id):
             return True
-        elif provider == 'google' and ('gemini' in model_id):
+        # Google vision models (check for 'gemini' and 'vision' keywords)
+        elif provider == 'google' and ('gemini' in model_id and 'vision' in model_id):
             return True
+        # Anthropic vision models (Claude 3 series)
         elif provider == 'anthropic' and ('claude-3' in model_id):
             return True
-        elif provider == 'custom_openai' and ('gpt-4-vision' in model_id or 'gpt-4o' in model_id):
+        # Custom OpenAI vision models
+        elif provider.startswith('custom_openai') and ('gpt-4-vision' in model_id or 'gpt-4o' in model_id):
             return True
 
-        # Check for known model names
+        # General keyword check for broader compatibility (less reliable)
+        # Check common keywords in model ID or name
         vision_keywords = ['vision', 'multimodal', 'image',
                            'visual', 'gpt-4o', 'gemini', 'claude-3']
         for keyword in vision_keywords:
-            if keyword in model_id or keyword in model_name:
+            # Match keywords more robustly (e.g., ensuring 'gemini' matches 'gemini-pro-vision')
+            if f"-{keyword}" in model_id or f"/{keyword}" in model_id or keyword == model_id:
+                logging.info(
+                    f"Identified {model['id']} as vision capable based on keyword '{keyword}' in ID.")
+                return True
+            if keyword in model_name:
+                logging.info(
+                    f"Identified {model['id']} as vision capable based on keyword '{keyword}' in name.")
                 return True
 
+        # Add specific known vision model IDs if keyword matching fails
+        known_vision_ids = [
+            'google/gemini-pro-vision',
+            'openai/gpt-4-turbo',  # This often includes vision
+            'anthropic/claude-3-opus-20240229',
+            'anthropic/claude-3-sonnet-20240229',
+            'anthropic/claude-3-haiku-20240307',
+        ]
+        if model['id'] in known_vision_ids:
+            logging.info(
+                f"Identified {model['id']} as vision capable based on known ID list.")
+            return True
+
+        # Log if model was not identified as vision capable
+        # logging.debug(f"Model {model['id']} ({model['name']}) not identified as vision capable.")
         return False
 
     def load_vision_model(self):
         """Load the saved vision model from settings."""
-        vision_model_id = self.settings.get('models', 'vision_model')
+        # Use the new method to get the full info dictionary
+        vision_model_info = self.settings.get_vision_model_info()
 
-        if not vision_model_id:
-            # No vision model set, default to None
+        if not vision_model_info or not isinstance(vision_model_info, dict):
+            # No vision model set or invalid data, default to None
             self.vision_model_dropdown.setCurrentIndex(0)
+            logging.info(
+                "No valid vision model info found in settings. Setting to None.")
             return
 
-        # Find the model in the dropdown
+        # Find the model in the dropdown by comparing the full info dictionary
+        found = False
         for i in range(1, self.vision_model_dropdown.count()):
-            model_info = self.vision_model_dropdown.itemData(i)
-            if model_info and model_info['id'] == vision_model_id:
+            item_data = self.vision_model_dropdown.itemData(i)
+            # Compare the dictionaries directly
+            if isinstance(item_data, dict) and item_data == vision_model_info:
                 self.vision_model_dropdown.setCurrentIndex(i)
-                return
+                logging.info(
+                    f"Loaded vision model from settings: {vision_model_info['name']}")
+                found = True
+                break
 
-        # If we got here, the saved model wasn't found in the list
-        # This could happen if the model was removed or is no longer available
-        # Reset to None
-        self.vision_model_dropdown.setCurrentIndex(0)
-        self.settings.set('models', 'vision_model', '')
+        # If the saved model wasn't found in the dropdown list
+        if not found:
+            logging.warning(
+                f"Saved vision model {vision_model_info.get('id', 'N/A')} not found in available models list. Resetting to None.")
+            self.vision_model_dropdown.setCurrentIndex(0)
+            # Clear the invalid setting
+            self.settings.set_vision_model_info(None)
+            self.settings.save_settings()
 
     def _on_fetch_error(self, error):
         """Handle model fetch error."""
@@ -1423,12 +1462,23 @@ class ModelsTab(QWidget):
                 f"Removed {len(models_to_remove)} models from provider '{provider}' due to API key reset")
 
             # Check if the default model was removed
-            default_model = self.settings.get('models', 'default_model')
-            if default_model in models_to_remove:
+            default_model_id = self.settings.get('models', 'default_model')
+            if default_model_id in models_to_remove:
                 # Reset the default model
-                self.settings.set("", 'models', 'default_model')
+                self.settings.set('models', 'default_model',
+                                  "")  # Set ID to empty string
                 logging.info(
                     f"Reset default model as it was from provider '{provider}'")
+
+            # Check if the vision model was removed
+            vision_model_info = self.settings.get_vision_model_info()
+            if vision_model_info and vision_model_info.get('id') in models_to_remove:
+                # Reset the vision model
+                self.settings.set_vision_model_info(None)
+                logging.info(
+                    f"Reset vision model as it was from provider '{provider}'")
+                # Refresh vision dropdown state
+                self.load_vision_model()
 
             # Show notification to the user
             # Format the provider name for display
@@ -1450,16 +1500,38 @@ class ModelsTab(QWidget):
 
     def on_vision_model_changed(self, index):
         """Handle vision model selection change."""
+        model_info = None
         if index == 0:
             # "None" selected
-            self.settings.set('models', 'vision_model', '')
-            logging.info("Vision model set to None")
-            return
+            self.settings.set_vision_model_info(None)
+            log_message = "Vision model set to None."
+            user_message = "Vision support has been disabled."
+        else:
+            # Get the full selected model info dictionary
+            model_info = self.vision_model_dropdown.itemData(index)
+            if model_info and isinstance(model_info, dict):
+                # Save the entire dictionary
+                self.settings.set_vision_model_info(model_info)
+                log_message = f"Vision model set to: {model_info['name']} ({model_info['id']})"
+                user_message = f"Vision model set to: {model_info['name']}."
+            else:
+                # Should not happen, but handle gracefully
+                self.settings.set_vision_model_info(None)
+                self.vision_model_dropdown.setCurrentIndex(0)  # Reset dropdown
+                log_message = "Error setting vision model: Invalid data selected. Resetting to None."
+                user_message = "An error occurred setting the vision model. Vision support disabled."
+                logging.error(
+                    f"Invalid model data at index {index}: {model_info}")
 
-        # Get the selected model info
-        model_info = self.vision_model_dropdown.itemData(index)
-        if model_info:
-            # Save the model ID to settings
-            self.settings.set('models', 'vision_model', model_info['id'])
-            logging.info(
-                f"Vision model set to: {model_info['name']} ({model_info['id']})")
+        # Save settings immediately
+        self.settings.save_settings()
+        logging.info(log_message)
+
+        # Notify the user (only if a model was actually selected or deselected)
+        if index >= 0:  # Avoid showing message if dropdown is initially populated
+            QMessageBox.information(
+                self,
+                "Vision Model Updated",
+                f"{user_message}\nThis model will be used for image processing.",
+                QMessageBox.StandardButton.Ok
+            )
