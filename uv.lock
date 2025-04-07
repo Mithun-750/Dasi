@@ -417,7 +417,7 @@ requires-dist = [
     { name = "pyperclip", specifier = ">=1.9.0" },
     { name = "pyqt6", specifier = ">=6.8.1" },
     { name = "pyqt6-webengine", specifier = ">=6.8.0" },
-    { name = "pyqtdarktheme", specifier = ">=2.1.0" },
+    { name = "pyqtdarktheme", specifier = ">=0.1.7" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "tavily-python", specifier = ">=0.3.1" },

@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+/r_venv/
 
 # Distribution / packaging
 .Python
