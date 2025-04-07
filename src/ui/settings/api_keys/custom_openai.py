@@ -3,7 +3,7 @@ Custom OpenAI models section for the API Keys tab.
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QMessageBox, QFrame
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
@@ -16,10 +16,10 @@ import sys
 
 class CustomOpenAISection(QWidget):
     """Section for managing custom OpenAI-compatible model configurations."""
-    
+
     # Signal emitted when an API key is cleared
     api_key_cleared = pyqtSignal(str)
-    
+
     def __init__(self, settings, parent=None):
         super().__init__(parent)
         self.setObjectName("custom_openai_section")
@@ -27,29 +27,30 @@ class CustomOpenAISection(QWidget):
         self.custom_openai_sections = []  # Track custom OpenAI sections
         self.api_sections = {}  # Store references to API sections
         self.init_ui()
-        
+
     def init_ui(self):
         # Main layout
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(0)
-        
+
         # Create container for custom OpenAI models
         self.custom_openai_container = QWidget()
-        self.custom_openai_container.setStyleSheet("background-color: transparent;")
+        self.custom_openai_container.setStyleSheet(
+            "background-color: transparent;")
         self.custom_openai_layout = QVBoxLayout(self.custom_openai_container)
         self.custom_openai_layout.setContentsMargins(0, 0, 0, 0)
         self.custom_openai_layout.setSpacing(16)
         self.layout.addWidget(self.custom_openai_container)
-        
+
         # Load existing custom OpenAI models
         self.load_existing_custom_openai_models()
-        
+
     def load_existing_custom_openai_models(self):
         """Load existing custom OpenAI models from settings."""
         # Always add the first model section
         self.add_custom_openai_section(0)
-        
+
         # Check for additional custom OpenAI models
         index = 1
         while True:
@@ -60,7 +61,7 @@ class CustomOpenAISection(QWidget):
                 index += 1
             else:
                 break
-                
+
     def add_custom_openai_section(self, index=0):
         """Create section for custom OpenAI-compatible model configuration."""
         section = QFrame()
@@ -94,7 +95,7 @@ class CustomOpenAISection(QWidget):
             color: #e0e0e0;
         """)
         title_layout.addWidget(title)
-        
+
         # Add remove button for sections after the first one
         if index > 0:
             remove_button = QPushButton("Remove")
@@ -112,9 +113,10 @@ class CustomOpenAISection(QWidget):
                     background-color: #b91c1c;
                 }
             """)
-            remove_button.clicked.connect(lambda: self.remove_custom_openai_section(index))
+            remove_button.clicked.connect(
+                lambda: self.remove_custom_openai_section(index))
             title_layout.addWidget(remove_button)
-        
+
         title_layout.addStretch()
         section_layout.addWidget(title_container)
 
@@ -143,9 +145,11 @@ class CustomOpenAISection(QWidget):
         base_url_layout.setSpacing(6)
 
         base_url_label = QLabel("Base URL:")
-        base_url_label.setStyleSheet("font-size: 13px; color: #e0e0e0; font-weight: bold;")
+        base_url_label.setStyleSheet(
+            "font-size: 13px; color: #e0e0e0; font-weight: bold;")
         base_url_input = QLineEdit()
-        base_url_input.setPlaceholderText("Enter base URL (e.g., http://localhost:8000)")
+        base_url_input.setPlaceholderText(
+            "Enter base URL (e.g., http://localhost:8000/v1)")
         base_url_input.setProperty("class", "api-input")
         base_url_input.setStyleSheet("""
             QLineEdit {
@@ -166,11 +170,12 @@ class CustomOpenAISection(QWidget):
                 color: #888888;
             }
         """)
-        
+
         # Load existing value if available
-        current_url = self.settings.get('models', settings_key, 'base_url', default='')
+        current_url = self.settings.get(
+            'models', settings_key, 'base_url', default='')
         base_url_input.setText(current_url)
-        
+
         base_url_layout.addWidget(base_url_label)
         base_url_layout.addWidget(base_url_input)
         section_layout.addWidget(base_url_container)
@@ -183,9 +188,11 @@ class CustomOpenAISection(QWidget):
         model_id_layout.setSpacing(6)
 
         model_id_label = QLabel("Model ID:")
-        model_id_label.setStyleSheet("font-size: 13px; color: #e0e0e0; font-weight: bold;")
+        model_id_label.setStyleSheet(
+            "font-size: 13px; color: #e0e0e0; font-weight: bold;")
         model_id_input = QLineEdit()
-        model_id_input.setPlaceholderText("Enter model ID (e.g., gpt-3.5-turbo)")
+        model_id_input.setPlaceholderText(
+            "Enter model ID (e.g., gpt-3.5-turbo)")
         model_id_input.setProperty("class", "api-input")
         model_id_input.setStyleSheet("""
             QLineEdit {
@@ -206,11 +213,12 @@ class CustomOpenAISection(QWidget):
                 color: #888888;
             }
         """)
-        
+
         # Load existing value if available
-        current_model_id = self.settings.get('models', settings_key, 'model_id', default='')
+        current_model_id = self.settings.get(
+            'models', settings_key, 'model_id', default='')
         model_id_input.setText(current_model_id)
-        
+
         model_id_layout.addWidget(model_id_label)
         model_id_layout.addWidget(model_id_input)
         section_layout.addWidget(model_id_container)
@@ -223,7 +231,8 @@ class CustomOpenAISection(QWidget):
         api_key_layout.setSpacing(6)
 
         api_key_label = QLabel("API Key:")
-        api_key_label.setStyleSheet("font-size: 13px; color: #e0e0e0; font-weight: bold;")
+        api_key_label.setStyleSheet(
+            "font-size: 13px; color: #e0e0e0; font-weight: bold;")
         api_key_layout.addWidget(api_key_label)
 
         key_input_container = QWidget()
@@ -233,7 +242,8 @@ class CustomOpenAISection(QWidget):
         key_input_layout.setSpacing(8)
 
         api_input = QLineEdit()
-        api_input.setPlaceholderText("Enter API key for custom OpenAI-compatible model...")
+        api_input.setPlaceholderText(
+            "Enter API key for custom OpenAI-compatible model...")
         api_input.setEchoMode(QLineEdit.EchoMode.Password)
         api_input.setProperty("class", "api-input")
         api_input.setStyleSheet("""
@@ -276,27 +286,30 @@ class CustomOpenAISection(QWidget):
                 background-color: #444444;
             }
         """)
-        
+
         # Set the icon (try PNG first, then SVG)
         if getattr(sys, 'frozen', False):
             # Running in frozen mode
             base_path = sys._MEIPASS
-            eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.png")
+            eye_icon_path = os.path.join(
+                base_path, "assets", "icons", "eye.png")
             if not os.path.exists(eye_icon_path):
-                eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.svg")
+                eye_icon_path = os.path.join(
+                    base_path, "assets", "icons", "eye.svg")
         else:
             # Running in development mode
-            icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
+            icons_dir = os.path.join(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
             eye_icon_path = os.path.join(icons_dir, "eye.png")
             if not os.path.exists(eye_icon_path):
                 eye_icon_path = os.path.join(icons_dir, "eye.svg")
-        
+
         if not os.path.exists(eye_icon_path):
             logging.error(f"Eye icon not found at: {eye_icon_path}")
-        
+
         toggle_button.setIcon(QIcon(eye_icon_path))
         toggle_button.setIconSize(QSize(20, 20))
-        
+
         toggle_button.clicked.connect(
             lambda: toggle_key_visibility(api_input, toggle_button)
         )
@@ -305,7 +318,7 @@ class CustomOpenAISection(QWidget):
         key_input_layout.addWidget(toggle_button)
 
         api_key_layout.addWidget(key_input_container)
-        
+
         # Status label with modern styling
         status_label = QLabel()
         status_label.setStyleSheet("""
@@ -326,7 +339,7 @@ class CustomOpenAISection(QWidget):
         """)
         status_label.hide()
         api_key_layout.addWidget(status_label)
-        
+
         section_layout.addWidget(api_key_container)
 
         # Button container with modern styling
@@ -357,18 +370,18 @@ class CustomOpenAISection(QWidget):
                 color: #888888;
             }
         """)
-        
+
         # Connect save button to save function
         save_button.clicked.connect(
             lambda: self.save_custom_openai_model(
-                index, 
-                base_url_input, 
-                model_id_input, 
-                api_input, 
+                index,
+                base_url_input,
+                model_id_input,
+                api_input,
                 status_label
             )
         )
-        
+
         # Reset button with modern styling
         reset_button = QPushButton("Reset")
         reset_button.setProperty("class", "secondary")
@@ -390,8 +403,9 @@ class CustomOpenAISection(QWidget):
                 color: #888888;
             }
         """)
-        reset_button.clicked.connect(lambda: self.clear_api_key(provider_key, api_input, status_label))
-        
+        reset_button.clicked.connect(lambda: self.clear_api_key(
+            provider_key, api_input, status_label))
+
         # Add "Add Another" button with modern styling
         add_another_button = QPushButton("Add Another")
         add_another_button.setProperty("class", "secondary")
@@ -414,15 +428,15 @@ class CustomOpenAISection(QWidget):
             }
         """)
         add_another_button.clicked.connect(self.add_another_custom_openai)
-        
+
         # Make buttons take full width
         button_layout.addWidget(save_button, 1)  # 1 is the stretch factor
         button_layout.addWidget(reset_button, 1)  # 1 is the stretch factor
-        
+
         # Add the "Add Another" button if this is the first section
         if index == 0:
             button_layout.addWidget(add_another_button)
-        
+
         section_layout.addWidget(button_container)
 
         # Store references to inputs for this section
@@ -438,19 +452,19 @@ class CustomOpenAISection(QWidget):
             'provider_key': provider_key,
             'category': APICategory.LLM_PROVIDERS
         }
-        
+
         self.custom_openai_sections.append(section_data)
         self.custom_openai_layout.addWidget(section)
-        
+
         # Add to api_sections for filtering
         display_name = f"Custom OpenAI Model {index+1}" if index > 0 else f"Custom: {model_id_input.text().strip()}"
         self.api_sections[provider_key] = {
             'widget': section,
             'category': APICategory.LLM_PROVIDERS
         }
-        
+
         return section
-        
+
     def add_another_custom_openai(self):
         """Add another custom OpenAI model section."""
         # Check if there are any existing sections
@@ -458,27 +472,30 @@ class CustomOpenAISection(QWidget):
             # Add the first section if none exist
             self.add_custom_openai_section(0)
             return
-            
+
         # Check if the last section has all fields filled
         last_section = self.custom_openai_sections[-1]
         base_url = last_section['base_url_input'].text().strip()
         model_id = last_section['model_id_input'].text().strip()
         api_key = last_section['api_input'].text().strip()
-        
+
         # If any field is empty, show error and focus on the first empty field
         if not base_url:
-            show_status(last_section['status_label'], "Base URL is required", True)
+            show_status(last_section['status_label'],
+                        "Base URL is required", True)
             last_section['base_url_input'].setFocus()
             return
         elif not model_id:
-            show_status(last_section['status_label'], "Model ID is required", True)
+            show_status(last_section['status_label'],
+                        "Model ID is required", True)
             last_section['model_id_input'].setFocus()
             return
         elif not api_key:
-            show_status(last_section['status_label'], "API Key is required", True)
+            show_status(last_section['status_label'],
+                        "API Key is required", True)
             last_section['api_input'].setFocus()
             return
-        
+
         # Save the current section first to ensure it's properly stored
         index = last_section['index']
         success = self.save_custom_openai_model(
@@ -488,87 +505,89 @@ class CustomOpenAISection(QWidget):
             last_section['api_input'],
             last_section['status_label']
         )
-        
+
         # Only add a new section if the save was successful
         if success:
             # Add a new section with incremented index
             new_index = len(self.custom_openai_sections)
             self.add_custom_openai_section(new_index)
-            
+
     def save_custom_openai_model(self, index, base_url_input, model_id_input, api_input, status_label):
         """Save custom OpenAI model configuration."""
         # Get the path to the eye icon
         if getattr(sys, 'frozen', False):
             # Running in frozen mode
             base_path = sys._MEIPASS
-            eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.png")
+            eye_icon_path = os.path.join(
+                base_path, "assets", "icons", "eye.png")
             if not os.path.exists(eye_icon_path):
-                eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.svg")
+                eye_icon_path = os.path.join(
+                    base_path, "assets", "icons", "eye.svg")
         else:
             # Running in development mode
-            icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
+            icons_dir = os.path.join(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
             eye_icon_path = os.path.join(icons_dir, "eye.png")
             if not os.path.exists(eye_icon_path):
                 eye_icon_path = os.path.join(icons_dir, "eye.svg")
-        
+
         if not os.path.exists(eye_icon_path):
             logging.error(f"Eye icon not found at: {eye_icon_path}")
-        
+
         base_url = base_url_input.text().strip()
         model_id = model_id_input.text().strip()
         api_key = api_input.text().strip()
-        
+
         # Validate inputs
         if not base_url:
             show_status(status_label, "Please enter a base URL", True)
             return
-            
+
         if not model_id:
             show_status(status_label, "Please enter a model ID", True)
             return
-            
+
         if not api_key:
             show_status(status_label, "Please enter an API key", True)
             return
-            
+
         try:
             # Determine the settings key based on index
             settings_key = f"custom_openai_{index}" if index > 0 else "custom_openai"
             provider_key = settings_key
-            
+
             # Save API key
             self.settings.set_api_key(provider_key, api_key)
-            
-            # Save model settings
-            self.settings.set(base_url, 'models', settings_key, 'base_url')
-            self.settings.set(model_id, 'models', settings_key, 'model_id')
-            
+
+            # Save model settings correctly
+            self.settings.set('models', settings_key, 'base_url', base_url)
+            self.settings.set('models', settings_key, 'model_id', model_id)
+
             # Add to selected models
             display_name = f"Custom {index+1}: {model_id}" if index > 0 else f"Custom: {model_id}"
-            
+
             # Hide the key after saving
             api_input.setEchoMode(QLineEdit.EchoMode.Password)
-            
+
             # Update the toggle button icon
             for section in self.custom_openai_sections:
                 if section['index'] == index:
                     section['toggle_button'].setIcon(QIcon(eye_icon_path))
                     break
-            
-            # Save model settings
-            self.settings.save()
-            
+
             # Update the api_sections entry if it exists
             if provider_key in self.api_sections:
                 # Update the widget title if needed
                 widget = self.api_sections[provider_key]['widget']
                 label = widget.findChild(QLabel)
                 if label and "Custom OpenAI" in label.text():
-                    label.setText(f"Custom OpenAI-Compatible Model {index+1}" if index > 0 else "Custom OpenAI-Compatible Model")
-            
+                    label.setText(
+                        f"Custom OpenAI-Compatible Model {index+1}" if index > 0 else "Custom OpenAI-Compatible Model")
+
             # Show success message
-            show_status(status_label, "Model configuration saved successfully!")
-            
+            show_status(
+                status_label, "Model configuration saved successfully!")
+
             # Show confirmation dialog
             QMessageBox.information(
                 self,
@@ -576,12 +595,13 @@ class CustomOpenAISection(QWidget):
                 f"Custom OpenAI model configuration has been saved successfully.",
                 QMessageBox.StandardButton.Ok
             )
-            
+
             return True
-            
+
         except Exception as e:
             # Show error message
-            show_status(status_label, f"Failed to save model configuration: {str(e)}", True)
+            show_status(
+                status_label, f"Failed to save model configuration: {str(e)}", True)
             QMessageBox.critical(
                 self,
                 "Error",
@@ -589,20 +609,20 @@ class CustomOpenAISection(QWidget):
                 QMessageBox.StandardButton.Ok
             )
             return False
-            
+
     def clear_api_key(self, provider, input_field, status_label):
         """Clear the API key for the given provider."""
         try:
             # Clear the input field
             input_field.clear()
-            
+
             # Remove from settings
             if self.settings.set_api_key(provider, ""):
                 show_status(status_label, "API key cleared successfully!")
-                
+
                 # Emit signal that the API key was cleared
                 self.api_key_cleared.emit(provider)
-                
+
                 # Show confirmation dialog
                 provider_display = provider
                 if provider.startswith('custom_openai_'):
@@ -612,7 +632,7 @@ class CustomOpenAISection(QWidget):
                     provider_display = "Custom OpenAI Model"
                 else:
                     provider_display = provider.title()
-                    
+
                 QMessageBox.information(
                     self,
                     "Success",
@@ -622,8 +642,9 @@ class CustomOpenAISection(QWidget):
             else:
                 show_status(status_label, "Failed to clear API key", True)
         except Exception as e:
-            show_status(status_label, f"Error clearing API key: {str(e)}", True)
-            
+            show_status(
+                status_label, f"Error clearing API key: {str(e)}", True)
+
     def remove_custom_openai_section(self, index):
         """Remove a custom OpenAI model section."""
         # Confirm with the user
@@ -634,10 +655,10 @@ class CustomOpenAISection(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
-        
+
         if reply != QMessageBox.StandardButton.Yes:
             return
-            
+
         # Find the section to remove
         section_to_remove = None
         for i, section in enumerate(self.custom_openai_sections):
@@ -645,37 +666,37 @@ class CustomOpenAISection(QWidget):
                 section_to_remove = section
                 section_index = i
                 break
-                
+
         if not section_to_remove:
             return
-            
+
         # Remove from UI
         section_to_remove['widget'].setParent(None)
         section_to_remove['widget'].deleteLater()
-        
+
         # Remove from settings
         provider_key = section_to_remove['provider_key']
         settings_key = f"custom_openai_{index}" if index > 0 else "custom_openai"
-        
+
         # Clear API key
         self.settings.set_api_key(provider_key, "")
-        
+
         # Remove model settings by setting it to an empty dictionary
         # The Settings class doesn't have a remove method, so we use set instead
         self.settings.set({}, 'models', settings_key)
-        
+
         # Remove from selected models
         model_id = section_to_remove['model_id_input'].text().strip()
         if model_id:
             self.settings.remove_selected_model(model_id)
-        
+
         # Remove from our lists
         self.custom_openai_sections.pop(section_index)
-        
+
         # Remove from api_sections
         if provider_key in self.api_sections:
             del self.api_sections[provider_key]
-        
+
         # Show confirmation
         QMessageBox.information(
             self,
@@ -683,20 +704,21 @@ class CustomOpenAISection(QWidget):
             "Custom OpenAI model has been removed.",
             QMessageBox.StandardButton.Ok
         )
-        
+
     def get_api_sections(self):
         """Get the API sections dictionary."""
         return self.api_sections
-    
+
     def set_visibility(self, visible):
         """Set the visibility of this section."""
         self.setVisible(visible)
-        
+
     def add_model_button(self):
         """Create and return a button for adding a new custom model."""
         add_model_button = QPushButton("Add Model")
         add_model_button.setProperty("class", "danger")
-        add_model_button.setFixedWidth(100)  # Increased width to prevent text from being cut off
+        # Increased width to prevent text from being cut off
+        add_model_button.setFixedWidth(100)
         add_model_button.setStyleSheet("""
             QPushButton {
                 padding: 5px 8px;

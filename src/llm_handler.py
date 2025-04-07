@@ -363,7 +363,7 @@ INPUT:"""
                     temperature=temperature,
                     streaming=True,
                     openai_api_key=api_key,
-                    base_url=base_url.rstrip('/') + '/v1',
+                    base_url=base_url,  # Use the URL directly as provided
                 )
 
                 logging.info(
