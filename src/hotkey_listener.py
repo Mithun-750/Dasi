@@ -1,8 +1,16 @@
-from pynput import keyboard
+from pynput import keyboard as pynput_keyboard
 import pyautogui
 import logging
+import platform
 from typing import Callable, Optional
 from ui.settings import Settings
+
+# Use different library for Windows which has better suppression capability
+if platform.system() == 'Windows':
+    try:
+        import keyboard
+    except ImportError:
+        logging.warning("keyboard library not found, falling back to pynput")
 
 
 class HotkeyListener:
@@ -43,6 +51,7 @@ class HotkeyListener:
         self.settings = Settings()
         self._running = False
         self.listener = None
+        self.using_keyboard_lib = platform.system() == 'Windows' and 'keyboard' in globals()
         self._register_hotkey()
 
     def _register_hotkey(self):
@@ -57,7 +66,44 @@ class HotkeyListener:
             'key': 'I'
         })
 
-        # Build hotkey string
+        # Use the keyboard library on Windows for better event suppression
+        if self.using_keyboard_lib:
+            # Build hotkey string for keyboard library
+            hotkey_parts = []
+            if hotkey['ctrl']:
+                hotkey_parts.append('ctrl')
+            if hotkey['alt']:
+                hotkey_parts.append('alt')
+            if hotkey['shift']:
+                hotkey_parts.append('shift')
+            if hotkey['super']:
+                hotkey_parts.append('windows')
+
+            # Add the main key
+            hotkey_parts.append(hotkey['key'].lower())
+
+            # Create the hotkey string
+            hotkey_str = '+'.join(hotkey_parts)
+            logging.info(f"Registering Windows hotkey: {hotkey_str}")
+
+            try:
+                # First, unregister any previously registered hotkey
+                try:
+                    keyboard.remove_hotkey(hotkey_str)
+                except:
+                    pass
+
+                # Register the hotkey with the keyboard library
+                # The suppress parameter is key - it prevents the key from being sent
+                keyboard.add_hotkey(
+                    hotkey_str, self._handle_hotkey, suppress=True)
+                logging.info("Windows hotkey registration successful")
+                return
+            except Exception as e:
+                logging.error(f"Failed to register Windows hotkey: {str(e)}")
+                # Fall back to pynput if keyboard library fails
+
+        # Build hotkey string for pynput
         hotkey_parts = []
         if hotkey['ctrl']:
             hotkey_parts.append('<ctrl>')
@@ -68,7 +114,6 @@ class HotkeyListener:
         if hotkey['super']:
             hotkey_parts.append(
                 '<cmd>' if pyautogui.platform == 'darwin' else '<windows>')
-        # Note: Fn key is not directly supported by pynput, so we skip it
 
         # Handle the main key
         key = hotkey['key']
@@ -78,15 +123,15 @@ class HotkeyListener:
             hotkey_parts.append(key.lower())
 
         hotkey_str = '+'.join(hotkey_parts)
-        logging.info(f"Registering hotkey: {hotkey_str}")
+        logging.info(f"Registering pynput hotkey: {hotkey_str}")
 
         try:
-            self.listener = keyboard.GlobalHotKeys({
+            self.listener = pynput_keyboard.GlobalHotKeys({
                 hotkey_str: self._handle_hotkey
             })
-            logging.info("Hotkey registration successful")
+            logging.info("Pynput hotkey registration successful")
         except Exception as e:
-            logging.error(f"Failed to register hotkey: {str(e)}")
+            logging.error(f"Failed to register pynput hotkey: {str(e)}")
             self.listener = None
             raise
 
@@ -94,6 +139,37 @@ class HotkeyListener:
         """Handle hotkey press by getting cursor position and calling callback."""
         try:
             logging.debug("Hotkey triggered")
+
+            # Import modules needed for the function
+            import time
+
+            # On Windows, wait a little longer before showing the popup
+            # This gives the system time to fully process the hotkey event
+            if platform.system() == 'Windows':
+                # Slightly longer delay for better focus handling
+                time.sleep(0.15)
+
+                try:
+                    # Import clipboard related tools inline to avoid circular imports
+                    from PyQt6.QtWidgets import QApplication
+                    from PyQt6.QtGui import QClipboard
+
+                    # Save selected text before it gets lost
+                    if QApplication.instance():
+                        clipboard = QApplication.clipboard()
+                        # On Windows, try to preserve the selection
+                        selected_text = clipboard.text(
+                            QClipboard.Mode.Selection)
+                        if selected_text:
+                            # Keep a copy in the regular clipboard too in case Selection mode gets cleared
+                            clipboard.setText(selected_text)
+                            logging.debug(
+                                f"Saved selection: {selected_text[:30]}...")
+                except Exception as e:
+                    logging.debug(
+                        f"Non-critical clipboard handling error: {str(e)}")
+
+            # Get cursor position for popup
             x, y = pyautogui.position()
 
             # Check what arguments the callback accepts
@@ -125,6 +201,12 @@ class HotkeyListener:
             logging.info("Hotkey listener already running")
             return True
 
+        if self.using_keyboard_lib:
+            # For keyboard library, the hotkeys are already registered and active
+            self._running = True
+            logging.info("Windows keyboard listener running")
+            return True
+
         if not self.listener:
             try:
                 self._register_hotkey()
@@ -135,7 +217,7 @@ class HotkeyListener:
         try:
             self.listener.start()
             self._running = True
-            logging.info("Hotkey listener started")
+            logging.info("Pynput hotkey listener started")
             return True
         except Exception as e:
             self._running = False
@@ -153,8 +235,14 @@ class HotkeyListener:
             return True
 
         try:
-            if self.listener:
+            if self.using_keyboard_lib:
+                # For keyboard library, we would unregister all hotkeys
+                # This is simplified; you might want to store specific hotkey references
+                keyboard.unhook_all()
+                logging.info("Windows keyboard hotkeys unregistered")
+            elif self.listener:
                 self.listener.stop()
+
             self._running = False
             logging.info("Hotkey listener stopped")
             return True

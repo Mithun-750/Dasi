@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout,
                              QFrame, QLabel, QPushButton, QHBoxLayout, QFileDialog, QMessageBox)
-from PyQt6.QtCore import (Qt, QThread, pyqtSignal)
+from PyQt6.QtCore import (Qt, QThread, pyqtSignal, QTimer)
 from PyQt6.QtGui import QFont, QClipboard, QPixmap
 from typing import Callable,  List
 import sys
@@ -55,11 +55,28 @@ class DasiWindow(QWidget):
 
         # Window flags
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint |
-                            Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
+                            Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint |
+                            Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        # Add this attribute to explicitly capture keyboard focus
+        self.setAttribute(Qt.WidgetAttribute.WA_KeyboardFocusChange, True)
+        # We need to set this to False for proper focus
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
 
+        # Call setup_ui first to create all the widgets
         self.setup_ui()
+
+        # Additional focus handling specific for Windows - AFTER setup_ui() has run
+        import platform
+        if platform.system() == 'Windows':
+            # On Windows, set additional flags for better focus handling
+            self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            # When window is activated, explicitly focus on input field
+            self.activateWindow()
+            # Also set the policy for the input field to be very aggressive
+            self.input_panel.input_field.setFocusPolicy(
+                Qt.FocusPolicy.StrongFocus)
 
     def setup_ui(self):
         """Set up the UI components."""
@@ -920,6 +937,31 @@ class DasiWindow(QWidget):
         else:
             super().keyPressEvent(event)
 
+    def focusOutEvent(self, event):
+        """Recapture focus if it's lost while the window is visible."""
+        # On Windows, we need to aggressively recapture focus to prevent the double-focus issue
+        if platform.system() == 'Windows':
+            # Use a very short timer to grab focus back
+            # This allows the normal event processing to complete first
+            QTimer.singleShot(10, self._recapture_focus)
+        super().focusOutEvent(event)
+
+    def _recapture_focus(self):
+        """Helper method to recapture focus if the window is still visible."""
+        if self.isVisible():
+            # Only attempt to recapture focus if window is still visible
+            self.activateWindow()
+            self.input_panel.input_field.setFocus()
+
+    def changeEvent(self, event):
+        """Handle window activation changes."""
+        from PyQt6.QtCore import QEvent
+        if event.type() == QEvent.Type.ActivationChange:
+            # When window becomes active, ensure our input field has focus
+            if self.isActiveWindow():
+                self.input_panel.input_field.setFocus()
+        super().changeEvent(event)
+
     def _handle_reset_session(self):
         """Handle reset session button click."""
         # Store current selected text
@@ -950,6 +992,48 @@ class DasiWindow(QWidget):
         super().showEvent(event)
         # Update chunk titles when window is shown
         self.input_panel.update_chunk_titles()
+
+        # Windows-specific handling to force focus
+        import platform
+        if platform.system() == 'Windows':
+            try:
+                # Use Windows-specific API to force foreground status
+                import ctypes
+                # GetForegroundWindow - to check if we're already foreground
+                foreground_hwnd = ctypes.windll.user32.GetForegroundWindow()
+                # Our window handle
+                hwnd = int(self.winId())
+
+                # Only force if we're not already foreground
+                if foreground_hwnd != hwnd:
+                    # Try to force our window to foreground
+                    # First attach to the foreground window's thread
+                    foreground_thread = ctypes.windll.user32.GetWindowThreadProcessId(
+                        foreground_hwnd, 0)
+                    current_thread = ctypes.windll.kernel32.GetCurrentThreadId()
+
+                    if foreground_thread != current_thread:
+                        # Attach the threads to synchronize input focus
+                        ctypes.windll.user32.AttachThreadInput(
+                            current_thread, foreground_thread, True)
+                        # Force our window to foreground
+                        ctypes.windll.user32.SetForegroundWindow(hwnd)
+                        # Apply a flashy animation to grab attention
+                        ctypes.windll.user32.BringWindowToTop(hwnd)
+                        # Detach the threads
+                        ctypes.windll.user32.AttachThreadInput(
+                            current_thread, foreground_thread, False)
+                    else:
+                        # Simple case - we can directly set foreground
+                        ctypes.windll.user32.SetForegroundWindow(hwnd)
+                        ctypes.windll.user32.BringWindowToTop(hwnd)
+
+                    # Also set focus to our input field
+                    self.input_panel.input_field.setFocus()
+            except Exception as e:
+                # Don't fail if Windows API calls don't work
+                logging.debug(
+                    f"Non-critical Windows API error in showEvent: {str(e)}")
 
     def hideEvent(self, event):
         """Handle hide event to clean up resources."""
