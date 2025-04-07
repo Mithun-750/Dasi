@@ -17,8 +17,9 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from pathlib import Path
 import re
 
-# Import WebSearchHandler here to allow passing self to its constructor
+# Import WebSearchHandler and VisionHandler
 from web_search_handler import WebSearchHandler
+from vision_handler import VisionHandler
 
 
 class LLMHandler:
@@ -42,6 +43,9 @@ class LLMHandler:
 
         # Initialize web search handler, passing this LLMHandler instance
         self.web_search_handler = WebSearchHandler(self)
+
+        # Initialize Vision Handler
+        self.vision_handler = VisionHandler(self.settings)
 
         # Fixed system prompt
         self.system_prompt = """# IDENTITY and PURPOSE
@@ -166,51 +170,79 @@ INPUT:"""
             except Exception as e:
                 logging.error(f"Error updating temperature: {str(e)}")
 
-    def initialize_llm(self, model_name: str = None) -> bool:
-        """Initialize the LLM with the current API key and specified model. Returns True if successful."""
+    def initialize_llm(self, model_name: str = None, model_info: dict = None) -> bool:
+        """Initialize the LLM with the current API key and specified model/info. Returns True if successful."""
         try:
             # Reload settings to ensure we have the latest data
             self.settings.load_settings()
 
-            # If no model specified, use default model from settings
-            if model_name is None:
-                model_name = self.settings.get('models', 'default_model')
-                if not model_name:
-                    # If no default model set, use first available model
+            # If model_info is provided, use it directly
+            if model_info and isinstance(model_info, dict):
+                logging.info(
+                    f"Initializing LLM using provided model info: {model_info.get('id', 'N/A')}")
+            # If no model_info, try to find model by name
+            elif model_name:
+                # Get model info from settings based on model_name
+                selected_models = self.settings.get_selected_models()
+                model_ids = [m['id'] for m in selected_models]
+                logging.info(
+                    f"Available selected model IDs for lookup: {model_ids}")
+
+                # Find the model by exact ID match
+                model_info = next(
+                    (m for m in selected_models if m['id'] == model_name), None)
+
+                # If not found, try partial match (backward compatibility)
+                if not model_info and '/' in model_name:
+                    base_name = model_name.split('/')[-1]
+                    logging.info(
+                        f"Model '{model_name}' not found by exact match. Trying base name: {base_name}")
+                    for m in selected_models:
+                        if m['id'].endswith(f"/{base_name}"):
+                            model_info = m
+                            logging.info(
+                                f"Found model by partial match: {m['id']}")
+                            break
+
+                if not model_info:
+                    logging.error(
+                        f"Model '{model_name}' not found in selected models.")
+                    return False
+            # If neither model_name nor model_info is provided, use the default model
+            else:
+                default_model_id = self.settings.get('models', 'default_model')
+                if not default_model_id:
+                    # If no default model set, try first available selected model
                     selected_models = self.settings.get_selected_models()
                     if selected_models:
-                        model_name = selected_models[0]['id']
-                    else:
-                        return False
-
-            # Get model info from settings
-            selected_models = self.settings.get_selected_models()
-
-            # Log all available models for debugging
-            model_ids = [m['id'] for m in selected_models]
-            logging.info(f"Available model IDs: {model_ids}")
-
-            # Find the model by exact ID match
-            model_info = next(
-                (m for m in selected_models if m['id'] == model_name), None)
-
-            # If not found, try to find by partial match (for backward compatibility)
-            if not model_info and '/' in model_name:
-                # Try to match without the path components
-                base_name = model_name.split('/')[-1]
-                logging.info(f"Trying to match with base name: {base_name}")
-                for m in selected_models:
-                    if m['id'].endswith(f"/{base_name}"):
-                        model_info = m
+                        # Use the first one's info
+                        model_info = selected_models[0]
                         logging.info(
-                            f"Found model by partial match: {m['id']}")
-                        break
+                            f"No model specified, using first selected model: {model_info['id']}")
+                    else:
+                        logging.error(
+                            "No default model set and no models selected.")
+                        return False
+                else:
+                    # Find the default model's info in the selected list
+                    selected_models = self.settings.get_selected_models()
+                    model_info = next(
+                        (m for m in selected_models if m['id'] == default_model_id), None)
+                    if not model_info:
+                        logging.error(
+                            f"Default model '{default_model_id}' not found in the selected models list.")
+                        # Fallback: Try using the first selected model if available
+                        if selected_models:
+                            model_info = selected_models[0]
+                            logging.warning(
+                                f"Default model not found, falling back to first selected model: {model_info['id']}")
+                        else:
+                            return False
+                    else:
+                        logging.info(
+                            f"Using default model: {default_model_id}")
 
-            if not model_info:
-                logging.error(
-                    f"Model {model_name} not found in selected models")
-                return False
-
+            # Proceed with initialization using the determined model_info
             provider = model_info['provider']
             model_id = model_info['id']
 
@@ -230,12 +262,24 @@ INPUT:"""
                     temperature=temperature,
                 )
             elif provider == 'openai':
-                self.llm = ChatOpenAI(
-                    model=model_id,
-                    temperature=temperature,
-                    streaming=True,
-                    openai_api_key=self.settings.get_api_key('openai'),
-                )
+                # For GPT-4o and vision models, explicitly add vision capability
+                if 'gpt-4o' in model_id.lower() or 'vision' in model_id.lower():
+                    self.llm = ChatOpenAI(
+                        model=model_id,
+                        temperature=temperature,
+                        streaming=True,
+                        openai_api_key=self.settings.get_api_key('openai'),
+                        max_tokens=4096,  # Set a reasonable limit for vision models
+                    )
+                    logging.info(
+                        f"Initialized OpenAI model with vision capabilities: {model_id}")
+                else:
+                    self.llm = ChatOpenAI(
+                        model=model_id,
+                        temperature=temperature,
+                        streaming=True,
+                        openai_api_key=self.settings.get_api_key('openai'),
+                    )
             elif provider == 'ollama':
                 self.llm = ChatOllama(
                     model=model_id,
@@ -249,12 +293,26 @@ INPUT:"""
                     temperature=temperature,
                 )
             elif provider == 'anthropic':
-                self.llm = ChatAnthropic(
-                    model=model_id,
-                    anthropic_api_key=self.settings.get_api_key('anthropic'),
-                    temperature=temperature,
-                    streaming=True,
-                )
+                # For Claude models, explicitly support multimodal for Claude 3 models
+                if 'claude-3' in model_id.lower():
+                    self.llm = ChatAnthropic(
+                        model=model_id,
+                        anthropic_api_key=self.settings.get_api_key(
+                            'anthropic'),
+                        temperature=temperature,
+                        streaming=True,
+                        max_tokens=4096,  # Set a reasonable limit for vision requests
+                    )
+                    logging.info(
+                        f"Initialized Claude model with vision capabilities: {model_id}")
+                else:
+                    self.llm = ChatAnthropic(
+                        model=model_id,
+                        anthropic_api_key=self.settings.get_api_key(
+                            'anthropic'),
+                        temperature=temperature,
+                        streaming=True,
+                    )
             elif provider == 'deepseek':
                 api_key = self.settings.get_api_key('deepseek')
                 # Set environment variable for Deepseek
@@ -280,8 +338,7 @@ INPUT:"""
                 logging.info(f"Successfully initialized xAI model: {model_id}")
             elif provider == 'custom_openai' or provider.startswith('custom_openai_'):
                 # Get custom OpenAI settings
-                base_url = self.settings.get(
-                    'models', provider, 'base_url')
+                base_url = self.settings.get('models', provider, 'base_url')
                 if not base_url:
                     logging.error(
                         f"Base URL not found for custom OpenAI provider: {provider}")
@@ -374,31 +431,67 @@ INPUT:"""
 
     def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default") -> str:
         """Get response from LLM for the given query. If callback is provided, stream the response."""
-        # Initialize with specified model if provided
+        current_model_info = None  # Store the info of the model being used
+
+        # Initialize with specified model if provided (by name/ID)
         if model:
             needs_init = True
             if self.llm:
-                current_model = None
+                current_model_id = None
                 if hasattr(self.llm, 'model'):
-                    current_model = self.llm.model
+                    current_model_id = self.llm.model
                 elif hasattr(self.llm, 'model_name'):
-                    current_model = self.llm.model_name
+                    current_model_id = self.llm.model_name
 
-                if current_model:
-                    needs_init = model != current_model
+                if current_model_id:
+                    needs_init = (model != current_model_id)
                     logging.info(
-                        f"Model comparison: requested={model}, current={current_model}, needs_init={needs_init}")
+                        f"Model comparison: requested={model}, current={current_model_id}, needs_init={needs_init}")
 
             if needs_init:
-                logging.info(f"Initializing new model: {model}")
-                if not self.initialize_llm(model):
+                logging.info(f"Initializing specified model by name: {model}")
+                # Initialize by name, model_info will be looked up inside initialize_llm
+                if not self.initialize_llm(model_name=model):
                     logging.error(f"Failed to initialize model: {model}")
-                    return "⚠️ Please add the appropriate API key in settings to use this model."
+                    return "⚠️ Please ensure the requested model is selected and its API key is configured in settings."
+                else:
+                    # Successfully initialized, store its info (we might need provider later)
+                    # Find the info from selected models again (a bit redundant, but necessary)
+                    selected_models = self.settings.get_selected_models()
+                    current_model_info = next(
+                        (m for m in selected_models if m['id'] == model), None)
 
-        if not self.llm and not self.initialize_llm():
-            logging.error(
-                "No LLM initialized and failed to initialize default LLM")
-            return "⚠️ Please add your API key in settings to use Dasi."
+        # If no specific model requested or initialization failed, ensure default is loaded
+        if not self.llm:
+            logging.info(
+                "No LLM active or specified model failed, initializing default LLM.")
+            if not self.initialize_llm():  # Initialize default (or first selected)
+                logging.error("Failed to initialize default LLM")
+                return "⚠️ Please add your API key and select a model in settings to use Dasi."
+            else:
+                # Get the info of the model that was just initialized (default or first selected)
+                if hasattr(self.llm, 'model'):
+                    current_model_id = self.llm.model
+                elif hasattr(self.llm, 'model_name'):
+                    current_model_id = self.llm.model_name
+                selected_models = self.settings.get_selected_models()
+                current_model_info = next(
+                    (m for m in selected_models if m['id'] == current_model_id), None)
+
+        # If we still don't have model info, try to get it from the active LLM instance
+        if not current_model_info and self.llm:
+            if hasattr(self.llm, 'model'):
+                current_model_id = self.llm.model
+            elif hasattr(self.llm, 'model_name'):
+                current_model_id = self.llm.model_name
+            # Try finding info in selected models OR vision model info
+            selected_models = self.settings.get_selected_models()
+            vision_model_info = self.settings.get_vision_model_info()
+
+            current_model_info = next(
+                (m for m in selected_models if m['id'] == current_model_id), None)
+            if not current_model_info and vision_model_info and vision_model_info.get('id') == current_model_id:
+                current_model_info = vision_model_info  # It might be the vision model
 
         try:
             # Get message history for this session
@@ -408,6 +501,8 @@ INPUT:"""
             mode = 'chat'  # Default mode
             context = {}
             actual_query = query
+            has_image = False
+            image_data = None
 
             if "Context:" in query:
                 context_section, actual_query = query.split("\n\nQuery:\n", 1)
@@ -431,6 +526,17 @@ INPUT:"""
                     if "<" in selected_text and ">" in selected_text:
                         selected_text = selected_text.split(">", 1)[1].strip()
                     context['selected_text'] = selected_text
+
+                # Check for image data in context
+                if "=====IMAGE_DATA=====" in context_section:
+                    image_data_text = context_section.split(
+                        "=====IMAGE_DATA=====", 1)[1]
+                    image_data_text = image_data_text.split(
+                        "=======================", 1)[0].strip()
+                    image_data = image_data_text
+                    context['image_data'] = image_data
+                    has_image = True
+                    logging.info("Image data found in context")
 
                 # Check for mode in context
                 if "Mode:" in context_section:
@@ -494,13 +600,6 @@ EXAMPLES:
             messages.append(SystemMessage(content=mode_instruction))
 
             # Process web search and link scraping using WebSearchHandler
-            # No longer need to initialize it here, it's done in __init__
-            # if self.web_search_handler is None:
-            #     from web_search_handler import WebSearchHandler
-            #     self.web_search_handler = WebSearchHandler()
-            #     logging.info("Web search handler initialized")
-
-            # Process the query and context to determine if web search/scrape is needed
             process_result = self.web_search_handler.process_query_context(
                 actual_query, context)
 
@@ -521,25 +620,155 @@ EXAMPLES:
             # Add chat history (limited to configured number of messages)
             history_messages = message_history.messages[-self.history_limit:] if message_history.messages else [
             ]
-            messages.extend(history_messages)
+            # Make sure history messages are correctly typed
+            typed_history = []
+            for msg in history_messages:
+                if isinstance(msg, HumanMessage):
+                    typed_history.append(msg)
+                elif isinstance(msg, AIMessage):
+                    typed_history.append(msg)
+                elif isinstance(msg, SystemMessage):  # Shouldn't happen here, but check
+                    typed_history.append(msg)
+                # Handle dict representation maybe?
+                elif hasattr(msg, 'type') and hasattr(msg, 'content'):
+                    if msg.type == 'human':
+                        typed_history.append(HumanMessage(content=msg.content))
+                    elif msg.type == 'ai':
+                        typed_history.append(AIMessage(content=msg.content))
 
-            # Format user query with selected text if available
-            if 'selected_text' in context:
-                actual_query = f"{actual_query}\n\n=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n======================="
+            messages.extend(typed_history)  # Use the typed history
 
-            # Add current query
-            query_message = HumanMessage(content=actual_query)
+            # ---> Vision Handling Logic <---
+            generated_visual_description = None
+            if has_image and image_data:
+                # Get vision model and current model info
+                vision_model_info = self.settings.get_vision_model_info()
+
+                # Ensure current_model_info is set (it should be at this point)
+                if not current_model_info:
+                    logging.error(
+                        "LLMHandler: Could not determine current model info before vision handling.")
+                    # Fallback? Maybe try to get it again?
+                    current_model_id = self.llm.model if hasattr(
+                        self.llm, 'model') else getattr(self.llm, 'model_name', None)
+                    if current_model_id:
+                        selected_models = self.settings.get_selected_models()
+                        current_model_info = next(
+                            (m for m in selected_models if m['id'] == current_model_id), None)
+                        if not current_model_info and vision_model_info and vision_model_info.get('id') == current_model_id:
+                            current_model_info = vision_model_info
+
+                use_vision_handler = False
+                if vision_model_info and isinstance(vision_model_info, dict) and current_model_info and isinstance(current_model_info, dict):
+                    if vision_model_info.get('id') != current_model_info.get('id'):
+                        use_vision_handler = True
+                        logging.info(
+                            f"Vision model ({vision_model_info.get('id')}) differs from main LLM ({current_model_info.get('id')}). Using VisionHandler.")
+                    else:
+                        logging.info(
+                            f"Vision model and main LLM are the same ({vision_model_info.get('id')}). Will attempt direct multimodal call.")
+                elif not vision_model_info:
+                    logging.info(
+                        "No dedicated vision model configured. Will attempt direct multimodal call with main LLM.")
+                else:  # current_model_info is missing?
+                    logging.warning(
+                        "Could not compare vision model and main LLM. Defaulting to direct multimodal call if possible.")
+
+                # Scenario 1: Use VisionHandler to get description first
+                if use_vision_handler:
+                    logging.info(
+                        "Generating detailed visual description using VisionHandler...")
+                    description = self.vision_handler.get_visual_description(
+                        image_data_base64=image_data,
+                        prompt_hint=actual_query  # Pass user query as hint
+                    )
+                    if description:
+                        generated_visual_description = description
+                        # Prepare for text-only call to main LLM
+                        has_image = False
+                        image_data = None
+                        logging.info(
+                            "Successfully generated visual description.")
+                    else:
+                        # Failed to get description, proceed as text-only but add a note
+                        logging.error(
+                            "Failed to generate visual description from VisionHandler.")
+                        actual_query += "\n\n=====SYSTEM_NOTE=====\n(Failed to process the provided visual input.)\n====================="
+                        has_image = False
+                        image_data = None
+
+                # Scenario 2: Direct multimodal call (Vision model is same as main, or none is set)
+                else:
+                    logging.info(
+                        "Proceeding with direct multimodal message construction.")
+                    # We keep has_image = True and image_data as is
+                    # Need to ensure the current LLM can handle it; Langchain models usually do if underlying API supports it.
+                    # If current_model_info exists, we could add an explicit capability check here if needed,
+                    # but for now, we rely on Langchain/API handling.
+                    pass  # No changes needed here, the multimodal message will be constructed below if has_image is still True
+
+            # --- End Vision Handling Logic ---
+
+            # Construct the final query message based on whether we have image data or description
+            if has_image and image_data:
+                # Direct Multimodal Message (Scenario 2 or original flow)
+                # Format selected text if available
+                query_text_part = actual_query
+                if 'selected_text' in context:
+                    query_text_part = f"{actual_query}\n\nText context: {context['selected_text']}"
+
+                # Ensure base64 data is clean
+                if image_data.startswith('data:'):
+                    image_data = image_data.split(',', 1)[-1]
+
+                content_blocks = [
+                    {"type": "text", "text": query_text_part},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{image_data}"}
+                    }
+                ]
+                query_message = HumanMessage(content=content_blocks)
+                logging.info("Constructed direct multimodal query message.")
+
+            else:
+                # Text-Only Message (No image initially, or VisionHandler used)
+                final_query_text = actual_query
+                # Append selected text if present
+                if 'selected_text' in context:
+                    final_query_text += f"\n\n=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n======================="
+                # Append generated visual description if available (from Scenario 1)
+                if generated_visual_description:
+                    final_query_text += f"\n\n=====VISUAL_DESCRIPTION=====<description generated by vision model>\n{generated_visual_description}\n======================="
+
+                query_message = HumanMessage(content=final_query_text)
+                if generated_visual_description:
+                    logging.info(
+                        "Constructed text query message including generated visual description.")
+                else:
+                    logging.info("Constructed standard text query message.")
+
+            # Add the message to the messages list
             messages.append(query_message)
 
             # Log the request
-            provider = self.current_provider if self.current_provider else "unknown"
+            provider = "unknown"
             model_name = "unknown"
-            if hasattr(self.llm, 'model'):
-                model_name = self.llm.model
-            elif hasattr(self.llm, 'model_name'):
-                model_name = self.llm.model_name
+            if current_model_info:  # Use the stored info
+                provider = current_model_info.get('provider', 'unknown')
+                model_name = current_model_info.get('id', 'unknown')
+            elif self.llm:  # Fallback to getting from llm instance if info somehow missing
+                if hasattr(self.llm, 'model'):
+                    model_name = self.llm.model
+                elif hasattr(self.llm, 'model_name'):
+                    model_name = self.llm.model_name
+                # Provider might be harder to get directly, use self.current_provider if set
+                if self.current_provider:
+                    provider = self.current_provider
 
             logging.info(f"Sending request to {provider} model: {model_name}")
+            if has_image:
+                logging.info("Request includes an image")
 
             # Get response
             if callback:

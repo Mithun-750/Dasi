@@ -2,15 +2,18 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTextEdit, QFrame, QLabel,
                              QPushButton, QHBoxLayout, QProgressBar, QGridLayout,
                              QComboBox, QSizePolicy, QRadioButton, QButtonGroup,
                              QScrollArea, QListWidget, QListWidgetItem, QStyledItemDelegate,
-                             QLineEdit, QProxyStyle, QStyle, QStackedWidget)
-from PyQt6.QtCore import Qt, pyqtSignal, QStringListModel, QEvent, QSize, QPoint, QRect, QEasingCurve, QPropertyAnimation
-from PyQt6.QtGui import QFont, QCursor, QColor, QPainter, QPen, QPainterPath, QClipboard, QTextCursor
+                             QLineEdit, QProxyStyle, QStyle, QStackedWidget, QApplication)
+from PyQt6.QtCore import (Qt, pyqtSignal, QStringListModel, QEvent, QSize, QPoint,
+                          QRect, QEasingCurve, QPropertyAnimation, QMimeData, QBuffer)
+from PyQt6.QtGui import (QFont, QCursor, QColor, QPainter, QPen, QPainterPath,
+                         QClipboard, QTextCursor, QImage, QPixmap, QDrag, QDragEnterEvent, QDropEvent)
 from typing import Callable, Optional, Dict, Any, List
 from pathlib import Path
 import logging
 import re
 import json
 import os
+import base64
 
 from ...settings import Settings
 from ...components.chunk_dropdown import ChunkDropdown
@@ -318,17 +321,58 @@ class CustomComboBox(QComboBox):
             event.ignore()
 
 
-# Custom QTextEdit that pastes plain text only
+# Custom QTextEdit that pastes plain text only and accepts image drops
 class PlainTextEdit(QTextEdit):
-    """A QTextEdit that ignores formatting when pasting text."""
+    """A QTextEdit that ignores formatting when pasting text and supports image drops."""
+
+    image_pasted = pyqtSignal(QImage)
+    image_dropped = pyqtSignal(QImage)
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAcceptDrops(True)
 
     def insertFromMimeData(self, source):
         """Override to insert plain text only."""
-        if source.hasText():
+        if source.hasImage():
+            image = QImage(source.imageData())
+            self.image_pasted.emit(image)
+        elif source.hasText():
             self.insertPlainText(source.text())
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """Handle drag enter events for images and text."""
+        mime_data = event.mimeData()
+        if mime_data.hasImage() or mime_data.hasUrls() or mime_data.hasText():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event: QDropEvent):
+        """Handle drop events for images and text."""
+        mime_data = event.mimeData()
+
+        # First check for direct image data
+        if mime_data.hasImage():
+            image = QImage(mime_data.imageData())
+            self.image_dropped.emit(image)
+            event.acceptProposedAction()
+            return
+
+        # Then check for image files in URLs
+        elif mime_data.hasUrls():
+            for url in mime_data.urls():
+                if url.isLocalFile():
+                    file_path = url.toLocalFile()
+                    if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
+                        image = QImage(file_path)
+                        if not image.isNull():
+                            self.image_dropped.emit(image)
+                            event.acceptProposedAction()
+                            return
+
+        # Finally fall back to standard text handling
+        super().dropEvent(event)
 
 
 class InputPanel(QWidget):
@@ -349,6 +393,8 @@ class InputPanel(QWidget):
         self.chunk_dropdown = None  # Will be initialized later
         self.highlighter = None  # Initialize highlighter reference
         self.is_web_search = False  # Flag to track if current query is a web search
+        self.image_data = None  # Store image data in base64
+        self.image = None       # Store the QImage object
 
         # Initialize command history
         self.history_file = Path(
@@ -386,73 +432,96 @@ class InputPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        # Context area with label and ignore button
+        # Context area with image and selected text
         self.context_frame = QFrame()
         self.context_frame.setObjectName("contextFrame")
-        context_layout = QVBoxLayout()
+        context_layout = QHBoxLayout()  # Changed to horizontal layout
         context_layout.setContentsMargins(0, 0, 0, 0)
-        context_layout.setSpacing(0)
+        context_layout.setSpacing(8)  # Add spacing between elements
         self.context_frame.setLayout(context_layout)
 
-        # Set size policy to collapse when empty
+        # Set size policy and maximum height for the frame
         self.context_frame.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        # Set max height for the whole frame
+        self.context_frame.setMaximumHeight(50)
 
-        # Create container for the context area
-        container = QWidget()
-        container.setProperty("class", "transparent-container")
-        grid = QGridLayout(container)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(0)
+        # Create image container
+        self.image_container = QWidget()
+        self.image_container.setProperty("class", "transparent-container")
+        image_layout = QGridLayout(self.image_container)
+        image_layout.setContentsMargins(0, 0, 0, 0)
+        image_layout.setSpacing(0)
 
-        # Add context label
-        self.context_label = QLabel()
-        self.context_label.setObjectName("contextLabel")
-        self.context_label.setWordWrap(True)
-        self.context_label.hide()
+        # Add image label for displaying pasted/dropped images
+        self.image_label = QLabel()
+        self.image_label.setObjectName("imageLabel")
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setMinimumHeight(30)
+        self.image_label.setMaximumHeight(50)  # Reduced maximum height to 50px
 
-        # Add ignore button
-        self.ignore_button = QPushButton("×")
-        self.ignore_button.setObjectName("ignoreButton")
-        self.ignore_button.setFixedSize(16, 16)
-        self.ignore_button.clicked.connect(self.reset_context)
-        self.ignore_button.hide()
+        # Add image close button
+        self.image_close_button = QPushButton("×")
+        self.image_close_button.setObjectName("imageCloseButton")
+        self.image_close_button.setFixedSize(16, 16)
+        self.image_close_button.clicked.connect(self.clear_image)
 
-        # Add both widgets to the same grid cell
-        grid.addWidget(self.context_label, 0, 0)
-        grid.addWidget(self.ignore_button, 0, 0,
-                       Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        # Add widgets to the image grid
+        image_layout.addWidget(self.image_label, 0, 0)
+        image_layout.addWidget(self.image_close_button, 0, 0,
+                               Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
 
-        # Ensure ignore button stays on top
-        self.context_label.stackUnder(self.ignore_button)
+        # Create selected text container
+        self.text_container = QWidget()
+        self.text_container.setProperty("class", "transparent-container")
+        text_layout = QGridLayout(self.text_container)
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(0)
 
-        context_layout.addWidget(container)
+        # Add text label for displaying selected text
+        self.text_label = QLabel()
+        self.text_label.setObjectName("textLabel")
+        self.text_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.text_label.setMinimumHeight(30)
+        self.text_label.setMaximumHeight(50)
+        self.text_label.setWordWrap(True)
+
+        # Add text close button
+        self.text_close_button = QPushButton("×")
+        self.text_close_button.setObjectName("textCloseButton")
+        self.text_close_button.setFixedSize(16, 16)
+        self.text_close_button.clicked.connect(self.clear_selected_text)
+
+        # Add widgets to the text grid
+        text_layout.addWidget(self.text_label, 0, 0)
+        text_layout.addWidget(self.text_close_button, 0, 0,
+                              Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+
+        # Add both containers to the context layout
+        context_layout.addWidget(self.image_container)
+        context_layout.addWidget(self.text_container)
+
+        # Hide containers initially
+        self.image_container.hide()
+        self.text_container.hide()
+
         layout.addWidget(self.context_frame)
 
         # Hide the context frame initially
         self.context_frame.hide()
-
-        # Override show/hide to handle button visibility and position
-        def show_context():
-            # Show both widgets
-            super(type(self.context_label), self.context_label).show()
-            self.ignore_button.show()
-            self.ignore_button.raise_()
-
-        def hide_context():
-            super(type(self.context_label), self.context_label).hide()
-            self.ignore_button.hide()
-
-        self.context_label.show = show_context
-        self.context_label.hide = hide_context
 
         # Input field - Use PlainTextEdit instead of QTextEdit to prevent formatting on paste
         self.input_field = PlainTextEdit()
         self.input_field.setObjectName("inputField")
         self.input_field.setProperty("class", "input-field")
         self.input_field.setPlaceholderText(
-            "Type your query... (@chunks, #web, and #URL/URL# will be highlighted)")
+            "Type your query... (@chunks, #web, and #URL/URL# will be highlighted). Paste/drop images for multimodal.")
         self.input_field.setMinimumHeight(80)
+
+        # Connect image paste/drop signals
+        self.input_field.image_pasted.connect(self.handle_image_paste)
+        self.input_field.image_dropped.connect(self.handle_image_drop)
 
         # Set up key bindings
         self.input_field.installEventFilter(self)
@@ -501,15 +570,20 @@ class InputPanel(QWidget):
                 background-color: transparent;
             }
             
-            #contextLabel {
-                color: #888888;
-                font-size: 11px;
-                padding: 4px 6px;
+            #imageLabel {
                 background-color: #222222;
-                border-radius: 4px;
+                border-radius: 6px;
+                padding: 4px; /* Reduced padding */
             }
             
-            #ignoreButton {
+            #textLabel {
+                background-color: #222222;
+                border-radius: 6px;
+                padding: 4px 8px;
+                color: #e0e0e0;
+            }
+            
+            #imageCloseButton, #textCloseButton {
                 background-color: #333333;
                 color: #999999;
                 border: none;
@@ -524,7 +598,7 @@ class InputPanel(QWidget):
                 max-height: 16px;
             }
             
-            #ignoreButton:hover {
+            #imageCloseButton:hover, #textCloseButton:hover {
                 background-color: #444444;
                 color: #ffffff;
             }
@@ -606,26 +680,75 @@ class InputPanel(QWidget):
         """)
 
     def reset_context(self):
-        """Reset all context including selected text."""
+        """Reset all context including selected text and image."""
+        # Clear selected text
         self.selected_text = None
-        self.context_label.hide()
-        self.ignore_button.hide()
-        self.context_frame.hide()  # Also hide the frame
+        self.text_label.clear()
+        self.text_container.hide()
+
+        # Clear image
+        self.image_data = None
+        self.image = None
+        self.image_label.clear()
+        self.image_container.hide()
+
+        # Hide the context frame
+        self.context_frame.hide()
 
     def set_selected_text(self, text: str):
         """Set the selected text and update UI."""
         self.selected_text = text
         if text:
+            # Display the text in the text label
+            self.text_label.setText(
+                text[:150] + "..." if len(text) > 150 else text)
+            self.text_container.show()
             self.context_frame.show()  # Show frame when there's text
-            self.context_label.setText(f"Selected Text: {text[:100]}..." if len(
-                text) > 100 else f"Selected Text: {text}")
-            self.context_label.show()
-            self.ignore_button.show()
         else:
-            self.context_label.hide()
-            self.ignore_button.hide()
-            self.context_frame.hide()  # Hide frame when empty
+            self.text_container.hide()
+            # Only hide the frame if the image is also not visible
+            if not self.image_data:
+                self.context_frame.hide()
             self.selected_text = None
+
+    def handle_image_paste(self, image: QImage):
+        """Handle pasted image from clipboard."""
+        self._process_image(image)
+
+    def handle_image_drop(self, image: QImage):
+        """Handle dropped image."""
+        self._process_image(image)
+
+    def _process_image(self, image: QImage):
+        """Process and display an image."""
+        if image.isNull():
+            logging.error("Received null image")
+            return
+
+        # Store the image
+        self.image = image
+
+        # Convert image to base64
+        buffer = QBuffer()
+        buffer.open(QBuffer.OpenModeFlag.ReadWrite)
+        image.save(buffer, "PNG")
+        image_data = buffer.data().data()
+        self.image_data = base64.b64encode(image_data).decode('utf-8')
+
+        # Resize image for display (maintaining aspect ratio) using the new max height
+        scaled_image = image.scaled(300, 50, Qt.AspectRatioMode.KeepAspectRatio,  # Use new max height (50px)
+                                    Qt.TransformationMode.SmoothTransformation)
+
+        # Display image
+        self.image_label.setPixmap(QPixmap.fromImage(scaled_image))
+
+        # Ensure all image components are visible
+        self.image_container.show()
+        self.image_close_button.show()
+        self.image_close_button.raise_()  # Make sure button is on top
+
+        # Show context frame
+        self.context_frame.show()
 
     def eventFilter(self, obj, event):
         """Handle key events."""
@@ -784,6 +907,19 @@ class InputPanel(QWidget):
             # Reset history position when typing
             if key_event.key() != Qt.Key.Key_Up and key_event.key() != Qt.Key.Key_Down:
                 self.history_position = -1
+
+            # Add special handling for Ctrl+V to check clipboard for images
+            if (obj is self.input_field and event.type() == QEvent.Type.KeyPress and
+                    key_event.key() == Qt.Key.Key_V and
+                    key_event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                clipboard = QApplication.clipboard()
+                mime_data = clipboard.mimeData()
+
+                if mime_data.hasImage():
+                    image = QImage(mime_data.imageData())
+                    if not image.isNull():
+                        self.handle_image_paste(image)
+                        return False  # Still allow the standard paste event for any text
 
             return False  # Let all other keys through
 
@@ -958,8 +1094,9 @@ class InputPanel(QWidget):
         return self.input_field.toPlainText().strip()
 
     def clear_input(self):
-        """Clear the input field."""
+        """Clear the input field and context (including image)."""
         self.input_field.clear()
+        self.reset_context()
 
     def _handle_submit(self):
         """Handle submit action."""
@@ -1078,8 +1215,14 @@ class InputPanel(QWidget):
     def get_context(self):
         """Get the current context as a dictionary."""
         context = {}
-        if self.selected_text:
+
+        # Include selected text if available and visible
+        if self.selected_text and not self.text_container.isHidden():
             context['selected_text'] = self.selected_text
+
+        # Include image data if available and visible
+        if self.image_data and not self.image_container.isHidden():
+            context['image_data'] = self.image_data
 
         # Always include mode information
         context['mode'] = 'compose' if self.is_compose_mode() else 'chat'
@@ -1117,3 +1260,26 @@ class InputPanel(QWidget):
             return True, url_match.group(1)
 
         return False, None
+
+    def clear_image(self):
+        """Clear the image and update UI."""
+        self.image_container.hide()
+        # Don't hide the image_label itself, just clear its content
+        self.image_label.clear()
+        self.image_data = None
+        self.image = None
+
+        # Hide the context frame if text is also not visible
+        if not self.selected_text or self.text_container.isHidden():
+            self.context_frame.hide()
+
+    def clear_selected_text(self):
+        """Clear the selected text and update UI."""
+        self.text_container.hide()
+        # Clear the text label content
+        self.text_label.clear()
+        self.selected_text = None
+
+        # Hide the context frame if image is also not visible
+        if not self.image_data or self.image_container.isHidden():
+            self.context_frame.hide()

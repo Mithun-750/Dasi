@@ -1,7 +1,7 @@
 import os
 import json
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from PyQt6.QtCore import QObject, pyqtSignal
 
 
@@ -66,7 +66,8 @@ class Settings(QObject):
                 'custom_openai': {
                     'base_url': '',  # Base URL for custom OpenAI-compatible endpoint
                     'models': []  # List of available model names
-                }
+                },
+                'vision_model_info': None
             },
             'general': {
             },
@@ -167,6 +168,9 @@ class Settings(QObject):
             # Check for temperature change
             elif keys and keys[0] == 'general' and keys[-1] == 'temperature':
                 self.temperature_changed.emit()
+            # Check for model changes
+            elif keys[0] == 'models':
+                self.models_changed.emit()
 
         return success
 
@@ -229,3 +233,12 @@ class Settings(QObject):
                 self.models_changed.emit()
             return success
         return True
+
+    def get_vision_model_info(self) -> Optional[dict]:
+        """Get the full information dictionary for the configured vision model."""
+        return self.get('models', 'vision_model_info', default=None)
+
+    def set_vision_model_info(self, model_info: Optional[dict]):
+        """Set the full information dictionary for the vision model."""
+        self.set('models', 'vision_model_info', model_info)
+        self.models_changed.emit()
