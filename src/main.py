@@ -315,6 +315,9 @@ class Dasi:
                 3000  # Show for 3 seconds
             )
 
+            # Add a cleanup function on exit
+            self.app.aboutToQuit.connect(self.cleanup_on_exit)
+
             logging.info("System tray setup completed successfully")
 
         except Exception as e:
@@ -334,6 +337,7 @@ class Dasi:
                 apply_theme(self.app, "dark")
 
             self.settings_window.show()
+            self.settings_window.raise_()
             self.settings_window.activateWindow()
             # Force a style refresh to ensure correct appearance
             self.settings_window.style().unpolish(self.settings_window)
@@ -344,6 +348,16 @@ class Dasi:
                 widget.style().polish(widget)
         except Exception as e:
             logging.error(f"Error showing settings: {str(e)}", exc_info=True)
+
+    def cleanup_on_exit(self):
+        """Clean up resources when the application exits."""
+        logging.info("Cleaning up before exit...")
+        if self.hotkey_listener:
+            self.hotkey_listener.stop()
+            logging.info("Hotkey listener stopped.")
+        DasiInstanceManager.release_lock()
+        logging.info("Instance manager lock released.")
+        logging.info("Cleanup complete.")
 
     def quit_app(self):
         """Quit the application."""
@@ -509,32 +523,24 @@ def is_already_running():
 
 if __name__ == "__main__":
     try:
+        # Check if another instance is already running
         if is_already_running():
-            print("Another instance of Dasi is already running.")
-            sys.exit(1)
+            logging.warning(
+                "Another instance of Dasi is already running. Exiting.")
+            # Optional: Show a message to the user
+            # msgBox = QMessageBox()
+            # msgBox.setIcon(QMessageBox.Icon.Warning)
+            # msgBox.setText("Another instance of Dasi is already running.")
+            # msgBox.setWindowTitle("Dasi Already Running")
+            # msgBox.setStandardButtons(QMessageBox.StandardButton.Ok)
+            # msgBox.exec()
+            sys.exit(1)  # Exit cleanly if another instance found
 
-        # Check if any models are selected
-        if not check_selected_models():
-            # Launch settings window if no models are selected
-            logging.info("No models selected, launching settings window")
-            app = QApplication(sys.argv)
-            # Apply theme before creating window
-            apply_theme(app, "dark")
-            window = SettingsWindow()
-            window.show()
-            # Force a style refresh to ensure correct appearance
-            window.style().unpolish(window)
-            window.style().polish(window)
-            # Also refresh child widgets
-            for widget in window.findChildren(QWidget):
-                widget.style().unpolish(widget)
-                widget.style().polish(widget)
-            sys.exit(app.exec())
-        else:
-            # Launch main application
-            logging.info("Models selected, launching main application")
-            app = Dasi()
-            app.run()
+        # Proceed with application launch
+        dasi = Dasi()
+        dasi.run()
     except Exception as e:
         logging.error(f"Fatal error: {str(e)}", exc_info=True)
+        # Ensure lock is released even on fatal error
+        DasiInstanceManager.release_lock()
         sys.exit(1)
