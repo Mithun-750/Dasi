@@ -937,30 +937,22 @@ class DasiWindow(QWidget):
         else:
             super().keyPressEvent(event)
 
-    def focusOutEvent(self, event):
-        """Recapture focus if it's lost while the window is visible."""
-        # On Windows, we need to aggressively recapture focus to prevent the double-focus issue
-        if platform.system() == 'Windows':
-            # Use a very short timer to grab focus back
-            # This allows the normal event processing to complete first
-            QTimer.singleShot(10, self._recapture_focus)
-        super().focusOutEvent(event)
+    def showEvent(self, event):
+        """Called when the window becomes visible."""
+        super().showEvent(event)
+        # Update chunk titles when window is shown
+        self.input_panel.update_chunk_titles()
 
-    def _recapture_focus(self):
-        """Helper method to recapture focus if the window is still visible."""
-        if self.isVisible():
-            # Only attempt to recapture focus if window is still visible
-            self.activateWindow()
-            self.input_panel.input_field.setFocus()
+    def hideEvent(self, event):
+        """Handle hide event to clean up resources."""
+        # Stop any running worker threads when window is hidden
+        if self.worker and self.worker.isRunning():
+            self.worker.stop()
 
-    def changeEvent(self, event):
-        """Handle window activation changes."""
-        from PyQt6.QtCore import QEvent
-        if event.type() == QEvent.Type.ActivationChange:
-            # When window becomes active, ensure our input field has focus
-            if self.isActiveWindow():
-                self.input_panel.input_field.setFocus()
-        super().changeEvent(event)
+        # Stop web search panel if active
+        self.web_search_panel.stop()
+
+        super().hideEvent(event)
 
     def _handle_reset_session(self):
         """Handle reset session button click."""
@@ -986,58 +978,3 @@ class DasiWindow(QWidget):
         self.setFixedWidth(340)  # Input-only mode width
         # Hide reset button since history is now cleared
         self.reset_session_button.hide()
-
-    def showEvent(self, event):
-        """Called when the window becomes visible."""
-        super().showEvent(event)
-        # Update chunk titles when window is shown
-        self.input_panel.update_chunk_titles()
-
-        # Windows-specific handling to force focus
-        import platform
-        if platform.system() == 'Windows':
-            try:
-                # Use Windows-specific API to force foreground status
-                import ctypes
-                # GetForegroundWindow - to check if we're already foreground
-                foreground_hwnd = ctypes.windll.user32.GetForegroundWindow()
-                # Our window handle
-                hwnd = int(self.winId())
-
-                # Only force if we're not already foreground
-                if foreground_hwnd != hwnd:
-                    # Try to force our window to foreground
-                    # First attach to the foreground window's thread
-                    foreground_thread = ctypes.windll.user32.GetWindowThreadProcessId(
-                        foreground_hwnd, 0)
-                    current_thread = ctypes.windll.kernel32.GetCurrentThreadId()
-
-                    if foreground_thread != current_thread:
-                        # Attach the threads to synchronize input focus
-                        ctypes.windll.user32.AttachThreadInput(
-                            current_thread, foreground_thread, True)
-                        # Force our window to foreground
-                        ctypes.windll.user32.SetForegroundWindow(hwnd)
-                        # Apply a flashy animation to grab attention
-                        ctypes.windll.user32.BringWindowToTop(hwnd)
-                        # Detach the threads
-                        ctypes.windll.user32.AttachThreadInput(
-                            current_thread, foreground_thread, False)
-                    else:
-                        # Simple case - we can directly set foreground
-                        ctypes.windll.user32.SetForegroundWindow(hwnd)
-                        ctypes.windll.user32.BringWindowToTop(hwnd)
-
-                    # Also set focus to our input field
-                    self.input_panel.input_field.setFocus()
-            except Exception as e:
-                # Don't fail if Windows API calls don't work
-                logging.debug(
-                    f"Non-critical Windows API error in showEvent: {str(e)}")
-
-    def hideEvent(self, event):
-        """Handle hide event to clean up resources."""
-        # Make sure all animations are stopped
-        self.web_search_panel.stop()
-
-        super().hideEvent(event)

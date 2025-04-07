@@ -136,60 +136,39 @@ class HotkeyListener:
             raise
 
     def _handle_hotkey(self):
-        """Handle hotkey press by getting cursor position and calling callback."""
+        """Handle hotkey press by getting cursor position and signalling the main thread."""
         try:
             logging.debug("Hotkey triggered")
 
             # Import modules needed for the function
             import time
 
-            # On Windows, wait a little longer before showing the popup
-            # This gives the system time to fully process the hotkey event
+            # On Windows, add a delay to ensure the hotkey suppression
+            # has taken effect before we try to show the window.
             if platform.system() == 'Windows':
-                # Slightly longer delay for better focus handling
-                time.sleep(0.15)
-
-                try:
-                    # Import clipboard related tools inline to avoid circular imports
-                    from PyQt6.QtWidgets import QApplication
-                    from PyQt6.QtGui import QClipboard
-
-                    # Save selected text before it gets lost
-                    if QApplication.instance():
-                        clipboard = QApplication.clipboard()
-                        # On Windows, try to preserve the selection
-                        selected_text = clipboard.text(
-                            QClipboard.Mode.Selection)
-                        if selected_text:
-                            # Keep a copy in the regular clipboard too in case Selection mode gets cleared
-                            clipboard.setText(selected_text)
-                            logging.debug(
-                                f"Saved selection: {selected_text[:30]}...")
-                except Exception as e:
-                    logging.debug(
-                        f"Non-critical clipboard handling error: {str(e)}")
+                time.sleep(0.15)  # Delay for Windows focus/suppression
 
             # Get cursor position for popup
             x, y = pyautogui.position()
 
-            # Check what arguments the callback accepts
+            # Signal the main UI thread to show the popup at the cursor position
+            # (This assumes the callback eventually emits a signal like self.signals.show_window.emit(x, y))
+            # Check what arguments the callback accepts (like before)
             import inspect
             sig = inspect.signature(self.callback)
             param_count = len(sig.parameters)
 
             if param_count == 0:
-                # No parameters expected
-                self.callback()
+                self.callback()  # Assumes callback triggers the UI update
             elif param_count == 1:
-                # One parameter expected - probably position as tuple
+                # Assumes callback triggers the UI update
                 self.callback((x, y))
             else:
-                # Two or more parameters expected - pass x, y separately
-                self.callback(x, y)
+                self.callback(x, y)  # Assumes callback triggers the UI update
 
-            logging.debug(f"Callback executed with position ({x}, {y})")
+            logging.debug(f"Callback triggered for position ({x}, {y})")
         except Exception as e:
-            logging.error(f"Error handling hotkey: {str(e)}")
+            logging.error(f"Error handling hotkey: {str(e)}", exc_info=True)
 
     def start(self):
         """Start listening for hotkeys.

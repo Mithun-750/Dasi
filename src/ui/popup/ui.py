@@ -6,112 +6,103 @@ import sys
 import logging
 import platform
 import time
+import pythoncom
 from .window import DasiWindow
 from ..components.ui_signals import UISignals
 
 
 class CopilotUI:
+    # Signal handler method - runs on the main thread
     def _show_window(self, x: int, y: int):
         """Show window at specified coordinates (runs in main thread)."""
         try:
-            # First reset all context and input
+            # Ensure window exists
+            if not hasattr(self, 'window') or self.window is None:
+                logging.error("Window reference missing. Cannot show.")
+                return
+
+            # Reset window state
             self.window.reset_context()
             self.window.input_panel.clear_input()
 
-            # Get selected text from clipboard
-            clipboard = QApplication.clipboard()
-            selected_text = clipboard.text(QClipboard.Mode.Selection)
+            # Handle clipboard reading on the main thread
+            self._get_selected_text()  # Reads clipboard safely
 
-            # Only set selected text if there's new text selected and it's at least 4 characters
-            if selected_text and selected_text.strip() and len(selected_text.strip()) >= 4:
-                self.window.set_selected_text(selected_text.strip())
-
-            # Position window near cursor with screen bounds check
+            # Calculate screen-safe position
             screen = self.app.primaryScreen().geometry()
-            x = min(max(x + 10, 0), screen.width() - self.window.width())
-            y = min(max(y + 10, 0), screen.height() - self.window.height())
+            window_width = self.window.width() if self.window.width(
+            ) > 0 else 340  # Use default if width is 0
+            window_height = self.window.height() if self.window.height(
+            ) > 0 else 350  # Use default if height is 0
+            x = min(max(x + 10, 0), screen.width() - window_width)
+            y = min(max(y + 10, 0), screen.height() - window_height)
 
-            # Move the window first (without showing)
+            # Position the window
             self.window.move(x, y)
 
-            # Optimized window showing sequence for Windows
+            # Show, activate, raise, and focus - standard sequence
+            self.window.show()
+            self.window.activateWindow()  # Make it the active window
+            self.window.raise_()         # Bring it to the front
+            # Set keyboard focus to input field
+            self.window.input_panel.input_field.setFocus()
+
+            # Minimal Windows-specific enhancement (optional, but can help)
             if platform.system() == 'Windows':
-                # For Windows, use a specific sequence for better focus handling
-
-                # 1. First move and show without activating
-                # This prevents Windows' focus-stealing prevention from kicking in
-                self.window.setAttribute(
-                    Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-                self.window.show()
-
-                # 2. Then, after a minimal delay, forcefully activate the window
-                # This sequence works better on Windows
-                QTimer.singleShot(30, lambda: self._activate_window_windows())
-            else:
-                # Standard approach for other platforms
-                self.window.show()
-                self.window.activateWindow()
-                self.window.raise_()
-                self.window.input_panel.input_field.setFocus()
+                try:
+                    # Gently try to ensure foreground status
+                    import ctypes
+                    hwnd = int(self.window.winId())
+                    if hwnd:
+                        ctypes.windll.user32.SetForegroundWindow(hwnd)
+                except Exception as e:
+                    logging.debug(f"Non-critical Windows API error: {str(e)}")
 
         except Exception as e:
             logging.error(f"Error showing window: {str(e)}", exc_info=True)
 
-    def _activate_window_windows(self):
-        """Special activation sequence for Windows"""
+    def _get_selected_text(self):
+        """Get selected text (runs on main thread) with COM init/uninit for Windows."""
+        selected_text_result = ""
+        com_initialized = False
         try:
-            # 1. First make sure we're not showing without activating anymore
-            self.window.setAttribute(
-                Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
+            if platform.system() == 'Windows':
+                try:
+                    pythoncom.CoInitialize()
+                    com_initialized = True
+                except Exception as e:
+                    logging.debug(f"COM initialization failed: {str(e)}")
 
-            # 2. Then activate the window and raise it to the top
-            self.window.activateWindow()
-            self.window.raise_()
+            clipboard = QApplication.clipboard()
+            if clipboard:
+                # Try standard clipboard first
+                clipboard_text = clipboard.text(QClipboard.Mode.Clipboard)
+                if clipboard_text and len(clipboard_text.strip()) >= 4:
+                    selected_text_result = clipboard_text.strip()
+                    logging.debug(
+                        f"Using clipboard text: {selected_text_result[:30]}...")
+                else:
+                    # Then try selection buffer (less reliable on Windows but worth trying)
+                    selection_text = clipboard.text(QClipboard.Mode.Selection)
+                    if selection_text and len(selection_text.strip()) >= 4:
+                        selected_text_result = selection_text.strip()
+                        logging.debug(
+                            f"Using selection text: {selected_text_result[:30]}...")
 
-            # 3. Force the window to be the foreground window using Windows-specific APIs
-            try:
-                import ctypes
-                # Get the window ID
-                window_id = self.window.winId()
-                # Use SetForegroundWindow to force focus
-                ctypes.windll.user32.SetForegroundWindow(int(window_id))
-            except Exception as e:
-                logging.debug(f"Non-critical Windows API error: {str(e)}")
+            # Set the text in the UI if found
+            if selected_text_result:
+                if hasattr(self, 'window') and self.window is not None:
+                    self.window.set_selected_text(selected_text_result)
 
-            # 4. Focus the input field
-            self.window.input_panel.input_field.setFocus()
-
-            # 5. Schedule another focus attempt after a short delay
-            QTimer.singleShot(50, self._delayed_focus)
         except Exception as e:
             logging.error(
-                f"Error during Windows activation: {str(e)}", exc_info=True)
-
-    def _delayed_focus(self):
-        """Second stage of focus setting with delay"""
-        try:
-            # Try again with explicit focus reason
-            self.window.activateWindow()
-            self.window.input_panel.input_field.setFocus(
-                Qt.FocusReason.ActiveWindowFocusReason)
-
-            # Set up a third attempt after another delay
-            QTimer.singleShot(50, self._final_focus)
-        except Exception as e:
-            logging.error(
-                f"Error during delayed focus: {str(e)}", exc_info=True)
-
-    def _final_focus(self):
-        """Final attempt to ensure focus"""
-        try:
-            # One more focused attempt
-            self.window.input_panel.input_field.setFocus()
-
-            # Force the cursor to be visible
-            if hasattr(self.window.input_panel.input_field, 'setCursorVisible'):
-                self.window.input_panel.input_field.setCursorVisible(True)
-        except Exception as e:
-            logging.error(f"Error during final focus: {str(e)}", exc_info=True)
+                f"Error getting selected text: {str(e)}", exc_info=True)
+        finally:
+            if com_initialized:
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception as e:
+                    logging.debug(f"COM uninitialization failed: {str(e)}")
 
     def __init__(self, process_query: Callable[[str], str]):
         """Initialize UI with a callback for processing queries."""
@@ -129,15 +120,18 @@ class CopilotUI:
         # Create window in main thread
         self.window = DasiWindow(self.process_query, self.signals)
         self.window.setFixedSize(340, 350)
-        self.window.hide()
+        self.window.hide()  # Start hidden
 
         # Connect signals
-        self.signals.show_window.connect(self._show_window)
+        self.signals.show_window.connect(
+            self._show_window)  # Connect signal to the slot
         self.signals.process_response.connect(self.window._handle_response)
         self.signals.process_error.connect(self.window._handle_error)
 
     def show_popup(self, x: int, y: int):
-        """Emit signal to show popup window."""
+        """Trigger the signal to show the popup window (thread-safe)."""
+        # This method is called from the hotkey listener thread.
+        # Emitting the signal marshals the call to the main UI thread.
         self.signals.show_window.emit(x, y)
 
     def run(self):
