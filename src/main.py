@@ -239,12 +239,19 @@ class Dasi:
                 # Check for dedicated icon locations within the AppImage
                 '/usr/share/icons/hicolor/256x256/apps/dasi.png',
                 '/usr/share/pixmaps/dasi.png',
-                # Check standard directories
+                # Check standard directories (Prioritize .ico for Windows dev)
+                os.path.join(base_path, 'src', 'assets', 'Dasi.ico'),
+                os.path.join(base_path, 'assets', 'Dasi.ico'),
+                os.path.join(base_path, 'assets', 'icons', 'dasi.ico'),
+                os.path.join(base_path, 'Dasi.ico'),
                 os.path.join(base_path, 'assets', 'Dasi.png'),
                 os.path.join(base_path, 'assets', 'icons', 'dasi.png'),
                 os.path.join(base_path, 'Dasi.png'),
                 os.path.join(os.path.dirname(base_path), 'assets', 'Dasi.png'),
-                # Check user installation directories
+                # Check user installation directories (Likely Linux specific)
+                os.path.expanduser('~/.local/share/icons/dasi.ico'),
+                os.path.expanduser(
+                    '~/.local/share/icons/hicolor/256x256/apps/dasi.ico'),
                 os.path.expanduser('~/.local/share/icons/dasi.png'),
                 os.path.expanduser(
                     '~/.local/share/icons/hicolor/256x256/apps/dasi.png'),
