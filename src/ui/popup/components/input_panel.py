@@ -462,7 +462,7 @@ class InputPanel(QWidget):
 
         # Add image close button
         self.image_close_button = QPushButton("×")
-        self.image_close_button.setObjectName("closeButton")
+        self.image_close_button.setObjectName("imageCloseButton")
         self.image_close_button.setFixedSize(16, 16)
         self.image_close_button.clicked.connect(self.clear_image)
 
@@ -489,7 +489,7 @@ class InputPanel(QWidget):
 
         # Add text close button
         self.text_close_button = QPushButton("×")
-        self.text_close_button.setObjectName("closeButton")
+        self.text_close_button.setObjectName("textCloseButton")
         self.text_close_button.setFixedSize(16, 16)
         self.text_close_button.clicked.connect(self.clear_selected_text)
 
@@ -583,7 +583,7 @@ class InputPanel(QWidget):
                 color: #e0e0e0;
             }
             
-            #closeButton {
+            #imageCloseButton, #textCloseButton {
                 background-color: #333333;
                 color: #999999;
                 border: none;
@@ -598,7 +598,7 @@ class InputPanel(QWidget):
                 max-height: 16px;
             }
             
-            #closeButton:hover {
+            #imageCloseButton:hover, #textCloseButton:hover {
                 background-color: #444444;
                 color: #ffffff;
             }
