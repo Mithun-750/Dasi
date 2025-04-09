@@ -133,9 +133,40 @@ class WebSearchHandler:
         default_provider = self.settings.get(
             'web_search', 'default_provider', default='google_serper')
 
-        # Only initialize the default provider to avoid wasting API credits
         logging.info(
-            f"Reinitializing search providers with default provider: {default_provider}")
+            f"Initializing search providers with default provider: {default_provider}")
+
+        # Check if API key exists for the default provider
+        if default_provider == 'google_serper':
+            api_key = self.settings.get_api_key('google_serper')
+            logging.info(f"Google Serper API key exists: {bool(api_key)}")
+            if not api_key:
+                logging.warning(
+                    "Google Serper API key is missing or empty. Please add it in settings.")
+        elif default_provider == 'brave_search':
+            api_key = self.settings.get_api_key('brave_search')
+            logging.info(f"Brave Search API key exists: {bool(api_key)}")
+            if not api_key:
+                logging.warning(
+                    "Brave Search API key is missing or empty. Please add it in settings.")
+        elif default_provider == 'tavily_search':
+            api_key = self.settings.get_api_key('tavily_search')
+            logging.info(f"Tavily Search API key exists: {bool(api_key)}")
+            if not api_key:
+                logging.warning(
+                    "Tavily Search API key is missing or empty. Please add it in settings.")
+        elif default_provider == 'exa_search':
+            api_key = self.settings.get_api_key('exa_search')
+            logging.info(f"Exa Search API key exists: {bool(api_key)}")
+            if not api_key:
+                logging.warning(
+                    "Exa Search API key is missing or empty. Please add it in settings.")
+        elif default_provider == 'ddg_search':
+            logging.info(
+                "DuckDuckGo search doesn't require an API key. Checking DDGS availability.")
+            logging.info(f"DDGS available: {has_ddgs}")
+
+        # Only initialize the default provider to avoid wasting API credits
         self._initialize_provider(default_provider)
 
         # Log available providers
@@ -145,6 +176,21 @@ class WebSearchHandler:
         else:
             logging.warning(
                 f"Failed to initialize default provider '{default_provider}'. Please check API keys.")
+
+            # Try to fallback to DuckDuckGo if available and no other provider is working
+            if default_provider != 'ddg_search' and has_ddgs:
+                logging.info(
+                    "Attempting to initialize DuckDuckGo as fallback provider")
+                self._initialize_provider('ddg_search')
+                if 'ddg_search' in self.search_providers:
+                    logging.info(
+                        "Successfully initialized DuckDuckGo as fallback provider")
+                else:
+                    logging.error(
+                        "Failed to initialize DuckDuckGo fallback provider")
+
+        logging.info(
+            f"Available search providers after initialization: {list(self.search_providers.keys())}")
 
     def _initialize_provider(self, provider: str):
         """Initialize a specific search provider."""
@@ -389,12 +435,12 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
 
     def search(self, query: str, provider: Optional[str] = None, max_results: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        Perform a web search using the specified provider.
+        Execute a search using the specified provider.
 
         Args:
             query: The search query
-            provider: The search provider to use (defaults to the default provider in settings)
-            max_results: Maximum number of results to return (defaults to settings value)
+            provider: Optional search provider name
+            max_results: Maximum number of results to return
 
         Returns:
             List of search results
@@ -403,6 +449,8 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
         self._cancellation_requested = False
 
         logging.info(f"WebSearchHandler.search called with query: '{query}'")
+        logging.info(
+            f"Currently available search providers: {list(self.search_providers.keys())}")
 
         # Get default provider if none specified
         if not provider:
@@ -416,11 +464,15 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
         if not max_results:
             max_results = self.settings.get(
                 'web_search', 'max_results', default=5)
+            logging.info(f"Using default max_results: {max_results}")
+        else:
+            logging.info(f"Using specified max_results: {max_results}")
 
         # Check if provider is available
         if provider not in self.search_providers:
             available_providers = list(self.search_providers.keys())
-            logging.info(f"Available search providers: {available_providers}")
+            logging.warning(
+                f"Provider '{provider}' not available. Available providers: {available_providers}")
 
             if not available_providers:
                 error_msg = "No search providers are available. Please add API keys in settings."
@@ -446,21 +498,26 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
 
             # Perform search with ONLY the specified/default provider
             search_provider = self.search_providers[provider]
-            logging.info(f"Performing search with provider: {provider}")
+            logging.info(
+                f"Executing search with provider: {provider}, type: {type(search_provider).__name__}")
 
             # Different providers have different methods/return formats
             if provider == 'google_serper':
-                logging.info("Using Google Serper search")
+                logging.info(
+                    f"Starting Google Serper search for query: {query}")
                 # Check if cancellation was requested
                 if self._cancellation_requested:
                     logging.info("Google Serper search cancelled")
                     return []
+
                 results = search_provider.results(query)
+
                 # Extract organic results
                 search_results = results.get('organic', [])[:max_results]
                 logging.info(
                     f"Google Serper search returned {len(search_results)} results")
-                return [
+
+                formatted_results = [
                     {
                         'title': result.get('title', ''),
                         'snippet': result.get('snippet', ''),
@@ -468,6 +525,9 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
                     }
                     for result in search_results
                 ]
+                logging.info(
+                    f"Returning {len(formatted_results)} formatted results from Google Serper")
+                return formatted_results
 
             elif provider == 'brave_search':
                 logging.info("Using Brave search")
@@ -1116,6 +1176,19 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
             'error': None
         }
 
+        logging.info(
+            f"execute_search_or_scrape called with mode: {process_result['mode']}")
+        logging.info(
+            f"Available search providers: {list(self.search_providers.keys())}")
+
+        # Early failure if no search providers are available
+        if not self.search_providers and process_result['mode'] == 'web_search':
+            result['status'] = 'error'
+            result['error'] = "No search providers are configured. Please add API keys in settings."
+            logging.error(
+                "Web search attempted but no search providers are available")
+            return result
+
         try:
             # Try to get the selected model from the UI
             model = None
@@ -1133,15 +1206,19 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
             #     model = None
 
             if process_result['mode'] == 'web_search':
+                logging.info("Processing web search request")
+
                 # Get the currently active model from the main LLM handler instance
                 if self.llm_handler and self.llm_handler.llm:
                     if hasattr(self.llm_handler.llm, 'model'):
                         model = self.llm_handler.llm.model
                     elif hasattr(self.llm_handler.llm, 'model_name'):
                         model = self.llm_handler.llm.model_name
-                logging.info(f"Passing model {model} to search_and_scrape")
+                logging.info(f"Using model {model} for search_and_scrape")
 
                 # Perform web search and scraping with the correct model
+                logging.info(
+                    f"Calling search_and_scrape with query: {process_result['query']}")
                 search_results = self.search_and_scrape(
                     process_result['query'],
                     optimize_query=True,
@@ -1149,9 +1226,13 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
                     model=model  # Pass the model determined from the handler
                 )
 
+                logging.info(
+                    f"Search results obtained: {len(search_results.get('search_results', []))} results")
+
                 if not search_results['search_results']:
                     result['status'] = 'error'
                     result['error'] = "No search results found."
+                    logging.warning("No search results found")
                     return result
 
                 # Format search results for LLM
@@ -1184,6 +1265,7 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
 
                 # Add search results to the query
                 result['query'] = f"{search_results_text}Based on the web search results above, please answer: {process_result['original_query']}"
+                logging.info("Successfully formatted search results for LLM")
 
                 # Add web search instruction
                 result['system_instruction'] = """=====WEB_SEARCH_INSTRUCTIONS=====<instructions for handling web search results>

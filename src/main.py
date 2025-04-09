@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from hotkey_listener import HotkeyListener
 from ui import CopilotUI
-from llm_handler import LLMHandler
+from llm_integration import LLMIntegration
 from ui.settings import Settings, SettingsWindow
 from cache_manager import CacheManager
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget
@@ -81,9 +81,9 @@ class StartupThread(QThread):
     """Background thread for handling slow startup tasks."""
     finished = pyqtSignal()
 
-    def __init__(self, llm_handler):
+    def __init__(self, llm_integration):
         super().__init__()
-        self.llm_handler = llm_handler
+        self.llm_integration = llm_integration
         self.cache_manager = cache_manager
 
     def run(self):
@@ -102,7 +102,7 @@ class StartupThread(QThread):
                 if not cached_response:
                     logging.info("Creating startup cache...")
                     # Don't actually make a query, just initialize the model
-                    self.llm_handler.initialize_llm()
+                    self.llm_integration.initialize_llm()
                     # Create a cache entry so we know initialization completed
                     self.cache_manager.save_to_cache(
                         "startup_warmup",
@@ -149,14 +149,19 @@ class Dasi:
             # Initialize settings
             self.settings = Settings()
 
+            # Check if LangGraph should be enabled
+            use_langgraph = self.settings.get(
+                'general', 'use_langgraph', default=False)
+
             # Initialize system tray
             logging.info("Setting up system tray")
             self.tray = None  # Initialize to None first
             self.setup_tray()
 
-            # Initialize LLM handler
-            logging.info("Initializing LLM handler")
-            self.llm_handler = LLMHandler()
+            # Initialize LLM integration handler
+            logging.info(
+                f"Initializing LLM integration (use_langgraph={use_langgraph})")
+            self.llm_handler = LLMIntegration(use_langgraph=use_langgraph)
 
             # Initialize UI
             logging.info("Initializing UI")
@@ -444,7 +449,8 @@ class Dasi:
                 return response
 
         # If not cached or caching disabled, call LLM handler
-        response = self.llm_handler.get_response(query, callback, model)
+        response = self.llm_handler.get_response(
+            query, callback, model, session_id)
 
         # Cache the response if caching is enabled (and it's not a special command)
         if use_cache and cache_manager and response and not query.startswith('!'):

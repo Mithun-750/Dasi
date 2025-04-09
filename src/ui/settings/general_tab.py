@@ -342,7 +342,8 @@ class GeneralTab(QWidget):
             }),
             'start_on_boot': self.settings.get('general', 'start_on_boot', default=False),
             'export_path': self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents")),
-            'use_cache': self.settings.get('general', 'use_cache', default=True)
+            'use_cache': self.settings.get('general', 'use_cache', default=True),
+            'use_langgraph': self.settings.get('general', 'use_langgraph', default=False)
         }
         self.has_unsaved_changes = False
         self.update_button_visibility()
@@ -362,7 +363,8 @@ class GeneralTab(QWidget):
             },
             'start_on_boot': self.startup_checkbox.isChecked(),
             'export_path': self.export_path.text(),
-            'use_cache': self.use_cache_checkbox.isChecked()
+            'use_cache': self.use_cache_checkbox.isChecked(),
+            'use_langgraph': self.use_langgraph_checkbox.isChecked()
         }
         return current_values
 
@@ -376,7 +378,8 @@ class GeneralTab(QWidget):
             current['hotkey'] != self.original_values['hotkey'],
             current['start_on_boot'] != self.original_values['start_on_boot'],
             current['export_path'] != self.original_values['export_path'],
-            current['use_cache'] != self.original_values['use_cache']
+            current['use_cache'] != self.original_values['use_cache'],
+            current['use_langgraph'] != self.original_values['use_langgraph']
         ])
         self.update_button_visibility()
 
@@ -857,6 +860,76 @@ class GeneralTab(QWidget):
         # Add to main layout (before the prompt customization section)
         layout.insertWidget(1, cache_section)
 
+        # Add Advanced Section between Cache and App Settings or at the end
+        advanced_section = SectionFrame(
+            "Advanced Settings",
+            "Advanced settings for Dasi's operation. Note: Changes to these settings require restarting Dasi."
+        )
+
+        # Create a container for LangGraph option
+        langgraph_container = QWidget()
+        langgraph_container.setProperty("class", "transparent-container")
+        langgraph_layout = QHBoxLayout(langgraph_container)
+        langgraph_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Add LangGraph checkbox
+        self.use_langgraph_checkbox = QCheckBox(
+            "Use LangGraph for LLM processing")
+        self.use_langgraph_checkbox.setChecked(
+            self.settings.get('general', 'use_langgraph', default=False))
+        self.use_langgraph_checkbox.stateChanged.connect(self._on_any_change)
+
+        # Add info icon with tooltip about LangGraph
+        langgraph_info = QLabel()
+        langgraph_info.setText("ⓘ")  # Info symbol
+        langgraph_info.setStyleSheet("""
+            QLabel {
+                color: #aaaaaa;
+                font-size: 16px;
+            }
+            QLabel:hover {
+                color: #e67e22;
+            }
+        """)
+        langgraph_info.setToolTip(
+            "LangGraph is an extension of LangChain that provides more powerful graph-based LLM processing.\n"
+            "Enabling this will use the LangGraph-based implementation which may provide better results for complex queries.\n"
+            "Note: This is an experimental feature and requires restarting Dasi to take effect."
+        )
+
+        # Add LangGraph description
+        langgraph_description = QLabel(
+            "LangGraph provides more structured processing for complex queries. Experimental feature."
+        )
+        langgraph_description.setWordWrap(True)
+        langgraph_description.setStyleSheet("color: #aaaaaa; font-size: 12px;")
+
+        # Add widgets to layout
+        langgraph_layout.addWidget(self.use_langgraph_checkbox)
+        langgraph_layout.addWidget(langgraph_info)
+        langgraph_layout.addStretch()
+
+        # Create vertical layout for LangGraph section
+        langgraph_section = QVBoxLayout()
+        langgraph_section.setContentsMargins(0, 0, 0, 0)
+        langgraph_section.setSpacing(4)
+        langgraph_section.addWidget(langgraph_container)
+        langgraph_section.addWidget(langgraph_description)
+
+        # Add to advanced section
+        advanced_widget = QWidget()
+        advanced_widget.setProperty("class", "transparent-container")
+        advanced_layout = QVBoxLayout(advanced_widget)
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_layout.setSpacing(16)
+        advanced_layout.addLayout(langgraph_section)
+
+        advanced_section.layout.addWidget(advanced_widget)
+
+        # Add to main layout after Cache section
+        # (The exact position depends on your layout - adjust the index as needed)
+        layout.addWidget(advanced_section)
+
         # Add spacing at the bottom
         layout.addStretch()
 
@@ -944,6 +1017,7 @@ class GeneralTab(QWidget):
         self.startup_checkbox.stateChanged.connect(self._on_any_change)
         self.export_path.textChanged.connect(self._on_any_change)
         self.use_cache_checkbox.toggled.connect(self._on_any_change)
+        self.use_langgraph_checkbox.stateChanged.connect(self._on_any_change)
 
     def _on_any_change(self):
         """Handler for any change in the settings."""
@@ -966,6 +1040,9 @@ class GeneralTab(QWidget):
 
         self.startup_checkbox.setChecked(self.original_values['start_on_boot'])
         self.export_path.setText(self.original_values['export_path'])
+        self.use_cache_checkbox.setChecked(self.original_values['use_cache'])
+        self.use_langgraph_checkbox.setChecked(
+            self.original_values['use_langgraph'])
 
         self.has_unsaved_changes = False
         self.update_button_visibility()
@@ -984,6 +1061,8 @@ class GeneralTab(QWidget):
 
         self.startup_checkbox.setChecked(False)
         self.export_path.setText(os.path.expanduser("~/Documents"))
+        self.use_cache_checkbox.setChecked(True)
+        self.use_langgraph_checkbox.setChecked(False)
 
         self.check_for_changes()
 
@@ -1046,45 +1125,76 @@ class GeneralTab(QWidget):
             self.settings.set('general', 'use_cache',
                               self.use_cache_checkbox.isChecked())
 
+            # Save LangGraph settings
+            self.settings.set('general', 'use_langgraph',
+                              self.use_langgraph_checkbox.isChecked())
+
             # Update original values and hide buttons
             self.save_original_values()
 
-            # Create custom message box with restart button
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("Settings Applied")
-            msg_box.setText("All settings have been saved successfully.")
-            msg_box.setInformativeText(
-                "For the changes to take full effect, would you like to restart the Dasi service now?")
-            msg_box.setStandardButtons(
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+            # Detect if restart is needed
+            needs_restart = False
+            restart_items = []
 
-            # Style the buttons
-            for button in msg_box.buttons():
-                if msg_box.buttonRole(button) == QMessageBox.ButtonRole.YesRole:
-                    button.setStyleSheet("""
-                        QPushButton {
-                            background-color: #e67e22;
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            padding: 6px 12px;
-                            font-weight: bold;
-                        }
-                        QPushButton:hover {
-                            background-color: #f39c12;
-                        }
-                    """)
+            if self.original_values['temperature'] != self.temperature.value():
+                needs_restart = True
+                restart_items.append("- Temperature")
 
-            response = msg_box.exec()
+            if self.original_values['custom_instructions'] != self.custom_instructions.toPlainText():
+                needs_restart = True
+                restart_items.append("- Custom Instructions")
 
-            if response == QMessageBox.StandardButton.Yes:
-                self._restart_dasi_service()
+            if self.original_values['use_langgraph'] != self.use_langgraph_checkbox.isChecked():
+                needs_restart = True
+                restart_items.append("- LangGraph Processing")
+
+            if needs_restart:
+                # Create custom message box with restart button
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle("Settings Applied")
+
+                restart_message = "The following settings have changed and require a restart to take full effect:\n\n"
+                restart_message += "\n".join(restart_items)
+
+                msg_box.setText("Settings have been saved successfully.")
+                msg_box.setInformativeText(
+                    f"{restart_message}\n\nWould you like to restart the Dasi service now?")
+                msg_box.setStandardButtons(
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+                # Style the buttons
+                for button in msg_box.buttons():
+                    if msg_box.buttonRole(button) == QMessageBox.ButtonRole.YesRole:
+                        button.setStyleSheet("""
+                            QPushButton {
+                                background-color: #e67e22;
+                                color: white;
+                                border: none;
+                                border-radius: 4px;
+                                padding: 6px 12px;
+                                font-weight: bold;
+                            }
+                            QPushButton:hover {
+                                background-color: #f39c12;
+                            }
+                        """)
+
+                response = msg_box.exec()
+
+                if response == QMessageBox.StandardButton.Yes:
+                    self._restart_dasi_service()
+            else:
+                # Just show a simple message for non-critical changes
+                QMessageBox.information(
+                    self,
+                    "Settings Applied",
+                    "All settings have been saved successfully.",
+                    QMessageBox.StandardButton.Ok
+                )
 
         except Exception as e:
             logging.error(f"Error applying settings: {str(e)}", exc_info=True)
-            QMessageBox.critical(
-                self, "Error", f"Failed to apply settings: {str(e)}")
 
     def _restart_dasi_service(self):
         """Helper method to restart Dasi service with a single message."""

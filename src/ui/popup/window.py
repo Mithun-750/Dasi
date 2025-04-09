@@ -16,8 +16,8 @@ import re
 import uuid
 from datetime import datetime
 
-# Import LLMHandler for filename suggestions
-from llm_handler import LLMHandler
+# Import LLMIntegration for filename suggestions
+from llm_integration import LLMIntegration
 
 # Import components
 from .components.input_panel import InputPanel
@@ -698,14 +698,21 @@ class DasiWindow(QWidget):
             def run(self):
                 try:
                     if not self.is_stopped:
-                        llm_handler = LLMHandler()
-                        # Set the detected language in LLMHandler if we have it
-                        if self.code_language:
-                            llm_handler.detected_language = self.code_language
-                            logging.info(
-                                f"Setting detected language in LLMHandler: {self.code_language}")
+                        # Use LLMIntegration instead of direct LLMHandler
+                        settings = Settings()
+                        use_langgraph = settings.get(
+                            'general', 'use_langgraph', default=False)
+                        llm_integration = LLMIntegration(
+                            use_langgraph=use_langgraph)
 
-                        filename = llm_handler.suggest_filename(
+                        # Set the detected language if we have it
+                        if self.code_language:
+                            # Access the handler attribute to set detected_language
+                            llm_integration.handler.detected_language = self.code_language
+                            logging.info(
+                                f"Setting detected language in LLM handler: {self.code_language}")
+
+                        filename = llm_integration.suggest_filename(
                             content=self.content,
                             session_id=self.session_id
                         )
