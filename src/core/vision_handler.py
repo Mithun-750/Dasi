@@ -1,6 +1,7 @@
 import logging
 import os
 from typing import Optional, Dict
+import base64
 
 from langchain_core.messages import HumanMessage, SystemMessage
 # Import necessary LangChain chat models that support vision

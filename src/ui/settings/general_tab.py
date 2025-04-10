@@ -1243,7 +1243,7 @@ X-GNOME-Autostart-enabled=true
         """Clear the response cache."""
         try:
             # Import cache manager on demand
-            from cache_manager import CacheManager
+            from core.cache_manager import CacheManager
             cache = CacheManager()
             cache.clear_cache()
             QMessageBox.information(

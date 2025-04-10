@@ -3,6 +3,8 @@ import logging
 from typing import Dict, List, Optional, Any, TypedDict, Annotated, Callable
 import operator
 from pathlib import Path
+import asyncio
+import nest_asyncio
 
 # LangChain imports
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -24,8 +26,8 @@ from langgraph.constants import Send
 
 # Local imports
 from ui.settings import Settings
-from web_search_handler import WebSearchHandler
-from vision_handler import VisionHandler
+from .web_search_handler import WebSearchHandler
+from .vision_handler import VisionHandler
 
 
 # Define the state structure for our graph
@@ -91,6 +93,9 @@ class LangGraphHandler:
 
         # Initialize LLM
         self.initialize_llm()
+
+        # Apply nest_asyncio globally to allow nested event loops (e.g., running asyncio.run from within Qt)
+        nest_asyncio.apply()
 
     def _initialize_system_prompt(self):
         """Initialize the system prompt with base and custom instructions."""
@@ -885,27 +890,28 @@ EXAMPLES:
                 return f"⚠️ Graph Error: {graph_err}"
 
     def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default") -> str:
-        """Synchronous wrapper for get_response_async."""
-        import asyncio
+        """Synchronous wrapper for get_response_async using asyncio.run().
+        nest_asyncio is applied globally to handle potential nested loop scenarios.
+        """
+        # Ensure nest_asyncio is applied (done globally now)
+        # import nest_asyncio
+        # nest_asyncio.apply()
 
         try:
-            # Create a new event loop if one doesn't exist in this thread
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-            # Run the async method in the event loop
-            if loop.is_running():
-                # If we're already in an event loop, we need to use a different approach
-                import nest_asyncio
-                nest_asyncio.apply()
-
-            return loop.run_until_complete(self.get_response_async(query, callback, model, session_id))
+            # asyncio.run handles loop creation, execution, and cleanup.
+            return asyncio.run(self.get_response_async(query, callback, model, session_id))
         except Exception as e:
+            # Log the specific error encountered during the async execution
             logging.error(
-                f"Error in synchronous get_response: {str(e)}", exc_info=True)
+                f"Error running get_response_async via asyncio.run: {str(e)}", exc_info=True)
+            # Check if the error is the 'different loop' error and provide a more specific message
+            if "attached to a different loop" in str(e):
+                logging.error(
+                    "Detected 'different loop' error. This might indicate issues with nested asyncio calls or library interactions.")
+                # Provide a user-friendly error message if possible
+                # callback(f"⚠️ Async Loop Error: {str(e)}") # Optionally send to callback
+                return "⚠️ Async Loop Error: Could not process request due to conflicting event loops."
+            # callback(f"⚠️ Error: {str(e)}") # Optionally send generic error to callback
             return f"⚠️ Error: {str(e)}"
 
     def suggest_filename(self, content: str, session_id: str = "default") -> str:

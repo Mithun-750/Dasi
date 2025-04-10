@@ -1,3 +1,7 @@
+from core.cache_manager import CacheManager
+from ui.settings_window import SettingsWindow
+from ui.settings import Settings
+from core.langgraph_handler import LangGraphHandler
 import os
 import sys
 import logging
@@ -6,10 +10,7 @@ import pyperclip
 import time
 from pathlib import Path
 from hotkey_listener import HotkeyListener
-from ui import CopilotUI
-from langgraph_handler import LangGraphHandler
-from ui.settings import Settings, SettingsWindow
-from cache_manager import CacheManager
+from ui.popup.ui import CopilotUI
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget
 from PyQt6.QtGui import QIcon, QPixmap, QPainter
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
@@ -17,12 +18,14 @@ from typing import Optional, Callable
 # Import constants
 
 # Import instance manager
-from instance_manager import DasiInstanceManager
+from core.instance_manager import DasiInstanceManager
 # Import theme system
 from ui.assets import apply_theme
 
 # Global cache manager instance
 cache_manager = None
+
+# Import necessary handlers and classes directly
 
 
 def setup_logging():

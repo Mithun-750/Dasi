@@ -16,8 +16,9 @@ import re
 import uuid
 from datetime import datetime
 
-# Import LangGraphHandler directly
-from langgraph_handler import LangGraphHandler
+# Import LangGraphHandler directly from core
+from core.langgraph_handler import LangGraphHandler
+from core.instance_manager import DasiInstanceManager  # Import DasiInstanceManager
 
 # Import components
 from .components.input_panel import InputPanel
@@ -461,7 +462,6 @@ class DasiWindow(QWidget):
                 if self.is_web_search:
                     try:
                         # Get the Dasi instance from the instance manager
-                        from instance_manager import DasiInstanceManager
                         dasi_instance = DasiInstanceManager.get_instance()
 
                         if dasi_instance and dasi_instance.llm_handler and dasi_instance.llm_handler.web_search_handler:
@@ -494,7 +494,6 @@ class DasiWindow(QWidget):
             if self.is_web_search and self.worker and self.worker.isRunning():
                 try:
                     # Get the Dasi instance from the instance manager
-                    from instance_manager import DasiInstanceManager
                     dasi_instance = DasiInstanceManager.get_instance()
 
                     if dasi_instance and dasi_instance.llm_handler and dasi_instance.llm_handler.web_search_handler:
@@ -685,7 +684,6 @@ class DasiWindow(QWidget):
                 # Get the handler instance from the main application
                 # Note: This assumes a way to access the main app's handler instance.
                 # If DasiInstanceManager is used, we can get it from there.
-                from instance_manager import DasiInstanceManager
                 dasi_instance = DasiInstanceManager.get_instance()
                 if dasi_instance and hasattr(dasi_instance, 'llm_handler') and isinstance(dasi_instance.llm_handler, LangGraphHandler):
                     langgraph_handler = dasi_instance.llm_handler
