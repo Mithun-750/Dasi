@@ -28,6 +28,7 @@ from langgraph.constants import Send
 from ui.settings import Settings
 from .web_search_handler import WebSearchHandler
 from .vision_handler import VisionHandler
+from .llm_factory import create_llm_instance
 
 
 # Define the state structure for our graph
@@ -182,201 +183,115 @@ INPUT:"""
                 logging.error(f"Error updating temperature: {str(e)}")
 
     def initialize_llm(self, model_name: str = None, model_info: dict = None) -> bool:
-        """Initialize the LLM with the current API key and specified model/info."""
+        """Initialize the LLM using the llm_factory."""
         try:
-            # Reload settings
+            # Reload settings to ensure we have the latest config
             self.settings.load_settings()
 
-            # Determine model info based on inputs
+            # --- Determine model info (provider, model_id) --- START ---
+            resolved_model_info = None
             if model_info and isinstance(model_info, dict):
+                resolved_model_info = model_info
                 logging.info(
-                    f"Initializing LLM using provided model info: {model_info.get('id', 'N/A')}, provider: {model_info.get('provider', 'N/A')}")
+                    f"Initializing LLM using provided model info: {resolved_model_info.get('id', 'N/A')}, provider: {resolved_model_info.get('provider', 'N/A')}")
             elif model_name:
                 selected_models = self.settings.get_selected_models()
-                # Log available models for debugging
                 model_ids = [m['id'] for m in selected_models]
                 logging.info(f"Available selected model IDs: {model_ids}")
 
-                # Find model by exact ID match
-                model_info = next(
+                found_model = next(
                     (m for m in selected_models if m['id'] == model_name), None)
 
-                # If model not found and it's a Google model with 'models/' prefix
-                if not model_info and model_name.startswith('models/'):
-                    # Try to find by full path for Google models
+                # Google specific path
+                if not found_model and model_name.startswith('models/'):
                     logging.info(
                         f"Looking up Google model by full path: {model_name}")
-                    model_info = next(
+                    found_model = next(
                         (m for m in selected_models if m['id'] == model_name), None)
 
-                # If still not found, try partial match
-                if not model_info and '/' in model_name:
+                if not found_model and '/' in model_name:  # Handle potential names like 'provider/model'
                     base_name = model_name.split('/')[-1]
                     logging.info(
                         f"Model '{model_name}' not found by exact match. Trying base name: {base_name}")
-                    for m in selected_models:
-                        if m['id'].endswith(f"/{base_name}"):
-                            model_info = m
-                            logging.info(
-                                f"Found model by partial match: {m['id']}, provider: {m['provider']}")
-                            break
+                    found_model = next(
+                        (m for m in selected_models if m['id'].endswith(f"/{base_name}")), None)
+                    if found_model:
+                        logging.info(
+                            f"Found model by partial match: {found_model['id']}, provider: {found_model['provider']}")
 
-                if not model_info:
+                if not found_model:
                     logging.error(
                         f"Model '{model_name}' not found in selected models.")
                     return False
-
-                logging.info(f"Selected model info: {model_info}")
+                resolved_model_info = found_model
+                logging.info(f"Selected model info: {resolved_model_info}")
             else:
                 default_model_id = self.settings.get('models', 'default_model')
+                selected_models = self.settings.get_selected_models()
                 if not default_model_id:
-                    selected_models = self.settings.get_selected_models()
                     if selected_models:
-                        model_info = selected_models[0]
+                        resolved_model_info = selected_models[0]
                         logging.info(
-                            f"Using first selected model as default: {model_info['id']}, provider: {model_info['provider']}")
+                            f"Using first selected model as default: {resolved_model_info['id']}, provider: {resolved_model_info['provider']}")
                     else:
                         logging.error(
                             "No default model set and no models selected.")
                         return False
                 else:
-                    selected_models = self.settings.get_selected_models()
-                    model_info = next(
+                    resolved_model_info = next(
                         (m for m in selected_models if m['id'] == default_model_id), None)
-                    if not model_info:
+                    if not resolved_model_info:
                         if selected_models:
-                            model_info = selected_models[0]
-                            logging.info(
-                                f"Default model not found, using first model: {model_info['id']}, provider: {model_info['provider']}")
+                            resolved_model_info = selected_models[0]
+                            logging.warning(
+                                f"Default model '{default_model_id}' not found, using first selected model: {resolved_model_info['id']}, provider: {resolved_model_info['provider']}")
                         else:
+                            logging.error(
+                                "Default model specified but no models are selected.")
                             return False
+            # --- Determine model info (provider, model_id) --- END ---
 
-            # Get provider and model ID
-            provider = model_info['provider']
-            model_id = model_info['id']
+            if not resolved_model_info:
+                logging.error(
+                    "Could not resolve model information to initialize LLM.")
+                return False
 
-            # Additional logging for debugging
-            logging.info(
-                f"Initializing LLM with provider: {provider}, model: {model_id}")
-
-            # Get temperature
+            provider = resolved_model_info['provider']
+            model_id = resolved_model_info['id']
             temperature = self.settings.get(
                 'general', 'temperature', default=0.7)
 
-            # Initialize appropriate LLM based on provider
-            if provider == 'google':
-                logging.info(f"Creating Google Gemini model: {model_id}")
-                self.llm = ChatGoogleGenerativeAI(
-                    model=model_id,
-                    google_api_key=self.settings.get_api_key('google'),
-                    temperature=temperature,
-                )
-            elif provider == 'openai':
-                if 'gpt-4o' in model_id.lower() or 'vision' in model_id.lower():
-                    self.llm = ChatOpenAI(
-                        model=model_id,
-                        temperature=temperature,
-                        streaming=True,
-                        openai_api_key=self.settings.get_api_key('openai'),
-                        max_tokens=4096,
-                    )
-                else:
-                    self.llm = ChatOpenAI(
-                        model=model_id,
-                        temperature=temperature,
-                        streaming=True,
-                        openai_api_key=self.settings.get_api_key('openai'),
-                    )
-            elif provider == 'ollama':
-                self.llm = ChatOllama(
-                    model=model_id,
-                    temperature=temperature,
-                    base_url="http://localhost:11434",
-                )
-            elif provider == 'groq':
-                logging.info(f"Creating Groq model: {model_id}")
-                self.llm = ChatGroq(
-                    model=model_id,
-                    groq_api_key=self.settings.get_api_key('groq'),
-                    temperature=temperature,
-                )
-            elif provider == 'anthropic':
-                if 'claude-3' in model_id.lower():
-                    self.llm = ChatAnthropic(
-                        model=model_id,
-                        anthropic_api_key=self.settings.get_api_key(
-                            'anthropic'),
-                        temperature=temperature,
-                        streaming=True,
-                        max_tokens=4096,
-                    )
-                else:
-                    self.llm = ChatAnthropic(
-                        model=model_id,
-                        anthropic_api_key=self.settings.get_api_key(
-                            'anthropic'),
-                        temperature=temperature,
-                        streaming=True,
-                    )
-            elif provider == 'deepseek':
-                api_key = self.settings.get_api_key('deepseek')
-                os.environ["DEEPSEEK_API_KEY"] = api_key
-                self.llm = ChatDeepSeek(
-                    model=model_id,
-                    temperature=temperature,
-                    streaming=True,
-                )
-            elif provider == 'together':
-                self.llm = ChatTogether(
-                    model=model_id,
-                    together_api_key=self.settings.get_api_key('together'),
-                    temperature=temperature,
-                )
-            elif provider == 'xai':
-                self.llm = ChatXAI(
-                    model=model_id,
-                    xai_api_key=self.settings.get_api_key('xai'),
-                    temperature=temperature,
-                )
-            elif provider == 'custom_openai' or provider.startswith('custom_openai_'):
-                base_url = self.settings.get('models', provider, 'base_url')
-                api_key = self.settings.get_api_key(provider)
-
-                if not base_url or not api_key:
-                    logging.error(
-                        f"Missing configuration for custom OpenAI provider: {provider}")
-                    return False
-
-                self.llm = ChatOpenAI(
-                    model=model_id,
-                    temperature=temperature,
-                    streaming=True,
-                    openai_api_key=api_key,
-                    base_url=base_url,
-                )
-            else:  # OpenRouter
-                headers = {
-                    'HTTP-Referer': 'https://github.com/mithuns/dasi',
-                    'X-Title': 'Dasi',
-                    'Content-Type': 'application/json'
-                }
-
-                self.llm = ChatOpenAI(
-                    model=model_id,
-                    temperature=temperature,
-                    streaming=True,
-                    openai_api_key=self.settings.get_api_key('openrouter'),
-                    base_url="https://openrouter.ai/api/v1",
-                    default_headers=headers
-                )
-
-            self.current_provider = provider
             logging.info(
-                f"Successfully initialized {provider} model: {model_id}")
-            return True
+                f"Attempting to create LLM instance via factory: provider={provider}, model={model_id}, temp={temperature}")
+
+            # Call the factory function
+            llm_instance = create_llm_instance(
+                provider=provider,
+                model_id=model_id,
+                settings=self.settings,
+                temperature=temperature,
+                # Pass resolved info which might contain base_url etc.
+                model_info=resolved_model_info
+            )
+
+            if llm_instance:
+                self.llm = llm_instance
+                self.current_provider = provider
+                logging.info(
+                    f"Successfully initialized {provider} model: {model_id} via factory")
+                return True
+            else:
+                logging.error(
+                    f"Failed to initialize {provider} model: {model_id} using factory")
+                self.llm = None
+                self.current_provider = None
+                return False
 
         except Exception as e:
-            logging.error(f"Error initializing LLM: {str(e)}", exc_info=True)
+            logging.error(
+                f"Unexpected error during LLM initialization: {str(e)}", exc_info=True)
+            self.llm = None
+            self.current_provider = None
             return False
 
     def _get_message_history(self, session_id: str):
@@ -1027,10 +942,29 @@ Content:
 
             # Use stored language for extension if available
             extension = ".md"
-            if self.detected_language in ["python", "py"]:
+            # Simplified extension logic based on potential language hints
+            lang_lower = (self.detected_language or "").lower()
+            if lang_lower in ["python", "py"]:
                 extension = ".py"
-            elif self.detected_language in ["javascript", "js"]:
+            elif lang_lower in ["javascript", "js"]:
                 extension = ".js"
+            elif lang_lower in ["typescript", "ts"]:
+                extension = ".ts"
+            elif lang_lower in ["html"]:
+                extension = ".html"
+            elif lang_lower in ["css"]:
+                extension = ".css"
+            elif lang_lower in ["json"]:
+                extension = ".json"
+            elif lang_lower in ["yaml", "yml"]:
+                extension = ".yaml"
+            elif lang_lower in ["shell", "bash", "sh"]:
+                extension = ".sh"
+            elif lang_lower in ["sql"]:
+                extension = ".sql"
+            # Add other common languages as needed
+            elif lang_lower in ["text", "plaintext"]:
+                extension = ".txt"
 
             # Reset detected language
             self.detected_language = None
