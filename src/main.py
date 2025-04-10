@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from hotkey_listener import HotkeyListener
 from ui import CopilotUI
-from llm_integration import LLMIntegration
+from langgraph_handler import LangGraphHandler
 from ui.settings import Settings, SettingsWindow
 from cache_manager import CacheManager
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget
@@ -149,19 +149,18 @@ class Dasi:
             # Initialize settings
             self.settings = Settings()
 
-            # Check if LangGraph should be enabled
-            use_langgraph = self.settings.get(
-                'general', 'use_langgraph', default=False)
+            # LangGraph is now the only implementation
+            # Set use_langgraph to True in settings for backward compatibility
+            self.settings.set('general', 'use_langgraph', True)
 
             # Initialize system tray
             logging.info("Setting up system tray")
             self.tray = None  # Initialize to None first
             self.setup_tray()
 
-            # Initialize LLM integration handler
-            logging.info(
-                f"Initializing LLM integration (use_langgraph={use_langgraph})")
-            self.llm_handler = LLMIntegration(use_langgraph=use_langgraph)
+            # Initialize LangGraphHandler directly
+            self.llm_handler = LangGraphHandler()
+            logging.info("LangGraphHandler initialized directly in Dasi")
 
             # Initialize UI
             logging.info("Initializing UI")

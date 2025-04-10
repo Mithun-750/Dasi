@@ -379,7 +379,8 @@ class InputPanel(QWidget):
     """Input panel component for the Dasi window."""
 
     # Signals
-    submit_query = pyqtSignal(str)  # Signal emitted when user submits a query
+    # Signal emitted when user submits a query (include model)
+    submit_query = pyqtSignal(str, object)
     # Signal emitted when mode changes (True for compose)
     mode_changed = pyqtSignal(bool)
 
@@ -1133,12 +1134,15 @@ class InputPanel(QWidget):
                 # The actual extraction happens in LLMHandler
                 logging.info(f"Web search query detected: {query}")
 
+            # Get the selected model
+            selected_model = self.get_selected_model()
+
             # Show loading state
             self.enable_input(False)
             self.show_progress(True)
 
-            # Emit signal with query
-            self.submit_query.emit(query)
+            # Emit signal with query and model info
+            self.submit_query.emit(query, selected_model)
 
     def _add_to_history(self, query: str):
         """Add a query to the history."""

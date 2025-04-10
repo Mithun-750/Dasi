@@ -45,6 +45,7 @@ class GraphState(TypedDict):
     web_search_results: Optional[Dict]
     use_vision: bool
     vision_description: Optional[str]
+    llm_instance: Optional[Any]  # Add field for the specific LLM instance
 
     # Output fields
     response: str
@@ -184,29 +185,51 @@ INPUT:"""
             # Determine model info based on inputs
             if model_info and isinstance(model_info, dict):
                 logging.info(
-                    f"Initializing LLM using provided model info: {model_info.get('id', 'N/A')}")
+                    f"Initializing LLM using provided model info: {model_info.get('id', 'N/A')}, provider: {model_info.get('provider', 'N/A')}")
             elif model_name:
                 selected_models = self.settings.get_selected_models()
+                # Log available models for debugging
+                model_ids = [m['id'] for m in selected_models]
+                logging.info(f"Available selected model IDs: {model_ids}")
+
+                # Find model by exact ID match
                 model_info = next(
                     (m for m in selected_models if m['id'] == model_name), None)
 
+                # If model not found and it's a Google model with 'models/' prefix
+                if not model_info and model_name.startswith('models/'):
+                    # Try to find by full path for Google models
+                    logging.info(
+                        f"Looking up Google model by full path: {model_name}")
+                    model_info = next(
+                        (m for m in selected_models if m['id'] == model_name), None)
+
+                # If still not found, try partial match
                 if not model_info and '/' in model_name:
                     base_name = model_name.split('/')[-1]
+                    logging.info(
+                        f"Model '{model_name}' not found by exact match. Trying base name: {base_name}")
                     for m in selected_models:
                         if m['id'].endswith(f"/{base_name}"):
                             model_info = m
+                            logging.info(
+                                f"Found model by partial match: {m['id']}, provider: {m['provider']}")
                             break
 
                 if not model_info:
                     logging.error(
                         f"Model '{model_name}' not found in selected models.")
                     return False
+
+                logging.info(f"Selected model info: {model_info}")
             else:
                 default_model_id = self.settings.get('models', 'default_model')
                 if not default_model_id:
                     selected_models = self.settings.get_selected_models()
                     if selected_models:
                         model_info = selected_models[0]
+                        logging.info(
+                            f"Using first selected model as default: {model_info['id']}, provider: {model_info['provider']}")
                     else:
                         logging.error(
                             "No default model set and no models selected.")
@@ -218,6 +241,8 @@ INPUT:"""
                     if not model_info:
                         if selected_models:
                             model_info = selected_models[0]
+                            logging.info(
+                                f"Default model not found, using first model: {model_info['id']}, provider: {model_info['provider']}")
                         else:
                             return False
 
@@ -225,12 +250,17 @@ INPUT:"""
             provider = model_info['provider']
             model_id = model_info['id']
 
+            # Additional logging for debugging
+            logging.info(
+                f"Initializing LLM with provider: {provider}, model: {model_id}")
+
             # Get temperature
             temperature = self.settings.get(
                 'general', 'temperature', default=0.7)
 
             # Initialize appropriate LLM based on provider
             if provider == 'google':
+                logging.info(f"Creating Google Gemini model: {model_id}")
                 self.llm = ChatGoogleGenerativeAI(
                     model=model_id,
                     google_api_key=self.settings.get_api_key('google'),
@@ -259,6 +289,7 @@ INPUT:"""
                     base_url="http://localhost:11434",
                 )
             elif provider == 'groq':
+                logging.info(f"Creating Groq model: {model_id}")
                 self.llm = ChatGroq(
                     model=model_id,
                     groq_api_key=self.settings.get_api_key('groq'),
@@ -335,6 +366,8 @@ INPUT:"""
                 )
 
             self.current_provider = provider
+            logging.info(
+                f"Successfully initialized {provider} model: {model_id}")
             return True
 
         except Exception as e:
@@ -604,16 +637,24 @@ EXAMPLES:
     def generate_response(self, state: GraphState) -> GraphState:
         """Generate a response using the LLM."""
         updated_state = state.copy()
+        llm_instance = state.get('llm_instance')
 
         try:
-            # Ensure LLM is initialized
-            if not self.llm:
-                if not self.initialize_llm(model_name=state.get('model_name')):
-                    updated_state['response'] = "⚠️ Please add your API key and select a model in settings to use Dasi."
-                    return updated_state
+            # Ensure LLM instance is available from the state
+            if not llm_instance:
+                # Fallback: try to use self.llm or initialize if absolutely necessary
+                logging.warning(
+                    "LLM instance not found in state, attempting fallback...")
+                if not self.llm:
+                    if not self.initialize_llm(model_name=state.get('model_name')):
+                        updated_state['response'] = "⚠️ LLM could not be initialized from state or fallback."
+                        return updated_state
+                    llm_instance = self.llm  # Use the newly initialized one
+                else:
+                    llm_instance = self.llm  # Use the existing self.llm as fallback
 
-            # Get response from LLM
-            response = self.llm.invoke(state['messages'])
+            # Get response from the specific LLM instance
+            response = llm_instance.invoke(state['messages'])
             final_response = response.content.strip()
 
             # Process response based on mode
@@ -636,7 +677,7 @@ EXAMPLES:
 
         except Exception as e:
             logging.error(
-                f"Error getting LLM response: {str(e)}", exc_info=True)
+                f"Error getting LLM response in generate_response node: {str(e)}", exc_info=True)
             error_msg = str(e)
 
             if "NotFoundError" in error_msg:
@@ -653,7 +694,7 @@ EXAMPLES:
             elif "ConnectionError" in error_msg or "Connection refused" in error_msg:
                 updated_state['response'] = "⚠️ Error: Could not connect to the API server. Please check your internet connection and the base URL in settings."
             else:
-                updated_state['response'] = f"⚠️ Error: {error_msg}"
+                updated_state['response'] = f"⚠️ Error in generate_response: {error_msg}"
 
             return updated_state
 
@@ -716,17 +757,59 @@ EXAMPLES:
         state = {
             "query": query,
             "session_id": session_id,
-            "model_name": model,
+            "model_name": model,  # Store the requested model name in the state
         }
+
+        # --- Ensure the correct LLM is initialized --- START ---
+        needs_reinit = False
+        if model:
+            current_model_id = None
+            if self.llm:
+                if hasattr(self.llm, 'model'):
+                    current_model_id = self.llm.model
+                elif hasattr(self.llm, 'model_name'):
+                    current_model_id = self.llm.model_name
+
+            if not self.llm or (current_model_id and current_model_id != model):
+                logging.info(
+                    f"Switching LLM: current={current_model_id}, requested={model}")
+                needs_reinit = True
+            elif not current_model_id:
+                # If self.llm exists but we couldn't get its ID, re-initialize to be safe
+                logging.warning(
+                    "Could not determine current LLM model ID. Re-initializing.")
+                needs_reinit = True
+        elif not self.llm:
+            # If no specific model requested, but no LLM is active, initialize default
+            logging.info(
+                "No specific model requested and no LLM active. Initializing default.")
+            needs_reinit = True
+
+        if needs_reinit:
+            if not self.initialize_llm(model_name=model):
+                error_msg = "⚠️ Failed to initialize the requested model. Please check settings."
+                if not model:
+                    error_msg = "⚠️ Failed to initialize default model. Please check settings."
+                # Emit error through callback if streaming, otherwise return directly
+                if callback:
+                    callback(error_msg)
+                    # Signal streaming completion even on error
+                    callback("<COMPLETE>")
+                return error_msg
+        # --- Ensure the correct LLM is initialized --- END ---
+
+        # Add the potentially re-initialized LLM instance to the state
+        state['llm_instance'] = self.llm
 
         # If callback is provided, we need to handle streaming
         if callback:
-            # Unfortunately, we can't easily stream with the graph yet
-            # So we'll use the legacy approach for streaming for now
-            # This is a temporary solution until we figure out streaming with LangGraph
+            # Use the currently initialized self.llm for streaming
             if not self.llm:
-                if not self.initialize_llm(model_name=model):
-                    return "⚠️ Please add your API key and select a model in settings to use Dasi."
+                # This should ideally not happen after the check above, but as a failsafe
+                error_msg = "⚠️ LLM could not be initialized for streaming."
+                callback(error_msg)
+                callback("<COMPLETE>")
+                return error_msg
 
             # Run the graph without generate_response to prepare messages
             partial_graph = StateGraph(GraphState)
@@ -739,14 +822,35 @@ EXAMPLES:
             partial_graph.add_edge("prepare_messages", END)
 
             partial_app = partial_graph.compile()
-            prepared_state = await partial_app.ainvoke(state)
+            try:
+                # Pass the state including the potentially updated model_name
+                prepared_state = await partial_app.ainvoke(state)
+            except Exception as graph_err:
+                logging.error(
+                    f"Error running partial graph for streaming: {graph_err}", exc_info=True)
+                error_msg = f"⚠️ Error preparing messages: {graph_err}"
+                callback(error_msg)
+                callback("<COMPLETE>")
+                return error_msg
 
-            # Stream the response
+            # Stream the response using the ensured self.llm
             response_content = []
-            for chunk in self.llm.stream(prepared_state['messages']):
-                if chunk.content:
-                    response_content.append(chunk.content)
-                    callback(''.join(response_content))
+            try:
+                async for chunk in self.llm.astream(prepared_state['messages']):
+                    if chunk.content:
+                        response_content.append(chunk.content)
+                        callback(''.join(response_content))
+            except Exception as stream_err:
+                logging.error(
+                    f"Error during LLM stream: {stream_err}", exc_info=True)
+                # Send error message via callback if streaming fails
+                error_msg = f"⚠️ Streaming Error: {stream_err}"
+                callback(error_msg)
+                # Ensure stream completion signal is sent
+                callback("<COMPLETE>")
+                # We might have partial content, decide if we should return it or just the error
+                # For now, just return the error message
+                return error_msg  # Stop further processing
 
             # Get the complete response
             final_response = ''.join(response_content)
@@ -760,15 +864,25 @@ EXAMPLES:
 
             # Add to chat history
             message_history = self._get_message_history(session_id)
-            message_history.add_message(
-                prepared_state['messages'][-1])  # Add the query
+            # Ensure we add the correct query message (last one from prepared state)
+            if prepared_state.get('messages'):
+                message_history.add_message(prepared_state['messages'][-1])
             message_history.add_message(AIMessage(content=final_response))
 
-            return final_response
+            # Signal completion via callback
+            callback("<COMPLETE>")
+            return final_response  # Return the final streamed response
         else:
-            # Run the full graph
-            result = await self.app.ainvoke(state)
-            return result['response']
+            # Non-streaming: Run the full graph
+            # The graph's generate_response node will use the self.llm instance
+            # which we ensured is the correct one at the beginning of this method.
+            try:
+                result = await self.app.ainvoke(state)
+                return result['response']
+            except Exception as graph_err:
+                logging.error(
+                    f"Error running full graph: {graph_err}", exc_info=True)
+                return f"⚠️ Graph Error: {graph_err}"
 
     def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default") -> str:
         """Synchronous wrapper for get_response_async."""

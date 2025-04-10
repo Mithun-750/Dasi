@@ -343,14 +343,13 @@ class GeneralTab(QWidget):
             'start_on_boot': self.settings.get('general', 'start_on_boot', default=False),
             'export_path': self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents")),
             'use_cache': self.settings.get('general', 'use_cache', default=True),
-            'use_langgraph': self.settings.get('general', 'use_langgraph', default=False)
         }
         self.has_unsaved_changes = False
         self.update_button_visibility()
 
     def get_current_values(self):
-        """Get the current values from the form."""
-        current_values = {
+        """Get the current values from UI elements."""
+        return {
             'custom_instructions': self.custom_instructions.toPlainText(),
             'temperature': self.temperature.value(),
             'hotkey': {
@@ -364,23 +363,19 @@ class GeneralTab(QWidget):
             'start_on_boot': self.startup_checkbox.isChecked(),
             'export_path': self.export_path.text(),
             'use_cache': self.use_cache_checkbox.isChecked(),
-            'use_langgraph': self.use_langgraph_checkbox.isChecked()
         }
-        return current_values
 
     def check_for_changes(self):
         """Check if there are any unsaved changes."""
         current = self.get_current_values()
-        self.has_unsaved_changes = any([
-            current['custom_instructions'] != self.original_values['custom_instructions'],
-            abs(current['temperature'] -
-                self.original_values['temperature']) > 0.001,
-            current['hotkey'] != self.original_values['hotkey'],
-            current['start_on_boot'] != self.original_values['start_on_boot'],
-            current['export_path'] != self.original_values['export_path'],
-            current['use_cache'] != self.original_values['use_cache'],
-            current['use_langgraph'] != self.original_values['use_langgraph']
-        ])
+        self.has_unsaved_changes = (
+            current['custom_instructions'] != self.original_values['custom_instructions'] or
+            current['temperature'] != self.original_values['temperature'] or
+            self._hotkey_changed(current['hotkey'], self.original_values['hotkey']) or
+            current['start_on_boot'] != self.original_values['start_on_boot'] or
+            current['export_path'] != self.original_values['export_path'] or
+            current['use_cache'] != self.original_values['use_cache']
+        )
         self.update_button_visibility()
 
     def update_button_visibility(self):
@@ -866,63 +861,12 @@ class GeneralTab(QWidget):
             "Advanced settings for Dasi's operation. Note: Changes to these settings require restarting Dasi."
         )
 
-        # Create a container for LangGraph option
-        langgraph_container = QWidget()
-        langgraph_container.setProperty("class", "transparent-container")
-        langgraph_layout = QHBoxLayout(langgraph_container)
-        langgraph_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Add LangGraph checkbox
-        self.use_langgraph_checkbox = QCheckBox(
-            "Use LangGraph for LLM processing")
-        self.use_langgraph_checkbox.setChecked(
-            self.settings.get('general', 'use_langgraph', default=False))
-        self.use_langgraph_checkbox.stateChanged.connect(self._on_any_change)
-
-        # Add info icon with tooltip about LangGraph
-        langgraph_info = QLabel()
-        langgraph_info.setText("ⓘ")  # Info symbol
-        langgraph_info.setStyleSheet("""
-            QLabel {
-                color: #aaaaaa;
-                font-size: 16px;
-            }
-            QLabel:hover {
-                color: #e67e22;
-            }
-        """)
-        langgraph_info.setToolTip(
-            "LangGraph is an extension of LangChain that provides more powerful graph-based LLM processing.\n"
-            "Enabling this will use the LangGraph-based implementation which may provide better results for complex queries.\n"
-            "Note: This is an experimental feature and requires restarting Dasi to take effect."
-        )
-
-        # Add LangGraph description
-        langgraph_description = QLabel(
-            "LangGraph provides more structured processing for complex queries. Experimental feature."
-        )
-        langgraph_description.setWordWrap(True)
-        langgraph_description.setStyleSheet("color: #aaaaaa; font-size: 12px;")
-
-        # Add widgets to layout
-        langgraph_layout.addWidget(self.use_langgraph_checkbox)
-        langgraph_layout.addWidget(langgraph_info)
-        langgraph_layout.addStretch()
-
-        # Create vertical layout for LangGraph section
-        langgraph_section = QVBoxLayout()
-        langgraph_section.setContentsMargins(0, 0, 0, 0)
-        langgraph_section.setSpacing(4)
-        langgraph_section.addWidget(langgraph_container)
-        langgraph_section.addWidget(langgraph_description)
-
         # Add to advanced section
         advanced_widget = QWidget()
         advanced_widget.setProperty("class", "transparent-container")
         advanced_layout = QVBoxLayout(advanced_widget)
         advanced_layout.setContentsMargins(0, 0, 0, 0)
         advanced_layout.setSpacing(16)
-        advanced_layout.addLayout(langgraph_section)
 
         advanced_section.layout.addWidget(advanced_widget)
 
@@ -1017,7 +961,6 @@ class GeneralTab(QWidget):
         self.startup_checkbox.stateChanged.connect(self._on_any_change)
         self.export_path.textChanged.connect(self._on_any_change)
         self.use_cache_checkbox.toggled.connect(self._on_any_change)
-        self.use_langgraph_checkbox.stateChanged.connect(self._on_any_change)
 
     def _on_any_change(self):
         """Handler for any change in the settings."""
@@ -1041,8 +984,6 @@ class GeneralTab(QWidget):
         self.startup_checkbox.setChecked(self.original_values['start_on_boot'])
         self.export_path.setText(self.original_values['export_path'])
         self.use_cache_checkbox.setChecked(self.original_values['use_cache'])
-        self.use_langgraph_checkbox.setChecked(
-            self.original_values['use_langgraph'])
 
         self.has_unsaved_changes = False
         self.update_button_visibility()
@@ -1062,7 +1003,6 @@ class GeneralTab(QWidget):
         self.startup_checkbox.setChecked(False)
         self.export_path.setText(os.path.expanduser("~/Documents"))
         self.use_cache_checkbox.setChecked(True)
-        self.use_langgraph_checkbox.setChecked(False)
 
         self.check_for_changes()
 
@@ -1089,18 +1029,16 @@ class GeneralTab(QWidget):
     def _apply_all_settings(self):
         """Apply all settings at once."""
         try:
-            # Save custom instructions
-            self.settings.set('general', 'custom_instructions',
-                              self.custom_instructions.toPlainText())
-            self.settings.custom_instructions_changed.emit()
-
             # Save temperature
             self.settings.set('general', 'temperature',
                               self.temperature.value())
-            self.settings.temperature_changed.emit()
+
+            # Save custom instructions
+            self.settings.set('general', 'custom_instructions',
+                              self.custom_instructions.toPlainText())
 
             # Save hotkey settings
-            hotkey_settings = {
+            hotkey = {
                 'ctrl': self.ctrl_checkbox.isChecked(),
                 'alt': self.alt_checkbox.isChecked(),
                 'shift': self.shift_checkbox.isChecked(),
@@ -1108,12 +1046,14 @@ class GeneralTab(QWidget):
                 'fn': self.fn_checkbox.isChecked(),
                 'key': self.key_selector.currentText()
             }
-            self.settings.set('general', 'hotkey', hotkey_settings)
+            self.settings.set('general', 'hotkey', hotkey)
 
-            # Save startup settings
-            start_on_boot = self.startup_checkbox.isChecked()
-            self.settings.set('general', 'start_on_boot', start_on_boot)
-            self._update_startup_file(start_on_boot)
+            # Save startup setting
+            self.settings.set('general', 'start_on_boot',
+                              self.startup_checkbox.isChecked())
+
+            # Update startup file
+            self._update_startup_file(self.startup_checkbox.isChecked())
 
             # Save export path
             path = self.export_path.text()
@@ -1125,9 +1065,8 @@ class GeneralTab(QWidget):
             self.settings.set('general', 'use_cache',
                               self.use_cache_checkbox.isChecked())
 
-            # Save LangGraph settings
-            self.settings.set('general', 'use_langgraph',
-                              self.use_langgraph_checkbox.isChecked())
+            # Always set use_langgraph to True since we only support LangGraph now
+            self.settings.set('general', 'use_langgraph', True)
 
             # Update original values and hide buttons
             self.save_original_values()
@@ -1143,10 +1082,6 @@ class GeneralTab(QWidget):
             if self.original_values['custom_instructions'] != self.custom_instructions.toPlainText():
                 needs_restart = True
                 restart_items.append("- Custom Instructions")
-
-            if self.original_values['use_langgraph'] != self.use_langgraph_checkbox.isChecked():
-                needs_restart = True
-                restart_items.append("- LangGraph Processing")
 
             if needs_restart:
                 # Create custom message box with restart button
