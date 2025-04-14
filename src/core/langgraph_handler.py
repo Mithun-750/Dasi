@@ -45,7 +45,8 @@ class GraphState(TypedDict):
     # Processing fields
     messages: List[Any]
     use_web_search: bool
-    web_search_results: Optional[Dict]
+    web_search_query: Optional[str]  # Query used for web search
+    web_search_results: Optional[Dict]  # Results from web search node
     use_vision: bool
     vision_description: Optional[str]
     llm_instance: Optional[Any]  # Add field for the specific LLM instance
@@ -329,73 +330,93 @@ INPUT:"""
         return state
 
     def parse_query(self, state: GraphState) -> GraphState:
-        """Parse the input query and extract context information."""
-        query = state['query']
-        parsed_state = state.copy()
+        """Parse query for mode, image, web search triggers, and selected text."""
+        updated_state = state.copy()
+        query = updated_state['query']
+        image_data = updated_state.get('image_data')
+        selected_text = updated_state.get('selected_text')
 
-        # Check for web search commands
-        if query.strip().startswith('#web ') or "#web" in query:
-            parsed_state['use_web_search'] = True
-            logging.info(f"Web search detected in query: {query}")
+        # Default flags
+        updated_state['use_vision'] = bool(image_data)
+        updated_state['use_web_search'] = False
+        updated_state['web_search_query'] = None  # Initialize web search query
 
-        # Check if query contains context information
-        if "Context:" in query:
-            context_section, actual_query = query.split("\n\nQuery:\n", 1)
-            context_section = context_section.replace("Context:\n", "").strip()
+        # Let the WebSearchHandler process the query context.
+        # It will determine if web search is applicable based on triggers (e.g., /web, URL)
+        # and its own internal checks against settings (API keys, enabled providers).
+        process_result = self.web_search_handler.process_query_context(
+            query,
+            {'selected_text': selected_text}
+        )
 
-            # Parse selected text
-            if "Selected Text:" in context_section:
-                selected_text = context_section.split("Selected Text:\n", 1)[1]
-                selected_text = selected_text.split("\n\n", 1)[0].strip()
-                parsed_state['selected_text'] = selected_text
+        # Store the potentially processed query for the web search node
+        # This might be the original query or one modified by the context processor
+        updated_state['web_search_query'] = process_result['query']
 
-            # Parse selected text with delimiters
-            if "=====SELECTED_TEXT=====" in context_section:
-                selected_text = context_section.split(
-                    "=====SELECTED_TEXT=====", 1)[1]
-                selected_text = selected_text.split(
-                    "=======================", 1)[0].strip()
-                if "<" in selected_text and ">" in selected_text:
-                    selected_text = selected_text.split(">", 1)[1].strip()
-                parsed_state['selected_text'] = selected_text
+        # Set the flag if the handler determined web search/scrape is needed
+        if process_result['mode'] in ['web_search', 'link_scrape']:
+            logging.info(
+                f"Web search/scrape triggered by handler. Mode: {process_result['mode']}")
+            updated_state['use_web_search'] = True
+            # The actual search happens in the web_search node
+            # Keep the original query in updated_state['query'] for context in later steps
+            # The web_search node will use updated_state['web_search_query']
+        else:
+            # If web search wasn't triggered by the handler, update the main query
+            # with the result from the context processor (which might have just extracted context)
+            updated_state['query'] = process_result['query']
 
-            # Parse image data
-            if "=====IMAGE_DATA=====" in context_section:
-                image_data = context_section.split(
-                    "=====IMAGE_DATA=====", 1)[1]
-                image_data = image_data.split(
-                    "=======================", 1)[0].strip()
-                parsed_state['image_data'] = image_data
-                parsed_state['use_vision'] = True
+        logging.debug(
+            f"Parsed query. State: use_vision={updated_state['use_vision']}, use_web_search={updated_state['use_web_search']}, web_search_query={updated_state['web_search_query']}")
+        return updated_state
 
-            # Parse mode
-            if "Mode:" in context_section:
-                mode = context_section.split("Mode:", 1)[1].split("\n", 1)[
-                    0].strip().lower()
-                parsed_state['mode'] = mode
+    def web_search(self, state: GraphState) -> GraphState:
+        """Perform web search or link scraping if triggered."""
+        updated_state = state.copy()
+        logging.info("Entering web_search node")
 
-            # Parse mode with delimiters
-            if "=====MODE=====" in context_section:
-                mode_text = context_section.split("=====MODE=====", 1)[1]
-                mode_text = mode_text.split(
-                    "=======================", 1)[0].strip()
-                if "<" in mode_text and ">" in mode_text:
-                    mode_text = mode_text.split(">", 1)[1].strip().lower()
-                parsed_state['mode'] = mode_text
+        if not updated_state.get('use_web_search', False):
+            logging.debug("Skipping web search - use_web_search is false.")
+            return updated_state  # Should not happen due to conditional edge, but safe check
 
-            # Parse web search flag in context
-            if "Web Search:" in context_section or "=====WEB_SEARCH=====" in context_section:
-                parsed_state['use_web_search'] = True
-                logging.info("Web search flag detected in context section")
+        selected_text = updated_state.get('selected_text')
 
-            # Update query to actual query
-            parsed_state['query'] = actual_query
+        # Re-run context processing using the *original* query from the state
+        # to ensure we correctly identify the mode (web_search vs link_scrape)
+        # and extract the URL if it's a scrape.
+        process_result = self.web_search_handler.process_query_context(
+            updated_state['query'],  # Use original query for context detection
+            {'selected_text': selected_text}
+        )
 
-        return parsed_state
+        search_mode = process_result.get('mode')
+        if search_mode not in ['web_search', 'link_scrape']:
+            logging.warning(
+                f"Web search node entered, but mode is '{search_mode}' based on original query. Skipping search.")
+            # Turn off flag if mode is wrong
+            updated_state['use_web_search'] = False
+            return updated_state
+
+        logging.info(f"Executing {search_mode}...")
+
+        # --- CORRECTED CALL ---
+        # Pass the full process_result dictionary obtained above directly
+        search_result = self.web_search_handler.execute_search_or_scrape(
+            process_result,  # Pass the dictionary directly
+            selected_text
+        )
+        # --- END CORRECTION ---
+
+        # Store results in the state
+        updated_state['web_search_results'] = search_result
+        logging.debug(f"Web search/scrape execution results: {search_result}")
+
+        return updated_state
 
     def prepare_messages(self, state: GraphState) -> GraphState:
-        """Prepare the messages list for the LLM."""
+        """Prepare the messages list for the LLM, incorporating web results if available."""
         updated_state = state.copy()
+        logging.info("Entering prepare_messages node")
 
         # Start with system message
         messages = [SystemMessage(content=self.system_prompt)]
@@ -436,26 +457,45 @@ EXAMPLES:
 
         messages.append(SystemMessage(content=mode_instruction))
 
-        # Process web search if needed
-        if state.get('use_web_search', False):
-            process_result = self.web_search_handler.process_query_context(
-                state['query'],
-                {'selected_text': state.get('selected_text')}
-            )
+        # <<< MODIFIED SECTION: Incorporate Web Search/Scrape Results >>>
+        web_search_results = state.get('web_search_results')
+        final_query_text = updated_state['query']  # Start with original query
 
-            if process_result['mode'] in ['web_search', 'link_scrape']:
-                selected_text = state.get('selected_text')
-                search_result = self.web_search_handler.execute_search_or_scrape(
-                    process_result, selected_text
-                )
-
-                if search_result['status'] == 'error':
-                    updated_state['query'] = f"I tried to {process_result['mode'].replace('_', ' ')} but encountered an error: {search_result['error']}. Please answer without the {process_result['mode'].replace('_', ' ')} results."
+        if web_search_results:
+            logging.info(
+                "Incorporating web search/scrape results into messages.")
+            if web_search_results.get('status') == 'error':
+                logging.error(
+                    f"Web search/scrape failed: {web_search_results.get('error')}")
+                # Modify query to inform LLM about the error
+                search_mode_desc = web_search_results.get(
+                    'mode', 'web task').replace('_', ' ')  # Use a generic term
+                error_info = web_search_results.get('error', 'Unknown error')
+                # The query before web node modified it
+                original_query = updated_state['query']
+                final_query_text = f"I tried to perform a {search_mode_desc} based on the query '{original_query}' but encountered an error: {error_info}. Please answer the original query '{original_query}' without the web results."
+            elif web_search_results.get('status') == 'success':
+                # Use the fully formatted query from the web_search_handler
+                if 'query' in web_search_results:
+                    final_query_text = web_search_results['query']
+                    logging.debug(
+                        "Using pre-formatted query from web_search_handler.")
                 else:
-                    updated_state['query'] = search_result['query']
-                    if search_result['system_instruction']:
-                        messages.append(SystemMessage(
-                            content=search_result['system_instruction']))
+                    logging.warning(
+                        "Web search results status is success, but 'query' key is missing. Using original query.")
+
+                # Add system instruction from web_search_handler if it exists
+                if web_search_results.get('system_instruction'):
+                    messages.append(SystemMessage(
+                        content=web_search_results['system_instruction']))
+                    logging.debug(
+                        "Added system instruction from web_search_handler.")
+            else:
+                logging.warning(
+                    f"Web search results present but status is not 'success' or 'error': {web_search_results.get('status')}")
+                # Fallback to original query if status is unexpected
+
+        # <<< END MODIFIED SECTION >>>
 
         # Add chat history
         session_id = state['session_id']
@@ -515,9 +555,11 @@ EXAMPLES:
         # Construct the final query message
         if state.get('use_vision', False) and state.get('image_data'):
             # Direct multimodal message
-            query_text_part = updated_state['query']
+            query_text_part = final_query_text  # Use the potentially modified query text
             if 'selected_text' in state:
-                query_text_part = f"{updated_state['query']}\n\nText context: {state['selected_text']}"
+                # Append selected text if NOT already included via web search block
+                if "=====SELECTED_TEXT=====" not in query_text_part:
+                    query_text_part += f"\n\nText context: {state['selected_text']}"
 
             # Ensure base64 data is clean
             image_data = state['image_data']
@@ -534,16 +576,15 @@ EXAMPLES:
             query_message = HumanMessage(content=content_blocks)
         else:
             # Text-only message
-            final_query_text = updated_state['query']
-
-            # Append selected text if present
-            if 'selected_text' in state:
-                final_query_text += f"\n\n=====SELECTED_TEXT=====<text selected by the user>\n{state['selected_text']}\n======================="
+            # Append selected text if present AND not already added
+            if 'selected_text' in state and state['selected_text']:
+                # Check if it was already added by web search/scrape context or similar
+                if "=====SELECTED_TEXT=====" not in final_query_text:
+                    final_query_text += f"\n\n=====SELECTED_TEXT=====<text selected by the user>\n{state['selected_text']}\n======================="
 
             # Append vision description if available
             if state.get('vision_description'):
                 final_query_text += f"\n\n=====VISUAL_DESCRIPTION=====<description generated by vision model>\n{state['vision_description']}\n======================="
-
             query_message = HumanMessage(content=final_query_text)
 
         # Add the query message to the list
@@ -551,6 +592,7 @@ EXAMPLES:
 
         # Save the prepared messages
         updated_state['messages'] = messages
+        logging.debug(f"Prepared messages: {messages}")
 
         return updated_state
 
@@ -652,23 +694,45 @@ EXAMPLES:
         return response, None
 
     def _build_graph(self):
-        """Build the LangGraph processing graph."""
+        """Build the LangGraph processing graph with conditional web search."""
         # Create the state graph
         graph = StateGraph(GraphState)
 
         # Add nodes
         graph.add_node("initialize", self.initialize_state)
         graph.add_node("parse_query", self.parse_query)
+        graph.add_node("web_search", self.web_search)
         graph.add_node("prepare_messages", self.prepare_messages)
         graph.add_node("generate_response", self.generate_response)
 
         # Add edges
         graph.add_edge(START, "initialize")
         graph.add_edge("initialize", "parse_query")
-        graph.add_edge("parse_query", "prepare_messages")
+
+        # <<< CONDITIONAL EDGE >>>
+        graph.add_conditional_edges(
+            "parse_query",
+            # Function to decide route: checks 'use_web_search' flag in state
+            lambda state: "web_search" if state.get(
+                "use_web_search", False) else "prepare_messages",
+            # Mapping: route name to destination node
+            {
+                "web_search": "web_search",
+                "prepare_messages": "prepare_messages"
+            }
+        )
+
+        # Edge from web_search (if taken) to prepare_messages
+        graph.add_edge("web_search", "prepare_messages")
+        # <<< END CONDITIONAL EDGE >>>
+
+        # Remaining edges
         graph.add_edge("prepare_messages", "generate_response")
         graph.add_edge("generate_response", END)
 
+        # Return the uncompiled graph definition
+        logging.info(
+            "LangGraph graph definition built successfully with conditional web search.")
         return graph
 
     async def get_response_async(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default") -> str:
@@ -731,24 +795,53 @@ EXAMPLES:
                 callback("<COMPLETE>")
                 return error_msg
 
-            # Run the graph without generate_response to prepare messages
+            # --- CORRECTED Partial Graph for Streaming --- START ---
+            # Run the graph up to prepare_messages to get the context, including web search
             partial_graph = StateGraph(GraphState)
             partial_graph.add_node("initialize", self.initialize_state)
             partial_graph.add_node("parse_query", self.parse_query)
+            # Add the web_search node
+            partial_graph.add_node("web_search", self.web_search)
             partial_graph.add_node("prepare_messages", self.prepare_messages)
+
             partial_graph.add_edge(START, "initialize")
             partial_graph.add_edge("initialize", "parse_query")
-            partial_graph.add_edge("parse_query", "prepare_messages")
+
+            # Add the same conditional logic as the main graph
+            partial_graph.add_conditional_edges(
+                "parse_query",
+                lambda state: "web_search" if state.get(
+                    "use_web_search", False) else "prepare_messages",
+                {
+                    "web_search": "web_search",
+                    "prepare_messages": "prepare_messages"
+                }
+            )
+            # Add edge from web_search to prepare_messages
+            partial_graph.add_edge("web_search", "prepare_messages")
+
+            # End the partial graph after prepare_messages
             partial_graph.add_edge("prepare_messages", END)
+            # --- CORRECTED Partial Graph for Streaming --- END ----
 
             partial_app = partial_graph.compile()
+            prepared_state = None  # Initialize prepared_state
             try:
-                # Pass the state including the potentially updated model_name
+                # Pass the state including the potentially updated model_name and llm_instance
                 prepared_state = await partial_app.ainvoke(state)
             except Exception as graph_err:
                 logging.error(
                     f"Error running partial graph for streaming: {graph_err}", exc_info=True)
                 error_msg = f"⚠️ Error preparing messages: {graph_err}"
+                callback(error_msg)
+                callback("<COMPLETE>")
+                return error_msg
+
+            # Ensure prepared_state is valid before proceeding
+            if not prepared_state or 'messages' not in prepared_state:
+                logging.error(
+                    "Partial graph execution failed to produce prepared_state with messages.")
+                error_msg = "⚠️ Internal error: Failed to prepare context for streaming."
                 callback(error_msg)
                 callback("<COMPLETE>")
                 return error_msg

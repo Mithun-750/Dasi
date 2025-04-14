@@ -878,7 +878,7 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
 
     def scrape_content(self, urls: List[str]) -> List[Document]:
         """
-        Scrape content from the provided URLs.
+        Scrape content from the provided URLs, stripping URL fragments.
 
         Args:
             urls: List of URLs to scrape
@@ -886,6 +886,8 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
         Returns:
             List of Document objects containing the scraped content
         """
+        import urllib.parse
+
         documents = []
 
         # Limit the number of URLs to scrape to avoid hanging
@@ -893,7 +895,24 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
             'web_search', 'max_scrape_urls', default=5)
         urls = urls[:max_urls]
 
-        for url in urls:
+        for raw_url in urls:
+            # --- NEW: Strip fragment from URL --- START ---
+            try:
+                parsed_url = urllib.parse.urlparse(raw_url)
+                # Reconstruct URL without the fragment
+                url = urllib.parse.urlunparse(
+                    (parsed_url.scheme, parsed_url.netloc, parsed_url.path,
+                     parsed_url.params, parsed_url.query, '')  # Empty fragment
+                )
+                if raw_url != url:
+                    logging.info(
+                        f"Stripped fragment from URL: '{raw_url}' -> '{url}'")
+            except Exception as parse_err:
+                logging.error(
+                    f"Failed to parse or strip fragment from URL '{raw_url}': {parse_err}. Using raw URL.")
+                url = raw_url  # Fallback to raw URL if parsing fails
+            # --- NEW: Strip fragment from URL --- END ----
+
             # Check if cancellation was requested between URL scraping
             if self._cancellation_requested:
                 logging.info(
@@ -919,12 +938,14 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
                             from bs4 import BeautifulSoup
 
                             # Use a timeout to avoid hanging
+                            # Use the processed URL (fragment stripped)
                             logging.info(
                                 f"Scraping content from {url} with timeout")
                             headers = {
                                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                             }
                             # Increased from 10 to 20 seconds
+                            # Use the processed URL (fragment stripped)
                             response = requests.get(
                                 url, headers=headers, timeout=20)
 
@@ -952,6 +973,7 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
 
                             # Create a document
                             from langchain_core.documents import Document
+                            # Use the processed URL (fragment stripped) in metadata
                             doc = Document(page_content=content,
                                            metadata={"source": url})
                             website_doc = doc
@@ -962,10 +984,19 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
                             # Fall back to WebBaseLoader if requests/BS4 approach fails
                             logging.warning(
                                 f"Falling back to WebBaseLoader for {url}: {str(e)}")
+                            # Use the processed URL (fragment stripped)
                             loader = WebBaseLoader(url)
                             docs = loader.load()
                             if docs:
                                 website_doc = docs[0]
+                                # Ensure source metadata uses the cleaned URL
+                                if 'source' not in website_doc.metadata:
+                                    website_doc.metadata['source'] = url
+                                elif website_doc.metadata['source'] != url:
+                                    logging.info(
+                                        f"Updating WebBaseLoader metadata source to cleaned URL: {url}")
+                                    website_doc.metadata['source'] = url
+
                             logging.info(
                                 f"Successfully scraped content from {url} using WebBaseLoader")
 
