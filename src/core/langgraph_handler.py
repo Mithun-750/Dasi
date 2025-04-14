@@ -735,192 +735,259 @@ EXAMPLES:
             "LangGraph graph definition built successfully with conditional web search.")
         return graph
 
-    async def get_response_async(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default") -> str:
-        """Get response from LLM for the given query with optional streaming (async version)."""
-        # Initialize state
-        state = {
-            "query": query,
-            "session_id": session_id,
-            "model_name": model,  # Store the requested model name in the state
-        }
-
-        # --- Ensure the correct LLM is initialized --- START ---
-        needs_reinit = False
-        if model:
-            current_model_id = None
-            if self.llm:
-                if hasattr(self.llm, 'model'):
-                    current_model_id = self.llm.model
-                elif hasattr(self.llm, 'model_name'):
-                    current_model_id = self.llm.model_name
-
-            if not self.llm or (current_model_id and current_model_id != model):
-                logging.info(
-                    f"Switching LLM: current={current_model_id}, requested={model}")
-                needs_reinit = True
-            elif not current_model_id:
-                # If self.llm exists but we couldn't get its ID, re-initialize to be safe
-                logging.warning(
-                    "Could not determine current LLM model ID. Re-initializing.")
-                needs_reinit = True
-        elif not self.llm:
-            # If no specific model requested, but no LLM is active, initialize default
-            logging.info(
-                "No specific model requested and no LLM active. Initializing default.")
-            needs_reinit = True
-
-        if needs_reinit:
-            if not self.initialize_llm(model_name=model):
-                error_msg = "⚠️ Failed to initialize the requested model. Please check settings."
-                if not model:
-                    error_msg = "⚠️ Failed to initialize default model. Please check settings."
-                # Emit error through callback if streaming, otherwise return directly
-                if callback:
-                    callback(error_msg)
-                    # Signal streaming completion even on error
-                    callback("<COMPLETE>")
-                return error_msg
-        # --- Ensure the correct LLM is initialized --- END ---
-
-        # Add the potentially re-initialized LLM instance to the state
-        state['llm_instance'] = self.llm
-
-        # If callback is provided, we need to handle streaming
-        if callback:
-            # Use the currently initialized self.llm for streaming
-            if not self.llm:
-                # This should ideally not happen after the check above, but as a failsafe
-                error_msg = "⚠️ LLM could not be initialized for streaming."
-                callback(error_msg)
-                callback("<COMPLETE>")
-                return error_msg
-
-            # --- CORRECTED Partial Graph for Streaming --- START ---
-            # Run the graph up to prepare_messages to get the context, including web search
-            partial_graph = StateGraph(GraphState)
-            partial_graph.add_node("initialize", self.initialize_state)
-            partial_graph.add_node("parse_query", self.parse_query)
-            # Add the web_search node
-            partial_graph.add_node("web_search", self.web_search)
-            partial_graph.add_node("prepare_messages", self.prepare_messages)
-
-            partial_graph.add_edge(START, "initialize")
-            partial_graph.add_edge("initialize", "parse_query")
-
-            # Add the same conditional logic as the main graph
-            partial_graph.add_conditional_edges(
-                "parse_query",
-                lambda state: "web_search" if state.get(
-                    "use_web_search", False) else "prepare_messages",
-                {
-                    "web_search": "web_search",
-                    "prepare_messages": "prepare_messages"
-                }
-            )
-            # Add edge from web_search to prepare_messages
-            partial_graph.add_edge("web_search", "prepare_messages")
-
-            # End the partial graph after prepare_messages
-            partial_graph.add_edge("prepare_messages", END)
-            # --- CORRECTED Partial Graph for Streaming --- END ----
-
-            partial_app = partial_graph.compile()
-            prepared_state = None  # Initialize prepared_state
-            try:
-                # Pass the state including the potentially updated model_name and llm_instance
-                prepared_state = await partial_app.ainvoke(state)
-            except Exception as graph_err:
-                logging.error(
-                    f"Error running partial graph for streaming: {graph_err}", exc_info=True)
-                error_msg = f"⚠️ Error preparing messages: {graph_err}"
-                callback(error_msg)
-                callback("<COMPLETE>")
-                return error_msg
-
-            # Ensure prepared_state is valid before proceeding
-            if not prepared_state or 'messages' not in prepared_state:
-                logging.error(
-                    "Partial graph execution failed to produce prepared_state with messages.")
-                error_msg = "⚠️ Internal error: Failed to prepare context for streaming."
-                callback(error_msg)
-                callback("<COMPLETE>")
-                return error_msg
-
-            # Stream the response using the ensured self.llm
-            response_content = []
-            try:
-                async for chunk in self.llm.astream(prepared_state['messages']):
-                    if chunk.content:
-                        response_content.append(chunk.content)
-                        callback(''.join(response_content))
-            except Exception as stream_err:
-                logging.error(
-                    f"Error during LLM stream: {stream_err}", exc_info=True)
-                # Send error message via callback if streaming fails
-                error_msg = f"⚠️ Streaming Error: {stream_err}"
-                callback(error_msg)
-                # Ensure stream completion signal is sent
-                callback("<COMPLETE>")
-                # We might have partial content, decide if we should return it or just the error
-                # For now, just return the error message
-                return error_msg  # Stop further processing
-
-            # Get the complete response
-            final_response = ''.join(response_content)
-
-            # Process the response based on mode
-            is_compose_mode = (prepared_state['mode'] == 'compose')
-            if is_compose_mode:
-                final_response, detected_language = self._extract_code_block(
-                    final_response)
-                self.detected_language = detected_language
-
-            # Add to chat history
-            message_history = self._get_message_history(session_id)
-            # Ensure we add the correct query message (last one from prepared state)
-            if prepared_state.get('messages'):
-                message_history.add_message(prepared_state['messages'][-1])
-            message_history.add_message(AIMessage(content=final_response))
-
-            # Signal completion via callback
-            callback("<COMPLETE>")
-            return final_response  # Return the final streamed response
-        else:
-            # Non-streaming: Run the full graph
-            # The graph's generate_response node will use the self.llm instance
-            # which we ensured is the correct one at the beginning of this method.
-            try:
-                result = await self.app.ainvoke(state)
-                return result['response']
-            except Exception as graph_err:
-                logging.error(
-                    f"Error running full graph: {graph_err}", exc_info=True)
-                return f"⚠️ Graph Error: {graph_err}"
-
-    def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default") -> str:
-        """Synchronous wrapper for get_response_async using asyncio.run().
-        nest_asyncio is applied globally to handle potential nested loop scenarios.
+    async def get_response_async(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default", selected_text: str = None, mode: str = "chat", image_data: Optional[str] = None) -> str:
         """
-        # Ensure nest_asyncio is applied (done globally now)
-        # import nest_asyncio
-        # nest_asyncio.apply()
+        Process a query asynchronously using the LangGraph application and stream the response.
 
+        Args:
+            query: The user's query.
+            callback: Optional callback function to receive streamed chunks.
+            model: Optional specific model ID to use.
+            session_id: The session ID for maintaining chat history.
+            selected_text: Optional selected text from the user's environment.
+            mode: The interaction mode ("chat" or "compose").
+            image_data: Optional base64 encoded image data for vision models.
+
+        Returns:
+            The complete response string.
+        """
         try:
-            # asyncio.run handles loop creation, execution, and cleanup.
-            return asyncio.run(self.get_response_async(query, callback, model, session_id))
-        except Exception as e:
-            # Log the specific error encountered during the async execution
-            logging.error(
-                f"Error running get_response_async via asyncio.run: {str(e)}", exc_info=True)
-            # Check if the error is the 'different loop' error and provide a more specific message
+            loop = asyncio.get_event_loop()  # Get the current event loop
+            logging.info(
+                f"get_response_async called with model: {model}, session_id: {session_id}, mode: {mode}")
+
+            # --- Initialize LLM based on model (or default) ---
+            if model:
+                selected_models = self.settings.get_selected_models()
+                model_info = next(
+                    (m for m in selected_models if m.get('id') == model), None)
+                if not model_info:
+                    logging.error(
+                        f"Model '{model}' not found. Falling back to default.")
+                    # Fallback to default if specific model not found/initialized
+                    if not self.initialize_llm():
+                        raise ValueError("Failed to initialize default LLM.")
+                else:
+                    if not self.initialize_llm(model_name=model, model_info=model_info):
+                        raise ValueError(
+                            f"Failed to initialize LLM for model: {model}")
+            elif not self.llm:  # Initialize default if no LLM exists
+                if not self.initialize_llm():
+                    raise ValueError(
+                        "LLM is not initialized and default failed.")
+            # --- LLM Initialization END ---
+
+            # Prepare initial state
+            initial_state = GraphState(
+                query=query,
+                session_id=session_id,
+                selected_text=selected_text,
+                mode=mode,
+                image_data=image_data,
+                model_name=model if model else getattr(self.llm, 'model_name', None) or getattr(
+                    self.llm, 'model', 'unknown'),  # Use actual model name
+                messages=[],
+                use_web_search=False,
+                web_search_query=None,
+                web_search_results=None,
+                use_vision=bool(image_data),
+                vision_description=None,
+                llm_instance=self.llm,  # Pass the initialized LLM instance
+                response="",
+                detected_language=None
+            )
+
+            # Prepare configuration for the specific session
+            config = {"configurable": {"session_id": session_id}}
+
+            full_response = ""
+            stream = self.app.astream(initial_state, config=config)
+
+            # --- Stream Processing ---
+            # Run the streaming part explicitly in the current loop
+            stream_task = loop.create_task(
+                self._process_stream(stream, callback))
+            await stream_task  # Wait for the streaming task to complete
+
+            # The final state should contain the complete response after streaming
+            # However, LangGraph streaming might not update the final state directly in the iterator
+            # We accumulate the response via the callback or within _process_stream
+            # Let's retrieve the final state to check if 'response' is updated
+            # Note: This might require adjustments based on LangGraph's async streaming behavior
+
+            # It seems LangGraph's astream might yield intermediate states.
+            # Let's try getting the final accumulated response from the task result.
+            final_response_from_task = stream_task.result()
+            if final_response_from_task:
+                full_response = final_response_from_task
+            else:
+                # Fallback or alternative way to get the final state if needed
+                # This part might be complex depending on how LangGraph manages state in async streams
+                logging.warning(
+                    "Could not retrieve final response from stream task result. Accumulated response might be incomplete.")
+                # We rely on the callback having accumulated the full_response if the task doesn't return it
+
+            logging.info(
+                f"Final response for session {session_id}: {full_response[:100]}...")
+            return full_response
+
+        except RuntimeError as e:
+            # Catch the specific loop error
             if "attached to a different loop" in str(e):
                 logging.error(
-                    "Detected 'different loop' error. This might indicate issues with nested asyncio calls or library interactions.")
-                # Provide a user-friendly error message if possible
-                # callback(f"⚠️ Async Loop Error: {str(e)}") # Optionally send to callback
-                return "⚠️ Async Loop Error: Could not process request due to conflicting event loops."
-            # callback(f"⚠️ Error: {str(e)}") # Optionally send generic error to callback
-            return f"⚠️ Error: {str(e)}"
+                    f"Caught asyncio loop error: {e}. This might indicate an issue with nest_asyncio or thread interaction.")
+                # Potentially re-raise or handle differently if needed
+                raise e  # Re-raise for now
+            else:
+                logging.error(f"Runtime error during async response: {e}")
+                raise e
+        except Exception as e:
+            logging.exception(
+                f"Error during async LLM stream for session {session_id}: {e}")
+            # Ensure callback is called with error if provided
+            if callback:
+                try:
+                    callback(f"Error: {e}")
+                except Exception as cb_err:
+                    logging.error(
+                        f"Error calling callback with error message: {cb_err}")
+            raise  # Re-raise the exception after logging
+
+    async def _process_stream(self, stream, callback: Optional[Callable[[str], None]] = None) -> str:
+        """Helper coroutine to process the LangGraph stream and call the callback."""
+        full_response = ""
+        try:
+            async for event in stream:
+                # Determine the type of event and extract relevant data
+                # LangGraph streams yield dictionaries where keys are node names
+                # and values are the outputs of those nodes (or the state itself)
+                logging.debug(f"Stream event: {event}")
+
+                # Check if the event contains the final response or intermediate steps
+                # Adjust this logic based on your graph structure and node names
+                response_chunk = None
+
+                # Look for response chunks in the event data
+                # This depends heavily on your graph structure and node names
+                for node_name, node_output in event.items():
+                    if isinstance(node_output, dict):
+                        # Check common places for response chunks
+                        if "response" in node_output and isinstance(node_output["response"], str):
+                            # Check if it's an update to the final response
+                            if node_output["response"] != full_response:
+                                new_part = node_output["response"][len(
+                                    full_response):]
+                                if new_part:
+                                    response_chunk = new_part
+                                    # Update tracked full response
+                                    full_response = node_output["response"]
+                                    break  # Found response chunk in this node output
+                        elif "messages" in node_output and isinstance(node_output["messages"], list):
+                            # Check the last message if it's an AIMessage chunk
+                            if node_output["messages"]:
+                                last_message = node_output["messages"][-1]
+                                if isinstance(last_message, AIMessage) and isinstance(last_message.content, str):
+                                    # Check if it's a new chunk added to the last AI message
+                                    # This logic assumes streaming updates the content of the last message
+                                    current_ai_content = last_message.content
+                                    # Find the previous AI message content to diff (more complex state needed)
+                                    # Simple approach: assume any AI message content is part of the stream
+                                    # This might repeat content if the full message is sent multiple times
+                                    # A better approach relies on LangChain's streaming format if available directly
+                                    # Let's assume the 'generate_response' node output might be the direct chunk
+                                    pass  # Avoid complex message diffing for now
+
+                # Specific check for the likely response generation node
+                # Replace 'generate_response_node_name' with the actual name of your LLM call node
+                generate_node_name = "generate_response"  # Assuming this is the node name
+                if generate_node_name in event:
+                    node_output = event[generate_node_name]
+                    if isinstance(node_output, dict) and "response" in node_output:
+                        if node_output["response"] != full_response:
+                            new_part = node_output["response"][len(
+                                full_response):]
+                            if new_part:
+                                response_chunk = new_part
+                                full_response = node_output["response"]
+
+                # Fallback: If the event itself is a string (less likely with LangGraph state)
+                elif isinstance(event, str):
+                    response_chunk = event
+
+                # If a chunk was identified, process and callback
+                if response_chunk:
+                    # full_response += response_chunk # Accumulate only if chunk represents new part
+                    if callback:
+                        try:
+                            # Ensure callback runs in the correct context if needed
+                            # loop = asyncio.get_running_loop()
+                            # loop.call_soon_threadsafe(callback, response_chunk) # If callback needs main thread
+                            # Direct call if callback is thread-safe/async-safe
+                            callback(response_chunk)
+                        except Exception as cb_err:
+                            logging.error(
+                                f"Error in stream callback: {cb_err}")
+
+            logging.debug("Stream finished.")
+            return full_response
+        except Exception as e:
+            logging.exception(f"Error processing LLM stream: {e}")
+            if callback:
+                try:
+                    callback(f"Error during streaming: {e}")
+                except Exception as cb_err:
+                    logging.error(
+                        f"Error calling callback with stream error message: {cb_err}")
+            return full_response  # Return whatever was accumulated before the error
+
+    def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default", selected_text: str = None, mode: str = "chat", image_data: Optional[str] = None) -> str:
+        """Synchronous wrapper for get_response_async."""
+        try:
+            # Get the current running event loop or create a new one if none exists
+            # This is important when calling from a synchronous context (like Qt signal handlers)
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If a loop is already running (e.g., from nest_asyncio), create a future
+                # and run the coroutine within that loop.
+                future = asyncio.ensure_future(
+                    self.get_response_async(
+                        query, callback, model, session_id, selected_text, mode, image_data)
+                )
+                # This part is tricky. Blocking here might freeze the UI if called from the main thread.
+                # Consider running this in a separate thread if blocking is an issue.
+                # For now, let's assume nest_asyncio handles the blocking correctly.
+                return loop.run_until_complete(future)
+            else:
+                # If no loop is running, asyncio.run can be used (but nest_asyncio should make this rare)
+                return asyncio.run(
+                    self.get_response_async(
+                        query, callback, model, session_id, selected_text, mode, image_data)
+                )
+        except RuntimeError as e:
+            if "cannot run nested event loops" in str(e) or "cannot schedule new futures after shutdown" in str(e):
+                # This might happen if nest_asyncio isn't working as expected or due to shutdown sequences
+                logging.error(
+                    f"Caught common asyncio runtime error: {e}. Trying fallback loop management.")
+                # Fallback: try creating a new loop specifically for this call (might have side effects)
+                try:
+                    return asyncio.run(
+                        self.get_response_async(
+                            query, callback, model, session_id, selected_text, mode, image_data)
+                    )
+                except Exception as fallback_e:
+                    logging.error(
+                        f"Fallback asyncio.run also failed: {fallback_e}")
+                    raise fallback_e from e
+            elif "attached to a different loop" in str(e):
+                logging.error(
+                    f"Caught asyncio loop error: {e}. This might indicate an issue with nest_asyncio or thread interaction.")
+                raise e
+            else:
+                logging.error(f"Runtime error during sync wrapper: {e}")
+                raise e
+        except Exception as e:
+            logging.exception(f"Error in get_response sync wrapper: {e}")
+            raise
 
     def suggest_filename(self, content: str, session_id: str = "default") -> str:
         """Suggest a filename based on content and recent query history."""
