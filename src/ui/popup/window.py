@@ -409,17 +409,21 @@ class DasiWindow(QWidget):
             # Build context dictionary
             context = self.input_panel.get_context()
 
-            # Format query with context
-            if context:
-                full_query = "Context:\n"
-                if 'selected_text' in context:
-                    full_query += f"=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n=======================\n\n"
-                if 'image_data' in context:
-                    full_query += f"=====IMAGE_DATA=====\n{context['image_data']}\n=======================\n\n"
-                full_query += f"=====MODE=====<user selected mode>\n{context['mode']}\n=======================\n\n"
-                full_query += f"Query:\n{query}"
-            else:
-                full_query = query
+            # Format query with context (except image_data)
+            full_query = "Context:\n"
+            if 'selected_text' in context:
+                full_query += f"=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n=======================\n\n"
+
+            # CHANGE: Don't include image_data in the query text!
+            # Instead, extract it for direct passing to the worker
+            image_data = None
+            if 'image_data' in context:
+                image_data = context['image_data']
+                # Add a note about image presence but don't include the actual base64 data
+                full_query += f"=====IMAGE=====<image data is attached separately>\n=====================\n\n"
+
+            full_query += f"=====MODE=====<user selected mode>\n{context['mode']}\n=======================\n\n"
+            full_query += f"Query:\n{query}"
 
             # Get model ID from the model_info parameter
             model = None
@@ -429,7 +433,7 @@ class DasiWindow(QWidget):
 
             # Process query in background with session ID
             self.worker = QueryWorker(
-                self.process_query, full_query, self.signals, model, self.session_id)
+                self.process_query, full_query, self.signals, model, self.session_id, image_data)
             self.worker.start()
 
     def _reset_ui_after_stop(self):

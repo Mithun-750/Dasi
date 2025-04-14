@@ -5,6 +5,7 @@ import operator
 from pathlib import Path
 import asyncio
 import nest_asyncio
+import re  # Import re for _extract_code_block
 
 # LangChain imports
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -307,10 +308,13 @@ class LangGraphHandler:
 
     def parse_query(self, state: GraphState) -> GraphState:
         """Parse query for mode, image, web search triggers, and selected text."""
+        logging.info("Entering parse_query node")
         updated_state = state.copy()
         query = updated_state['query']
         image_data = updated_state.get('image_data')
         selected_text = updated_state.get('selected_text')
+        logging.debug(
+            f"Inside parse_query: query='{query[:50]}...', has_image_data={image_data is not None}")
 
         # Default flags
         updated_state['use_vision'] = bool(image_data)
@@ -353,7 +357,9 @@ class LangGraphHandler:
 
         if not updated_state.get('use_web_search', False):
             logging.debug("Skipping web search - use_web_search is false.")
-            return updated_state  # Should not happen due to conditional edge, but safe check
+            # Ensure flag is false if somehow reached here erroneously
+            updated_state['use_web_search'] = False
+            return updated_state
 
         selected_text = updated_state.get('selected_text')
 
@@ -389,8 +395,59 @@ class LangGraphHandler:
 
         return updated_state
 
+    def vision_processing(self, state: GraphState) -> GraphState:
+        """Process image data using the VisionHandler if needed."""
+        updated_state = state.copy()
+        logging.info("Entering vision_processing node")
+        use_vis = updated_state.get('use_vision')
+        has_img = updated_state.get('image_data') is not None
+        logging.debug(
+            f"Inside vision_processing: use_vision={use_vis}, has_image={has_img}")
+
+        if not use_vis or not has_img:
+            logging.debug(
+                "Skipping vision processing - use_vision is false or no image data.")
+            # Ensure flag is false if state is inconsistent
+            updated_state['use_vision'] = False
+            return updated_state
+
+        try:
+            logging.info("Calling VisionHandler to get visual description.")
+            description = self.vision_handler.get_visual_description(
+                image_data_base64=updated_state['image_data'],
+                # Use original query as hint
+                prompt_hint=updated_state['query']
+            )
+
+            if description:
+                # Vision model processed the image and returned a description
+                updated_state['vision_description'] = description
+                logging.info("Vision description generated successfully.")
+                # If we have a description, then the main model shouldn't get the image
+                updated_state['use_vision'] = True
+            else:
+                # Check if vision model is not configured
+                if not self.vision_handler.has_vision_model_configured():
+                    logging.info(
+                        "No vision model configured - passing image to main model")
+                    # Keep use_vision=True so the image is passed to the main model
+                    updated_state['vision_description'] = None
+                else:
+                    # Vision model failed to generate a description
+                    logging.warning("VisionHandler returned no description.")
+                    # Add a system note later in prepare_messages if description failed
+                    updated_state['vision_description'] = None
+        except Exception as e:
+            logging.error(
+                f"Error during vision processing: {str(e)}", exc_info=True)
+            # Add a system note later in prepare_messages
+            # Explicitly set to None
+            updated_state['vision_description'] = None
+
+        return updated_state
+
     def prepare_messages(self, state: GraphState) -> GraphState:
-        """Prepare the messages list for the LLM, incorporating web results if available."""
+        """Prepare the messages list for the LLM, incorporating web results and vision description."""
         updated_state = state.copy()
         logging.info("Entering prepare_messages node")
 
@@ -468,74 +525,55 @@ class LangGraphHandler:
 
         messages.extend(typed_history)
 
-        # Handle vision processing if needed
-        if state.get('use_vision', False) and state.get('image_data'):
-            # Get vision model info
-            vision_model_info = self.settings.get_vision_model_info()
-            current_model_info = None
+        # Start constructing the final query content
+        # Already contains web results if applicable
+        final_query_content = final_query_text
 
-            # Try to determine current model info
-            model_name = state.get('model_name')
-            if model_name:
-                selected_models = self.settings.get_selected_models()
-                current_model_info = next(
-                    (m for m in selected_models if m['id'] == model_name), None)
+        # Append selected text if present AND not already added via web blocks
+        if state.get('selected_text') and "=====SELECTED_TEXT=====" not in final_query_content:
+            final_query_content += f"\\n\\n=====SELECTED_TEXT=====<text selected by the user>\\n{state['selected_text']}\\n======================="
 
-            use_vision_handler = False
-            if vision_model_info and isinstance(vision_model_info, dict) and current_model_info and isinstance(current_model_info, dict):
-                if vision_model_info.get('id') != current_model_info.get('id'):
-                    use_vision_handler = True
+        # Determine final message type based on image and vision description
+        image_data = state.get('image_data')
+        vision_description = state.get('vision_description')
+        is_vision_model_configured = self.vision_handler.has_vision_model_configured()
 
-            if use_vision_handler:
-                # Generate visual description using VisionHandler
-                description = self.vision_handler.get_visual_description(
-                    image_data_base64=state['image_data'],
-                    prompt_hint=state['query']
-                )
-                if description:
-                    updated_state['vision_description'] = description
-                    # Don't use direct vision now
-                    updated_state['use_vision'] = False
-                else:
-                    updated_state['query'] += "\n\n=====SYSTEM_NOTE=====\n(Failed to process the provided visual input.)\n====================="
-                    updated_state['use_vision'] = False
+        if vision_description:
+            # Case 1: Vision model success - Append description, send text-only
+            logging.info(
+                "Vision description present. Appending to text query.")
+            final_query_content += f"\\n\\n=====VISUAL_DESCRIPTION=====<description generated by vision model>\\n{vision_description}\\n======================="
+            query_message = HumanMessage(content=final_query_content)
 
-        # Construct the final query message
-        if state.get('use_vision', False) and state.get('image_data'):
-            # Direct multimodal message
-            query_text_part = final_query_text  # Use the potentially modified query text
-            if 'selected_text' in state:
-                # Append selected text if NOT already included via web search block
-                if "=====SELECTED_TEXT=====" not in query_text_part:
-                    query_text_part += f"\n\nText context: {state['selected_text']}"
-
-            # Ensure base64 data is clean
-            image_data = state['image_data']
-            if image_data.startswith('data:'):
-                image_data = image_data.split(',', 1)[-1]
-
-            content_blocks = [
-                {"type": "text", "text": query_text_part},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{image_data}"}
-                }
-            ]
-            query_message = HumanMessage(content=content_blocks)
+        elif image_data:
+            # Image present, but no description generated
+            if is_vision_model_configured:
+                # Case 3: Vision model configured but failed - Send text-only with error note
+                logging.warning(
+                    "Image present, vision model configured but failed. Adding system note.")
+                final_query_content += "\\n\\n=====SYSTEM_NOTE=====\\n(Failed to process the provided visual input using the configured vision model.)\\n====================="
+                query_message = HumanMessage(content=final_query_content)
+            else:
+                # Case 2: No vision model configured - Send multimodal message
+                logging.info(
+                    "Image present, no vision model configured. Constructing multimodal message.")
+                # Clean base64 data
+                if image_data.startswith('data:'):
+                    image_data = image_data.split(',', 1)[-1]
+                content_blocks = [
+                    {"type": "text", "text": final_query_content},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{image_data}"}
+                    }
+                ]
+                query_message = HumanMessage(content=content_blocks)
         else:
-            # Text-only message
-            # Append selected text if present AND not already added
-            if 'selected_text' in state and state['selected_text']:
-                # Check if it was already added by web search/scrape context or similar
-                if "=====SELECTED_TEXT=====" not in final_query_text:
-                    final_query_text += f"\n\n=====SELECTED_TEXT=====<text selected by the user>\n{state['selected_text']}\n======================="
+            # Case 4: No image data - Send text-only
+            logging.info("No image data. Constructing text-only message.")
+            query_message = HumanMessage(content=final_query_content)
 
-            # Append vision description if available
-            if state.get('vision_description'):
-                final_query_text += f"\n\n=====VISUAL_DESCRIPTION=====<description generated by vision model>\n{state['vision_description']}\n======================="
-            query_message = HumanMessage(content=final_query_text)
-
-        # Add the query message to the list
+        # Add the final prepared query message to the list
         messages.append(query_message)
 
         # Save the prepared messages
@@ -610,8 +648,6 @@ class LangGraphHandler:
 
     def _extract_code_block(self, response: str):
         """Extract code blocks from response text."""
-        import re
-
         # Strip whitespace for more reliable pattern matching
         stripped_response = response.strip()
 
@@ -642,7 +678,7 @@ class LangGraphHandler:
         return response, None
 
     def _build_graph(self):
-        """Build the LangGraph processing graph with conditional web search."""
+        """Build the LangGraph processing graph with conditional web search and vision processing."""
         # Create the state graph
         graph = StateGraph(GraphState)
 
@@ -650,6 +686,8 @@ class LangGraphHandler:
         graph.add_node("initialize", self.initialize_state)
         graph.add_node("parse_query", self.parse_query)
         graph.add_node("web_search", self.web_search)
+        graph.add_node("vision_processing",
+                       self.vision_processing)  # Added node
         graph.add_node("prepare_messages", self.prepare_messages)
         graph.add_node("generate_response", self.generate_response)
 
@@ -657,22 +695,75 @@ class LangGraphHandler:
         graph.add_edge(START, "initialize")
         graph.add_edge("initialize", "parse_query")
 
-        # <<< CONDITIONAL EDGE >>>
+        # --- Conditional Routing ---
+
+        # Decision function after parse_query
+        def route_after_parse(state: GraphState):
+            use_web = state.get("use_web_search", False)
+            use_vis = state.get("use_vision", False)
+            has_img = state.get("image_data") is not None
+            logging.debug(
+                f"Routing decision (after parse): use_web={use_web}, use_vision={use_vis}, has_image={has_img}")
+
+            # First check if web search is needed
+            if use_web:
+                logging.debug("Routing from parse_query to web_search")
+                return "web_search"
+            # Then check if vision processing is needed AND a vision model is configured
+            elif use_vis and has_img and self.vision_handler.has_vision_model_configured():
+                logging.debug(
+                    "Routing from parse_query to vision_processing (vision model configured)")
+                return "vision_processing"
+            # If no vision model is configured but we have an image, route directly to prepare_messages
+            # The image will be passed directly to the main model
+            elif use_vis and has_img:
+                logging.debug(
+                    "Routing from parse_query directly to prepare_messages (no vision model configured)")
+                return "prepare_messages"
+            else:
+                logging.debug("Routing from parse_query to prepare_messages")
+                return "prepare_messages"
+
         graph.add_conditional_edges(
             "parse_query",
-            # Function to decide route: checks 'use_web_search' flag in state
-            lambda state: "web_search" if state.get(
-                "use_web_search", False) else "prepare_messages",
-            # Mapping: route name to destination node
+            route_after_parse,
             {
                 "web_search": "web_search",
+                "vision_processing": "vision_processing",
                 "prepare_messages": "prepare_messages"
             }
         )
 
-        # Edge from web_search (if taken) to prepare_messages
-        graph.add_edge("web_search", "prepare_messages")
-        # <<< END CONDITIONAL EDGE >>>
+        # Decision function after web_search
+        def route_after_web_search(state: GraphState):
+            # Check if vision processing is still needed after web search
+            use_vis = state.get("use_vision", False)
+            has_img = state.get("image_data") is not None
+            logging.debug(
+                f"Routing decision (after web_search): use_vision={use_vis}, has_image={has_img}")
+
+            # Only route to vision_processing if we have an image AND a vision model is configured
+            if use_vis and has_img and self.vision_handler.has_vision_model_configured():
+                logging.debug(
+                    "Routing from web_search to vision_processing (vision model configured)")
+                return "vision_processing"
+            else:
+                # If no vision model configured but we have an image, route directly to prepare_messages
+                # The image will be passed directly to the main model (if the model supports it)
+                logging.debug("Routing from web_search to prepare_messages")
+                return "prepare_messages"
+
+        graph.add_conditional_edges(
+            "web_search",
+            route_after_web_search,
+            {
+                "vision_processing": "vision_processing",
+                "prepare_messages": "prepare_messages"
+            }
+        )
+
+        # Edge from vision_processing (if taken) to prepare_messages
+        graph.add_edge("vision_processing", "prepare_messages")
 
         # Remaining edges
         graph.add_edge("prepare_messages", "generate_response")
@@ -680,7 +771,7 @@ class LangGraphHandler:
 
         # Return the uncompiled graph definition
         logging.info(
-            "LangGraph graph definition built successfully with conditional web search.")
+            "LangGraph graph definition built successfully with conditional web search and vision processing.")
         return graph
 
     async def get_response_async(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default", selected_text: str = None, mode: str = "chat", image_data: Optional[str] = None) -> str:
@@ -700,6 +791,12 @@ class LangGraphHandler:
             The complete response string.
         """
         try:
+            logging.info(
+                f"get_response_async called: model={model}, session_id={session_id}, mode={mode}, has_image_data={image_data is not None}")
+            if image_data:
+                logging.debug(
+                    f"Image data received (first 50 chars): {image_data[:50]}...")
+
             loop = asyncio.get_event_loop()  # Get the current event loop
             logging.info(
                 f"get_response_async called with model: {model}, session_id: {session_id}, mode: {mode}")
@@ -850,15 +947,22 @@ class LangGraphHandler:
                 generate_node_name = "generate_response"  # Assuming this is the node name
                 if generate_node_name in event:
                     node_output = event[generate_node_name]
-                    if isinstance(node_output, dict) and "response" in node_output:
-                        if node_output["response"] != full_response:
-                            new_part = node_output["response"][len(
-                                full_response):]
+                    # Check if the output is directly the AIMessageChunk or similar streaming object
+                    if hasattr(node_output, 'content'):
+                        response_chunk = node_output.content
+                        if response_chunk:
+                            full_response += response_chunk  # Accumulate here if chunks are delta
+                    # Fallback check if node output is a dict containing the response
+                    elif isinstance(node_output, dict) and "response" in node_output:
+                        # This logic assumes the full response is sent each time, calculate delta
+                        current_full = node_output["response"]
+                        if isinstance(current_full, str) and current_full != full_response:
+                            new_part = current_full[len(full_response):]
                             if new_part:
                                 response_chunk = new_part
-                                full_response = node_output["response"]
+                                full_response = current_full  # Update tracked full response
 
-                # Fallback: If the event itself is a string (less likely with LangGraph state)
+                # Fallback: If the event itself is a string (less likely with LangGraph state updates)
                 elif isinstance(event, str):
                     response_chunk = event
 

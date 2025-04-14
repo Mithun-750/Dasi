@@ -29,6 +29,24 @@ class VisionHandler:
         self.vision_model_info = None
         self._is_initialized = False
 
+        # Connect to settings models_changed signal to reload vision model
+        self.settings.models_changed.connect(self.refresh_settings)
+
+        # Load initial model
+        self.refresh_settings()
+
+    def refresh_settings(self):
+        """Reload settings and vision model configuration."""
+        logging.info("Refreshing vision model settings")
+        # Clear current model to force reload on next use
+        self.vision_llm = None
+        self._is_initialized = False
+
+    def has_vision_model_configured(self) -> bool:
+        """Check if a vision model is configured in settings."""
+        model_info = self.settings.get_vision_model_info()
+        return model_info is not None and isinstance(model_info, dict) and bool(model_info.get('id'))
+
     def _initialize_vision_llm(self) -> bool:
         """Initialize the specific vision LLM based on settings. Returns True on success."""
         if self._is_initialized:  # Avoid re-initialization if already done
@@ -147,19 +165,37 @@ class VisionHandler:
         """
         Generates a detailed text description of the visual input using the configured vision model.
 
+        If no vision model is configured, returns None, indicating image should be passed directly
+        to the main model.
+
         Args:
             image_data_base64: The base64 encoded image data (without prefix).
             prompt_hint: Optional text from the user's query to guide the description focus.
 
         Returns:
-            A detailed text description of the visual input, or None if an error occurs.
+            A detailed text description of the visual input, or None if an error occurs or no vision model is configured.
         """
-        if not self._is_initialized:
-            logging.info("VisionHandler: First use, initializing vision LLM.")
-            if not self._initialize_vision_llm():
-                logging.error(
-                    "VisionHandler: Failed to initialize vision LLM for description.")
-                return None
+        # Check if a vision model is actually configured
+        if not self.has_vision_model_configured():
+            logging.info(
+                "No vision model configured, image will be passed directly to main model")
+            return None
+
+        logging.info(
+            "Generating visual description using dedicated vision model")
+
+        if not image_data_base64:
+            logging.warning("No image data provided for vision processing")
+            return None
+
+        # If vision model is None, try to initialize it
+        if self.vision_llm is None:
+            self._initialize_vision_llm()
+
+        # If still None after initialization attempt, return error
+        if self.vision_llm is None:
+            logging.error("Could not initialize vision model")
+            return None
 
         if not self.vision_llm:
             logging.error("VisionHandler: Vision LLM is not available.")

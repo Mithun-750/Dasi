@@ -376,7 +376,8 @@ class Dasi:
         logging.info("Background initialization completed")
         # Any tasks that should run after initialization
 
-    def process_query(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None) -> str:
+    def process_query(self, query: str, callback: Optional[Callable[[str], None]] = None,
+                      model: Optional[str] = None, image_data: Optional[str] = None) -> str:
         """Process a query and return the response."""
         start_time = time.time()
 
@@ -435,6 +436,11 @@ class Dasi:
             if model:
                 cache_key = f"{model}:{session_id}:{cache_query}"
 
+            # Add image_data to cache key if present
+            if image_data:
+                # Just use presence of image as cache key, not the full data
+                cache_key = f"image:{cache_key}"
+
             # Try to get response from cache
             cached_data = cache_manager.get_from_cache(cache_key, namespace="queries",
                                                        max_age=86400)  # 24 hour cache
@@ -451,8 +457,27 @@ class Dasi:
                 return response
 
         # If not cached or caching disabled, call LLM handler
+        # Pass image_data to the handler
+        logging.info(
+            f"Calling LLM handler with query, has_image_data={image_data is not None}")
+        mode = "compose" if "=====MODE=====<user selected mode>\ncompose" in query else "chat"
+
+        # Extract selected text if it exists in the query
+        selected_text = None
+        if "=====SELECTED_TEXT=====" in query:
+            try:
+                # Extract selected text between markers
+                start_marker = "=====SELECTED_TEXT=====<text selected by the user>\n"
+                end_marker = "\n======================="
+                start_idx = query.find(start_marker) + len(start_marker)
+                end_idx = query.find(end_marker, start_idx)
+                if start_idx > len(start_marker) - 1 and end_idx > start_idx:
+                    selected_text = query[start_idx:end_idx]
+            except Exception as e:
+                logging.error(f"Error extracting selected_text: {str(e)}")
+
         response = self.llm_handler.get_response(
-            query, callback, model, session_id)
+            query, callback, model, session_id, selected_text, mode, image_data)
 
         # Cache the response if caching is enabled (and it's not a special command)
         if use_cache and cache_manager and response and not query.startswith('!'):
