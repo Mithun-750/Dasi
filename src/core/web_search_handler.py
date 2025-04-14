@@ -9,6 +9,11 @@ from langchain_core.documents import Document
 from langchain_community.utilities.google_serper import GoogleSerperAPIWrapper
 from langchain_community.utilities.brave_search import BraveSearchWrapper
 from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIWrapper
+from .prompts_hub import (
+    WEB_SEARCH_QUERY_OPTIMIZATION_TEMPLATE,
+    WEB_SEARCH_RESULTS_INSTRUCTION,
+    SCRAPED_CONTENT_INSTRUCTION
+)
 # Exa is now in a separate package
 try:
     from langchain_exa import ExaSearchRetriever
@@ -355,23 +360,9 @@ class WebSearchHandler:
                         logging.info(
                             f"Extracted inner query from recursive template: {user_query}")
 
-            # Create a prompt to optimize the search query
-            prompt = f"""You are an AI assistant designed to generate effective search queries. When a user needs information, create queries that will retrieve the most relevant results across different search engines.
-
-To generate optimal search queries:
-
-1. Prioritize natural language over search operators (avoid OR, AND, quotes unless necessary)
-2. Format queries conversationally as complete questions when possible
-3. Include specific key terms, especially for technical or specialized topics
-4. Incorporate relevant time frames if the information needs to be current
-5. Keep queries concise (4-7 words is often ideal) but complete
-6. Avoid ambiguous terms that could have multiple meanings
-7. Use synonyms for important concepts to broaden coverage
-
-The search query should be clear, focused, and unlikely to retrieve irrelevant results. Provide ONLY the search query text with no additional explanation or commentary.
-
-USER QUERY: "{user_query}"
-"""
+            # Create a prompt to optimize the search query using the template from prompts_hub
+            prompt = WEB_SEARCH_QUERY_OPTIMIZATION_TEMPLATE.format(
+                user_query=user_query)
 
             # Add selected text context if available
             if selected_text and selected_text.strip():
@@ -1298,18 +1289,8 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
                 result['query'] = f"{search_results_text}Based on the web search results above, please answer: {process_result['original_query']}"
                 logging.info("Successfully formatted search results for LLM")
 
-                # Add web search instruction
-                result['system_instruction'] = """=====WEB_SEARCH_INSTRUCTIONS=====<instructions for handling web search results>
-                You have been provided with web search results to help answer the user's query. Use this information to enhance your response, but do not rely on it exclusively.
-                When using this information:
-                1. Treat the search results as supplementary information to your own knowledge base.
-                2. Synthesize information from the search results and your internal knowledge to provide the most comprehensive and accurate answer possible.
-                3. If the search results do not seem relevant or helpful for the user's query, state that clearly and proceed to answer the query using your own knowledge. DO NOT simply say the search failed.
-                4. Focus on the most relevant information from the search results if they are useful.
-                5. If the information seems outdated or contradictory (either within the results or with your knowledge), note this potential discrepancy to the user.
-                6. If both original and optimized queries are shown, consider how the query optimization may have affected the search results.
-                7. IMPORTANT: DO NOT include any citations or reference numbers (like [1], [2]) in your response.
-                ======================="""
+                # Add web search instruction from prompts_hub
+                result['system_instruction'] = WEB_SEARCH_RESULTS_INSTRUCTION
 
             elif process_result['mode'] == 'link_scrape':
                 # Scrape content from the URL
@@ -1335,16 +1316,8 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
                 # Add scraped content to the query
                 result['query'] = f"{scraped_content_text}Based on the scraped content above from {process_result['url']}, please answer: {process_result['query']}"
 
-                # Add scraped content instruction
-                result['system_instruction'] = """=====SCRAPED_CONTENT_INSTRUCTIONS=====<instructions for handling scraped content>
-                You have been provided with content scraped from a specific URL.
-                When using this information:
-                1. Provide a comprehensive analysis of the content
-                2. Extract key information and present it in a clear, organized manner
-                3. If the content appears incomplete or doesn't contain information relevant to the query, acknowledge this
-                4. If the content has been truncated, note that your analysis is based on partial information
-                5. IMPORTANT: DO NOT include any citations or reference numbers (like [1], [2]) in your response
-                ======================="""
+                # Add scraped content instruction from prompts_hub
+                result['system_instruction'] = SCRAPED_CONTENT_INSTRUCTION
 
         except Exception as e:
             result['status'] = 'error'

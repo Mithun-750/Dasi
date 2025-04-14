@@ -14,6 +14,9 @@ from langchain_anthropic import ChatAnthropic
 # from langchain_groq import ChatGroq
 
 from ui.settings import Settings
+from .prompts_hub import VISION_SYSTEM_PROMPT
+
+# Note: We're removing the VISION_USER_PROMPT import since we'll use the actual user query
 
 
 class VisionHandler:
@@ -162,25 +165,20 @@ class VisionHandler:
             logging.error("VisionHandler: Vision LLM is not available.")
             return None
 
-        # Craft the prompt for the vision model
-        system_prompt = """You are an expert visual analyst. Your sole task is to describe the provided visual input in objective, extensive detail. Focus on:
+        # Get system prompt from prompts_hub
+        system_prompt = VISION_SYSTEM_PROMPT
 
-- Objects: Identify all significant objects, their appearance, and positions.
-- People: Describe appearance, expressions, actions, and relationships(if any).
-- Text: Transcribe any visible text accurately.
-- Setting: Describe the environment, location, and time of day(if discernible).
-- Colors and Lighting: Describe dominant colors, overall palette, and lighting conditions.
-- Composition: Briefly mention the layout and focus of the visual.
-- Mood/Atmosphere: Describe the overall feeling conveyed(e.g., cheerful, somber, busy).
-- Action/Interaction: Describe any ongoing actions or interactions.
-
-Be as specific and thorough as possible. Do NOT add any conversational filler, commentary, or interpretation beyond objective description. Output only the description."""
-
-        user_prompt_text = "Describe the provided visual input in comprehensive detail according to the system instructions."
-        # Add hint from user query if provided
-        if prompt_hint:
-            # Limit hint length
-            user_prompt_text += f"\n\nPay special attention to aspects relevant to this user query context: '{prompt_hint[:200]}...'"
+        # Instead of using a fixed user prompt, use the actual user query if available
+        if prompt_hint and prompt_hint.strip():
+            # Use the user's actual query as the primary instruction
+            user_prompt_text = f"Based on this query: '{prompt_hint.strip()}', analyze and describe the provided visual input."
+            logging.info(
+                f"VisionHandler: Using user's query as prompt: {user_prompt_text[:100]}...")
+        else:
+            # Fallback to a generic prompt only if user query is not available
+            user_prompt_text = "Describe the provided visual input in comprehensive detail according to the system instructions."
+            logging.info(
+                "VisionHandler: Using generic prompt (no user query provided)")
 
         # Create multimodal message content
         # Ensure the base64 data doesn't have the prefix 'data:image/png;base64,'

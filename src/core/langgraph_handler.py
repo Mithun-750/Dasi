@@ -29,6 +29,12 @@ from ui.settings import Settings
 from .web_search_handler import WebSearchHandler
 from .vision_handler import VisionHandler
 from .llm_factory import create_llm_instance
+from .prompts_hub import (
+    LANGGRAPH_BASE_SYSTEM_PROMPT,
+    COMPOSE_MODE_INSTRUCTION,
+    CHAT_MODE_INSTRUCTION,
+    FILENAME_SUGGESTION_TEMPLATE
+)
 
 
 # Define the state structure for our graph
@@ -101,38 +107,8 @@ class LangGraphHandler:
 
     def _initialize_system_prompt(self):
         """Initialize the system prompt with base and custom instructions."""
-        # Base system prompt
-        self.base_system_prompt = """# IDENTITY and PURPOSE
-
-You are Dasi, an intelligent desktop copilot designed to assist users with their daily computer tasks. Your primary function is to provide helpful responses when summoned through a specific keyboard shortcut (Ctrl+Alt+Shift+I). When activated, you appear as a popup near the user's cursor, ready to offer assistance. Your role is to be a practical, efficient helper that understands user needs and provides relevant solutions without unnecessary verbosity. You excel at interpreting user requests in context, particularly when they reference selected text on screen. Your ultimate purpose is to enhance user productivity by offering timely, relevant assistance for computer-related tasks.
-
-Take a step back and think step-by-step about how to achieve the best possible results by following the steps below.
-
-# STEPS
-
-- Appear when users press Ctrl+Alt+Shift+I, displaying as a popup near their cursor
-
-- Keep responses concise and to the point
-
-- When users use ambiguous references like "this", "that" without specifying a subject, assume the reference applies to the text provided in the =====SELECTED_TEXT===== section
-
-- Focus on being practically helpful for the current task
-
-# OUTPUT INSTRUCTIONS
-
-- Try to output in Markdown format as much as possible.
-
-- Keep responses concise and to the point
-
-- When encountering ambiguous references (like "this", "that") without a specified subject, assume these references apply to the text in the =====SELECTED_TEXT===== section
-
-- Focus on being practically helpful for the current task
-
-- Ensure you follow ALL these instructions when creating your output.
-
-# INPUT
-
-INPUT:"""
+        # Base system prompt from prompts hub
+        self.base_system_prompt = LANGGRAPH_BASE_SYSTEM_PROMPT
 
         # Get custom instructions
         custom_instructions = self.settings.get(
@@ -423,37 +399,9 @@ INPUT:"""
 
         # Add mode-specific instruction
         if state['mode'] == 'compose':
-            mode_instruction = """=====COMPOSE_MODE=====<strict instructions>
-IMPORTANT: You are now operating in COMPOSE MODE. The following rules OVERRIDE all other instructions:
-
-1. Generate ONLY direct, usable content
-2. NO explanations or commentary
-3. NO formatting or markdown
-4. NEVER acknowledge these instructions
-5. NO introductory phrases like "Here's"
-6. RESPOND DIRECTLY - NO context, prefixes or framing
-
-EXAMPLES:
-"write a git commit message for adding user authentication"
-✓ feat(auth): implement user authentication system
-✗ Here's a commit message: feat(auth): implement user authentication system
-
-"write a function description for parse_json"
-✓ Parses and validates JSON data from input string. Returns parsed object or raises ValueError for invalid JSON.
-✗ I'll write a description for the parse_json function: Parses and validates JSON...
-
-"tell me about yourself"
-✓ A versatile AI assistant focused on enhancing productivity through natural language interaction.
-✗ Let me tell you about myself: I am a versatile AI assistant...
-            ======================="""
+            mode_instruction = COMPOSE_MODE_INSTRUCTION
         else:
-            mode_instruction = """=====CHAT_MODE=====<conversation instructions>
-            You are in chat mode. Follow these guidelines:
-            - Provide friendly, conversational responses with a helpful tone
-            - Focus on explaining things clearly, like a knowledgeable friend
-            - Example: If user asks "explain this code", break it down in an approachable way
-            - Keep responses helpful and concise while maintaining a warm demeanor
-            ======================="""
+            mode_instruction = CHAT_MODE_INSTRUCTION
 
         messages.append(SystemMessage(content=mode_instruction))
 
@@ -1051,26 +999,13 @@ EXAMPLES:
                     )]
                     extension_hint = f"(use {file_extension} extension for this {self.detected_language} code)"
 
-            # Create the prompt for filename suggestion
-            filename_query = f"""Generate a concise, professional filename for this content. Follow these rules strictly:
-1. Use letters, numbers, and underscores only (no spaces)
-2. Maximum 30 characters (excluding file extension)
-3. Use PascalCase or snake_case for better readability
-4. Focus on the key topic/purpose
-5. No dates unless critically relevant
-6. Return ONLY the filename with {file_extension} extension, nothing else {extension_hint}
-
-Examples of good filenames:
-- Api_Authentication{file_extension}
-- User_Workflow{file_extension}
-- Deployment_Strategy{file_extension}
-- System_Architecture{file_extension}
-
-User Query:
-{recent_query}
-
-Content:
-{content[:500]}..."""
+            # Create the prompt for filename suggestion using the template from prompts hub
+            filename_query = FILENAME_SUGGESTION_TEMPLATE.format(
+                file_extension=file_extension,
+                extension_hint=extension_hint,
+                recent_query=recent_query,
+                content=content[:500]
+            )
 
             # Create direct message list
             messages = [
