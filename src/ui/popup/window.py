@@ -24,6 +24,8 @@ from core.instance_manager import DasiInstanceManager  # Import DasiInstanceMana
 from .components.input_panel import InputPanel
 from .components.web_search import WebSearchPanel
 from .components.preview_panel import PreviewPanel
+from .components.confirmation_panel import ConfirmationPanel
+from core.tools.tool_call_handler import ToolCallHandler
 
 
 class DasiWindow(QWidget):
@@ -54,6 +56,10 @@ class DasiWindow(QWidget):
         self.chunks_dir = Path(self.settings.config_dir) / 'prompt_chunks'
         self.is_web_search = False  # Flag to track if current query is a web search
 
+        # Use shared tool call handler from instance manager
+        self.tool_call_handler = DasiInstanceManager.get_tool_call_handler()
+        self.confirmation_panel = None
+
         # Window flags
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint |
                             Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
@@ -61,6 +67,7 @@ class DasiWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
 
         self.setup_ui()
+        self._setup_tool_call_signals()
 
     def setup_ui(self):
         """Set up the UI components."""
@@ -762,3 +769,55 @@ class DasiWindow(QWidget):
         self.web_search_panel.stop()
 
         super().hideEvent(event)
+
+    def _setup_tool_call_signals(self):
+        """Connect tool call handler signals to UI slots."""
+        self.tool_call_handler.tool_call_requested.connect(
+            self._show_confirmation_panel)
+        self.tool_call_handler.tool_call_completed.connect(
+            self._handle_tool_call_completed)
+
+    def _show_confirmation_panel(self, tool_call_info):
+        """Show the confirmation panel for a tool call."""
+        # Hide other panels
+        self.preview_panel.hide()
+        self.web_search_panel.hide()
+        self.stop_button.hide()
+        # Remove old confirmation panel if present
+        if self.confirmation_panel:
+            self.right_layout.removeWidget(self.confirmation_panel)
+            self.confirmation_panel.deleteLater()
+            self.confirmation_panel = None
+        # Create and show new confirmation panel
+        self.confirmation_panel = ConfirmationPanel(
+            tool_call_info["tool"], tool_call_info["args"])
+        self.confirmation_panel.accepted.connect(
+            lambda: self.tool_call_handler.handle_user_response(True))
+        self.confirmation_panel.rejected.connect(
+            lambda: self.tool_call_handler.handle_user_response(False))
+        self.right_layout.insertWidget(0, self.confirmation_panel)
+        self.confirmation_panel.show()
+        self.right_panel.show()
+        # Use wider width like web search panel for better display
+        self.setFixedWidth(680)
+
+    def _handle_tool_call_completed(self, result_info):
+        """Handle completion of a tool call (switch to web search panel or back to preview)."""
+        tool = result_info.get("tool")
+        result = result_info.get("result")
+        # Remove confirmation panel
+        if self.confirmation_panel:
+            self.right_layout.removeWidget(self.confirmation_panel)
+            self.confirmation_panel.deleteLater()
+            self.confirmation_panel = None
+        # For web_search, show the web search panel
+        if tool == "web_search" and isinstance(result, dict) and result.get("status") == "success":
+            self.web_search_panel.start(result.get("data", ""))
+            self.web_search_panel.show()
+            self.right_panel.show()
+            self.setFixedWidth(680)
+        else:
+            # For rejected or unknown tool, show preview panel
+            self.preview_panel.show()
+            self.right_panel.show()
+            self.setFixedWidth(360)

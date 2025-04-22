@@ -34,8 +34,11 @@ from .prompts_hub import (
     LANGGRAPH_BASE_SYSTEM_PROMPT,
     COMPOSE_MODE_INSTRUCTION,
     CHAT_MODE_INSTRUCTION,
-    FILENAME_SUGGESTION_TEMPLATE
+    FILENAME_SUGGESTION_TEMPLATE,
+    TOOL_CALLING_INSTRUCTION
 )
+from core.tools.tool_call_handler import ToolCallHandler
+from core.instance_manager import DasiInstanceManager
 
 
 # Define the state structure for our graph
@@ -57,6 +60,11 @@ class GraphState(TypedDict):
     use_vision: bool
     vision_description: Optional[str]
     llm_instance: Optional[Any]  # Add field for the specific LLM instance
+
+    # Tool calling fields
+    pending_tool_call: Optional[Dict]  # Tool call requested by LLM
+    # Result of a tool call after user confirmation
+    tool_call_result: Optional[Dict]
 
     # Output fields
     response: str
@@ -86,6 +94,13 @@ class LangGraphHandler:
         # Initialize handlers
         self.web_search_handler = WebSearchHandler(self)
         self.vision_handler = VisionHandler(self.settings)
+
+        # Use shared tool call handler from instance manager
+        self.tool_call_handler = DasiInstanceManager.get_tool_call_handler()
+        self.tool_call_event = asyncio.Event()
+        self.tool_call_result = None
+        self.tool_call_handler.tool_call_completed.connect(
+            self._on_tool_call_completed)
 
         # Build system prompt
         self._initialize_system_prompt()
@@ -119,6 +134,9 @@ class LangGraphHandler:
         self.system_prompt = self.base_system_prompt
         if custom_instructions:
             self.system_prompt = f"{self.base_system_prompt}\n\n=====CUSTOM_INSTRUCTIONS=====<user-defined instructions>\n{custom_instructions}\n======================="
+
+        # Add tool calling instructions
+        self.system_prompt = f"{self.system_prompt}\n\n{TOOL_CALLING_INSTRUCTION}"
 
         # Create base prompt template with memory
         self.prompt = ChatPromptTemplate.from_messages([
@@ -303,6 +321,10 @@ class LangGraphHandler:
             state['use_web_search'] = False
         if 'use_vision' not in state:
             state['use_vision'] = False
+        if 'pending_tool_call' not in state:
+            state['pending_tool_call'] = None
+        if 'tool_call_result' not in state:
+            state['tool_call_result'] = None
 
         return state
 
@@ -466,6 +488,29 @@ class LangGraphHandler:
         web_search_results = state.get('web_search_results')
         final_query_text = updated_state['query']  # Start with original query
 
+        # If there's a tool call result from user confirmation, add it to the message
+        tool_call_result = state.get('tool_call_result')
+        if tool_call_result:
+            logging.info(
+                f"Adding tool call result to messages: {tool_call_result}")
+            tool_name = tool_call_result.get('tool', 'unknown')
+            result = tool_call_result.get('result', {})
+
+            if tool_name == 'web_search' and isinstance(result, dict) and result.get('status') == 'success':
+                # Format similar to web search results for consistency
+                search_data = result.get('data', 'No results found')
+                final_query_text += f"\n\n=====TOOL_RESULT=====<web_search>\n{search_data}\n======================="
+            elif result == 'rejected':
+                # Inform the LLM that the user rejected the tool call
+                final_query_text += "\n\n=====TOOL_RESULT=====<rejected>\nThe user rejected the tool call. Please proceed without using external tools.\n======================="
+            else:
+                # Generic format for other tools or error cases
+                final_query_text += f"\n\n=====TOOL_RESULT=====<{tool_name}>\n{result}\n======================="
+
+            # Clear the tool call result after using it
+            updated_state['tool_call_result'] = None
+
+        # Existing web search results handling
         if web_search_results:
             logging.info(
                 "Incorporating web search/scrape results into messages.")
@@ -583,67 +628,76 @@ class LangGraphHandler:
         return updated_state
 
     def generate_response(self, state: GraphState) -> GraphState:
-        """Generate a response using the LLM."""
+        """Generate a response using the LLM. If a tool call is detected, add it to state and route to tool_call node."""
         updated_state = state.copy()
         llm_instance = state.get('llm_instance')
-
         try:
-            # Ensure LLM instance is available from the state
             if not llm_instance:
-                # Fallback: try to use self.llm or initialize if absolutely necessary
-                logging.warning(
-                    "LLM instance not found in state, attempting fallback...")
                 if not self.llm:
                     if not self.initialize_llm(model_name=state.get('model_name')):
                         updated_state['response'] = "⚠️ LLM could not be initialized from state or fallback."
                         return updated_state
-                    llm_instance = self.llm  # Use the newly initialized one
+                    llm_instance = self.llm
                 else:
-                    llm_instance = self.llm  # Use the existing self.llm as fallback
+                    llm_instance = self.llm
 
-            # Get response from the specific LLM instance
+            logging.info("Invoking LLM for response generation")
             response = llm_instance.invoke(state['messages'])
             final_response = response.content.strip()
 
-            # Process response based on mode
+            # Log the full response for debugging
+            logging.debug(f"LLM raw response: {final_response[:200]}..." if len(
+                final_response) > 200 else final_response)
+
+            # Tool call detection (simple example: look for special marker)
+            # In production, use OpenAI function calling or similar
+            if '<<TOOL:' in final_response:
+                logging.info("Tool call marker detected in LLM response")
+                import json
+                import re
+                match = re.search(
+                    r'<<TOOL:\s*(\w+)\s*(\{.*?\})>>', final_response)
+                if match:
+                    tool_name = match.group(1)
+                    tool_args_str = match.group(2)
+                    logging.info(
+                        f"Parsed tool call: {tool_name} with args: {tool_args_str}")
+                    try:
+                        tool_args = json.loads(tool_args_str)
+                        updated_state['pending_tool_call'] = {
+                            'tool': tool_name, 'args': tool_args}
+                        # Remove tool call marker from response
+                        cleaned_response = re.sub(
+                            r'<<TOOL:.*?>>', '', final_response).strip()
+                        updated_state['response'] = cleaned_response
+                        logging.info(
+                            f"Tool call for {tool_name} added to state, routing to tool_call node")
+                        return updated_state
+                    except json.JSONDecodeError as e:
+                        logging.error(f"Error parsing tool args JSON: {e}")
+                else:
+                    logging.warning(
+                        "Tool call marker found but couldn't parse the format")
+            else:
+                logging.debug("No tool call markers found in response")
+
+            # Normal response
             is_compose_mode = (state['mode'] == 'compose')
             if is_compose_mode:
                 final_response, detected_language = self._extract_code_block(
                     final_response)
                 updated_state['detected_language'] = detected_language
-
-            # Add to chat history
             session_id = state['session_id']
             message_history = self._get_message_history(session_id)
-            message_history.add_message(state['messages'][-1])  # Add the query
+            message_history.add_message(state['messages'][-1])
             message_history.add_message(AIMessage(content=final_response))
-
-            # Update state with response
             updated_state['response'] = final_response
-
             return updated_state
-
         except Exception as e:
             logging.error(
                 f"Error getting LLM response in generate_response node: {str(e)}", exc_info=True)
             error_msg = str(e)
-
-            if "NotFoundError" in error_msg:
-                if "Model" in error_msg and "does not exist" in error_msg:
-                    updated_state['response'] = "⚠️ Error: The selected model is not available. Please check the model ID in settings."
-            elif "AuthenticationError" in error_msg or "api_key" in error_msg.lower():
-                updated_state['response'] = "⚠️ Error: Invalid API key. Please check your API key in settings."
-            elif "RateLimitError" in error_msg:
-                updated_state['response'] = "⚠️ Error: Rate limit exceeded. Please try again in a moment."
-            elif "InvalidRequestError" in error_msg:
-                updated_state['response'] = "⚠️ Error: Invalid request. Please try again with different input."
-            elif "ServiceUnavailableError" in error_msg:
-                updated_state['response'] = "⚠️ Error: Service is currently unavailable. Please try again later."
-            elif "ConnectionError" in error_msg or "Connection refused" in error_msg:
-                updated_state['response'] = "⚠️ Error: Could not connect to the API server. Please check your internet connection and the base URL in settings."
-            else:
-                updated_state['response'] = f"⚠️ Error in generate_response: {error_msg}"
-
+            updated_state['response'] = f"⚠️ Error in generate_response: {error_msg}"
             return updated_state
 
     def _extract_code_block(self, response: str):
@@ -679,51 +733,29 @@ class LangGraphHandler:
 
     def _build_graph(self):
         """Build the LangGraph processing graph with conditional web search and vision processing."""
-        # Create the state graph
         graph = StateGraph(GraphState)
-
-        # Add nodes
         graph.add_node("initialize", self.initialize_state)
         graph.add_node("parse_query", self.parse_query)
         graph.add_node("web_search", self.web_search)
-        graph.add_node("vision_processing",
-                       self.vision_processing)  # Added node
+        graph.add_node("vision_processing", self.vision_processing)
         graph.add_node("prepare_messages", self.prepare_messages)
         graph.add_node("generate_response", self.generate_response)
-
-        # Add edges
+        graph.add_node("tool_call", self.tool_call_node)  # New node
         graph.add_edge(START, "initialize")
         graph.add_edge("initialize", "parse_query")
 
-        # --- Conditional Routing ---
-
-        # Decision function after parse_query
         def route_after_parse(state: GraphState):
             use_web = state.get("use_web_search", False)
             use_vis = state.get("use_vision", False)
             has_img = state.get("image_data") is not None
-            logging.debug(
-                f"Routing decision (after parse): use_web={use_web}, use_vision={use_vis}, has_image={has_img}")
-
-            # First check if web search is needed
             if use_web:
-                logging.debug("Routing from parse_query to web_search")
                 return "web_search"
-            # Then check if vision processing is needed AND a vision model is configured
             elif use_vis and has_img and self.vision_handler.has_vision_model_configured():
-                logging.debug(
-                    "Routing from parse_query to vision_processing (vision model configured)")
                 return "vision_processing"
-            # If no vision model is configured but we have an image, route directly to prepare_messages
-            # The image will be passed directly to the main model
             elif use_vis and has_img:
-                logging.debug(
-                    "Routing from parse_query directly to prepare_messages (no vision model configured)")
                 return "prepare_messages"
             else:
-                logging.debug("Routing from parse_query to prepare_messages")
                 return "prepare_messages"
-
         graph.add_conditional_edges(
             "parse_query",
             route_after_parse,
@@ -734,25 +766,13 @@ class LangGraphHandler:
             }
         )
 
-        # Decision function after web_search
         def route_after_web_search(state: GraphState):
-            # Check if vision processing is still needed after web search
             use_vis = state.get("use_vision", False)
             has_img = state.get("image_data") is not None
-            logging.debug(
-                f"Routing decision (after web_search): use_vision={use_vis}, has_image={has_img}")
-
-            # Only route to vision_processing if we have an image AND a vision model is configured
             if use_vis and has_img and self.vision_handler.has_vision_model_configured():
-                logging.debug(
-                    "Routing from web_search to vision_processing (vision model configured)")
                 return "vision_processing"
             else:
-                # If no vision model configured but we have an image, route directly to prepare_messages
-                # The image will be passed directly to the main model (if the model supports it)
-                logging.debug("Routing from web_search to prepare_messages")
                 return "prepare_messages"
-
         graph.add_conditional_edges(
             "web_search",
             route_after_web_search,
@@ -761,18 +781,51 @@ class LangGraphHandler:
                 "prepare_messages": "prepare_messages"
             }
         )
-
-        # Edge from vision_processing (if taken) to prepare_messages
         graph.add_edge("vision_processing", "prepare_messages")
+        # Route to tool_call if pending_tool_call is set after generate_response
 
-        # Remaining edges
+        def route_after_generate_response(state: GraphState):
+            if state.get('pending_tool_call'):
+                return "tool_call"
+            else:
+                return END
+        graph.add_conditional_edges(
+            "generate_response",
+            route_after_generate_response,
+            {
+                "tool_call": "tool_call",
+                END: END
+            }
+        )
+        # After tool_call, go back to prepare_messages (tool result in state)
+        graph.add_edge("tool_call", "prepare_messages")
         graph.add_edge("prepare_messages", "generate_response")
         graph.add_edge("generate_response", END)
-
-        # Return the uncompiled graph definition
-        logging.info(
-            "LangGraph graph definition built successfully with conditional web search and vision processing.")
+        logging.info("LangGraph graph definition built with tool_call node.")
         return graph
+
+    async def tool_call_node(self, state):
+        """LangGraph node for tool calling with user confirmation."""
+        # Assume tool call info is in state['pending_tool_call']
+        tool_call = state.get('pending_tool_call')
+        if not tool_call:
+            # No tool call, just return state
+            return state
+        tool_name = tool_call.get('tool')
+        tool_args = tool_call.get('args', {})
+        # Emit to UI and wait for user
+        self.tool_call_handler.request_tool_call(tool_name, tool_args)
+        self.tool_call_event.clear()
+        await self.tool_call_event.wait()
+        # After user responds, update state with result
+        result = self.tool_call_result
+        new_state = state.copy()
+        new_state['tool_call_result'] = result
+        return new_state
+
+    def _on_tool_call_completed(self, result):
+        self.tool_call_result = result
+        self.tool_call_event.set()
 
     async def get_response_async(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default", selected_text: str = None, mode: str = "chat", image_data: Optional[str] = None) -> str:
         """
@@ -839,7 +892,9 @@ class LangGraphHandler:
                 vision_description=None,
                 llm_instance=self.llm,  # Pass the initialized LLM instance
                 response="",
-                detected_language=None
+                detected_language=None,
+                pending_tool_call=None,
+                tool_call_result=None
             )
 
             # Prepare configuration for the specific session

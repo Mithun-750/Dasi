@@ -124,6 +124,7 @@ When using this information:
 4. If the content has been truncated, note that your analysis is based on partial information
 5. IMPORTANT: DO NOT include any citations or reference numbers (like [1], [2]) in your response
 ======================="""
+
 # LangGraphHandler filename suggestion prompt
 FILENAME_SUGGESTION_TEMPLATE = """Generate a concise, professional filename for this content. Follow these rules strictly:
 1. Use letters, numbers, and underscores only (no spaces)
@@ -144,3 +145,24 @@ User Query:
 
 Content:
 {content}..."""
+
+# Tool calling instruction for LangGraph
+TOOL_CALLING_INSTRUCTION = """=====TOOL_CALLING=====<tool calling instructions>
+You have access to external tools that can help you provide better responses. When you need to use a tool, follow this format precisely:
+
+<<TOOL: tool_name {"param1": "value1", "param2": "value2"}>>
+
+Available tools:
+
+1. web_search
+   - Use when the user asks for current information that might not be in your knowledge base
+   - Use when the user explicitly asks to search the web
+   - Parameters: {"query": "your search query"}
+   - Example: <<TOOL: web_search {"query": "latest news about artificial intelligence"}>>
+
+Important:
+- Only use tools when necessary to provide the most helpful response
+- After requesting a tool, you can continue your response - the tool call will be processed and results returned to you
+- The user will be asked to confirm the tool usage before it runs
+- Do not mention the special format in your responses
+======================="""
