@@ -74,6 +74,7 @@ def create_llm_instance(
                 model=model_id,
                 groq_api_key=api_key,
                 temperature=temperature,
+                streaming=True,
             )
         elif provider == 'anthropic':
             if 'claude-3' in model_id.lower():
@@ -105,12 +106,14 @@ def create_llm_instance(
                 model=model_id,
                 together_api_key=api_key,
                 temperature=temperature,
+                streaming=True,
             )
         elif provider == 'xai':
             return ChatXAI(
                 model=model_id,
                 xai_api_key=api_key,
                 temperature=temperature,
+                streaming=True,
             )
         elif provider.startswith('custom_openai'):
             # Custom OpenAI provider logic

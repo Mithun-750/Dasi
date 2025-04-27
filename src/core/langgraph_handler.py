@@ -1,5 +1,7 @@
 import os
 import logging
+import json  # Add this import for tool call JSON parsing
+import uuid  # Add this import for tool call ID generation
 from typing import Dict, List, Optional, Any, TypedDict, Annotated, Callable
 import operator
 from pathlib import Path
@@ -1096,35 +1098,367 @@ class LangGraphHandler:
             # Prepare configuration for the specific session
             config = {"configurable": {"session_id": session_id}}
 
-            full_response = ""
-            stream = self.app.astream(initial_state, config=config)
+            # Direct approach: Run the state through the necessary nodes to prepare the messages,
+            # then manually invoke the LLM with streaming rather than relying on LangGraph streaming
 
-            # --- Stream Processing ---
-            # Run the streaming part explicitly in the current loop
-            stream_task = loop.create_task(
-                self._process_stream(stream, callback))
-            await stream_task  # Wait for the streaming task to complete
+            # First process the state through all the nodes up to the LLM call
+            # This is a simplified version of what the graph would do
+            logging.info("Processing initial state through graph nodes")
+            state = self.initialize_state(initial_state)
+            state = self.parse_query(state)
 
-            # The final state should contain the complete response after streaming
-            # However, LangGraph streaming might not update the final state directly in the iterator
-            # We accumulate the response via the callback or within _process_stream
-            # Let's retrieve the final state to check if 'response' is updated
-            # Note: This might require adjustments based on LangGraph's async streaming behavior
+            if state.get('use_web_search', False):
+                state = self.web_search(state)
 
-            # It seems LangGraph's astream might yield intermediate states.
-            # Let's try getting the final accumulated response from the task result.
-            final_response_from_task = stream_task.result()
-            if final_response_from_task:
-                full_response = final_response_from_task
-            else:
-                # Fallback or alternative way to get the final state if needed
-                # This part might be complex depending on how LangGraph manages state in async streams
-                logging.warning(
-                    "Could not retrieve final response from stream task result. Accumulated response might be incomplete.")
-                # We rely on the callback having accumulated the full_response if the task doesn't return it
+            if state.get('use_vision', False) and state.get('image_data') is not None:
+                state = self.vision_processing(state)
+
+            state = self.prepare_messages(state)
+
+            # At this point, state['messages'] contains all the necessary messages for the LLM
+
+            if not state.get('messages'):
+                raise ValueError("No messages prepared for LLM")
+
+            logging.info(f"Prepared {len(state['messages'])} messages for LLM")
+
+            # Now directly call the LLM with streaming
+            llm_instance = state.get('llm_instance') or self.llm
+
+            if not llm_instance:
+                raise ValueError("No LLM instance available")
+
+            logging.info(f"Invoking LLM ({model or 'default'}) with streaming")
+
+            # Send a small initial chunk to signal the stream is starting
+            if callback:
+                callback("")
+
+            # Use LangChain's streaming capability directly
+            accumulated_response = ""
+            accumulated_chunk = None
+
+            # We'll capture tool calls here if they happen
+            detected_tool_calls = []
+
+            # Process each chunk from the stream
+            async for chunk in llm_instance.astream(state['messages']):
+                # If this is our first chunk, remember it for accumulation
+                if accumulated_chunk is None:
+                    accumulated_chunk = chunk
+                else:
+                    # Otherwise, add this chunk to our accumulated chunk
+                    accumulated_chunk = accumulated_chunk + chunk
+
+                # Extract content for displaying in the UI
+                chunk_content = chunk.content if hasattr(
+                    chunk, 'content') else str(chunk)
+                accumulated_response += chunk_content
+
+                # Check for tool calls using LangChain's standardized interface
+                if hasattr(chunk, 'tool_call_chunks') and chunk.tool_call_chunks:
+                    # Log all tool call chunks we find
+                    logging.info(
+                        f"Tool call chunks in chunk: {chunk.tool_call_chunks}")
+                    detected_tool_calls = chunk.tool_call_chunks
+
+                # For compatibility, also check the tool_calls property
+                if hasattr(chunk, 'tool_calls') and chunk.tool_calls:
+                    logging.info(f"Tool calls in chunk: {chunk.tool_calls}")
+                    # This is the fully assembled tool call
+                    detected_tool_calls = chunk.tool_calls
+
+                # Pass the FULL accumulated response to the callback
+                if callback:
+                    try:
+                        callback(accumulated_response)
+                    except Exception as e:
+                        logging.error(f"Error in callback: {e}")
+
+            # Store the final accumulated response
+            full_response = accumulated_response
 
             logging.info(
-                f"Final response for session {session_id}: {full_response[:100]}...")
+                f"Streaming completed. Final response length: {len(full_response)}")
+
+            # Check for the custom tool marker format first
+            has_custom_tool_format = False
+            custom_tool_name = None
+            custom_tool_args = None
+            custom_tool_id = None
+
+            if '<<TOOL:' in full_response:
+                logging.info(
+                    "Custom tool call marker detected in LLM response")
+                try:
+                    import re
+                    match = re.search(
+                        r'<<TOOL:\s*(\w+)\s*(\{.*?\})>>', full_response)
+                    if match:
+                        has_custom_tool_format = True
+                        custom_tool_name = match.group(1)
+                        custom_tool_args_str = match.group(2)
+                        logging.info(
+                            f"Parsed custom tool call: {custom_tool_name} with args: {custom_tool_args_str}")
+                        try:
+                            custom_tool_args = json.loads(custom_tool_args_str)
+                            # Generate a unique ID for this tool call
+                            custom_tool_id = f"call_{uuid.uuid4().hex[:24]}"
+                            # Clean the response by removing the tool call marker
+                            cleaned_response = re.sub(
+                                r'<<TOOL:.*?>>', '', full_response).strip()
+                            full_response = cleaned_response
+                        except json.JSONDecodeError as e:
+                            logging.error(
+                                f"Error parsing custom tool args JSON: {e}")
+                            has_custom_tool_format = False
+                    else:
+                        logging.warning(
+                            "Custom tool call marker found but couldn't parse the format")
+                except Exception as e:
+                    logging.error(f"Error processing custom tool format: {e}")
+                    has_custom_tool_format = False
+
+            # Process the custom tool marker if found
+            if has_custom_tool_format and custom_tool_name and custom_tool_args is not None:
+                logging.info(
+                    f"Processing custom format tool call: {custom_tool_name} with ID: {custom_tool_id}")
+
+                try:
+                    # Request tool call confirmation from the user
+                    self.tool_call_handler.request_tool_call(
+                        custom_tool_name, custom_tool_args)
+                    self.tool_call_event.clear()
+
+                    # Wait for user response
+                    await self.tool_call_event.wait()
+                    logging.info(
+                        f"Received user response for {custom_tool_name} tool call")
+
+                    # Get the result
+                    result = self.tool_call_result
+
+                    # Add the tool_call_id to the result for proper association
+                    if result and isinstance(result, dict):
+                        if 'id' not in result:
+                            result['id'] = custom_tool_id
+
+                    # If the result is not rejected
+                    if result and result.get('result') != 'rejected':
+                        # Create state with tool call result for a second round of processing
+                        tool_state = state.copy()
+                        tool_state['tool_call_result'] = result
+
+                        # Process through prepare_messages to incorporate the tool result
+                        tool_state = self.prepare_messages(tool_state)
+
+                        # Get a second response from the LLM with the tool results
+                        logging.info(
+                            "Getting follow-up response with tool results")
+
+                        # Send initial empty chunk to signal continuation
+                        if callback:
+                            callback(full_response + "\n\n")
+
+                        # Stream the follow-up response
+                        follow_up_accumulated = full_response + "\n\n"
+                        follow_up_chunk = None
+
+                        async for chunk in llm_instance.astream(tool_state['messages']):
+                            # Accumulate chunks for the follow-up response
+                            if follow_up_chunk is None:
+                                follow_up_chunk = chunk
+                            else:
+                                follow_up_chunk = follow_up_chunk + chunk
+
+                            # Extract content
+                            chunk_content = chunk.content if hasattr(
+                                chunk, 'content') else str(chunk)
+                            follow_up_accumulated += chunk_content
+
+                            # Send the updated full text with each chunk
+                            if callback:
+                                try:
+                                    callback(follow_up_accumulated)
+                                except Exception as e:
+                                    logging.error(
+                                        f"Error in follow-up callback: {e}")
+
+                        # Update full response with the follow-up
+                        full_response = follow_up_accumulated
+
+                        # Save the entire conversation to history
+                        message_history = self._get_message_history(
+                            session_id)
+                        message_history.add_message(
+                            state['messages'][-1])  # User message
+
+                        # Add tool message
+                        tool_content = str(result.get('result', {}).get(
+                            'data', 'Tool execution completed'))
+                        message_history.add_message(ToolMessage(
+                            content=tool_content, tool_call_id=custom_tool_id))
+
+                        # Add final AI response
+                        message_history.add_message(
+                            AIMessage(content=full_response))
+                        return full_response
+                    else:
+                        # Just save the normal conversation if tool was rejected
+                        message_history = self._get_message_history(
+                            session_id)
+                        message_history.add_message(
+                            state['messages'][-1])
+                        message_history.add_message(
+                            AIMessage(content=full_response))
+
+                        # Reset the tool_call_result to avoid reuse
+                        self.tool_call_result = None
+
+                except Exception as e:
+                    logging.error(
+                        f"Error processing custom tool call: {e}", exc_info=True)
+                    # Save normal conversation on error
+                    message_history = self._get_message_history(
+                        session_id)
+                    message_history.add_message(state['messages'][-1])
+                    message_history.add_message(
+                        AIMessage(content=full_response))
+
+                # Early return after processing custom tool
+                return full_response
+
+            # Once streaming is done, check if we've accumulated any tool calls
+            if accumulated_chunk and hasattr(accumulated_chunk, 'tool_calls') and accumulated_chunk.tool_calls:
+                logging.info(
+                    f"Final tool calls: {accumulated_chunk.tool_calls}")
+
+                # Process each tool call from the standardized LangChain format
+                for tool_call in accumulated_chunk.tool_calls:
+                    # Extract the standard fields
+                    tool_name = tool_call.get('name')
+                    tool_args = tool_call.get('args')
+                    tool_id = tool_call.get('id')
+
+                    if tool_name and tool_args is not None:
+                        logging.info(
+                            f"Processing LangChain tool call: {tool_name} with ID: {tool_id}")
+
+                        try:
+                            # Request tool call confirmation from the user
+                            self.tool_call_handler.request_tool_call(
+                                tool_name, tool_args)
+                            self.tool_call_event.clear()
+
+                            # Wait for user response
+                            await self.tool_call_event.wait()
+                            logging.info(
+                                f"Received user response for {tool_name} tool call")
+
+                            # Get the result
+                            result = self.tool_call_result
+
+                            # Add the tool_call_id to the result for proper association
+                            if result and isinstance(result, dict):
+                                if 'id' not in result:
+                                    result['id'] = tool_id
+
+                            # If the result is not rejected
+                            if result and result.get('result') != 'rejected':
+                                # Create state with tool call result for a second round of processing
+                                tool_state = state.copy()
+                                tool_state['tool_call_result'] = result
+
+                                # Process through prepare_messages to incorporate the tool result
+                                tool_state = self.prepare_messages(tool_state)
+
+                                # Get a second response from the LLM with the tool results
+                                logging.info(
+                                    "Getting follow-up response with tool results")
+
+                                # Send initial empty chunk to signal continuation
+                                if callback:
+                                    callback(full_response + "\n\n")
+
+                                # Stream the follow-up response
+                                follow_up_accumulated = full_response + "\n\n"
+                                follow_up_chunk = None
+
+                                async for chunk in llm_instance.astream(tool_state['messages']):
+                                    # Accumulate chunks for the follow-up response
+                                    if follow_up_chunk is None:
+                                        follow_up_chunk = chunk
+                                    else:
+                                        follow_up_chunk = follow_up_chunk + chunk
+
+                                    # Extract content
+                                    chunk_content = chunk.content if hasattr(
+                                        chunk, 'content') else str(chunk)
+                                    follow_up_accumulated += chunk_content
+
+                                    # Send the updated full text with each chunk
+                                    if callback:
+                                        try:
+                                            callback(follow_up_accumulated)
+                                        except Exception as e:
+                                            logging.error(
+                                                f"Error in follow-up callback: {e}")
+
+                                # Update full response with the follow-up
+                                full_response = follow_up_accumulated
+
+                                # Save the entire conversation to history
+                                message_history = self._get_message_history(
+                                    session_id)
+                                message_history.add_message(
+                                    state['messages'][-1])  # User message
+
+                                # Add tool message
+                                tool_content = str(result.get('result', {}).get(
+                                    'data', 'Tool execution completed'))
+                                message_history.add_message(ToolMessage(
+                                    content=tool_content, tool_call_id=tool_id))
+
+                                # Add final AI response
+                                message_history.add_message(
+                                    AIMessage(content=full_response))
+                                return full_response
+                            else:
+                                # Just save the normal conversation if tool was rejected
+                                message_history = self._get_message_history(
+                                    session_id)
+                                message_history.add_message(
+                                    state['messages'][-1])
+                                message_history.add_message(
+                                    AIMessage(content=full_response))
+
+                            # Reset the tool_call_result to avoid reuse
+                            self.tool_call_result = None
+
+                        except Exception as e:
+                            logging.error(
+                                f"Error processing tool call: {e}", exc_info=True)
+                            # Save normal conversation on error
+                            message_history = self._get_message_history(
+                                session_id)
+                            message_history.add_message(state['messages'][-1])
+                            message_history.add_message(
+                                AIMessage(content=full_response))
+
+            # Store in chat history for normal responses (if we didn't already save it during tool call handling)
+            message_history = self._get_message_history(session_id)
+            message_history.add_message(
+                state['messages'][-1])  # Add the user message
+            message_history.add_message(
+                AIMessage(content=full_response))  # Add the AI response
+
+            # Handle post-processing for compose mode
+            if state['mode'] == 'compose':
+                processed_response, detected_language = self._extract_code_block(
+                    full_response)
+                self.detected_language = detected_language
+                return processed_response
+
             return full_response
 
         except RuntimeError as e:
@@ -1148,100 +1482,6 @@ class LangGraphHandler:
                     logging.error(
                         f"Error calling callback with error message: {cb_err}")
             raise  # Re-raise the exception after logging
-
-    async def _process_stream(self, stream, callback: Optional[Callable[[str], None]] = None) -> str:
-        """Helper coroutine to process the LangGraph stream and call the callback."""
-        full_response = ""
-        try:
-            async for event in stream:
-                # Determine the type of event and extract relevant data
-                # LangGraph streams yield dictionaries where keys are node names
-                # and values are the outputs of those nodes (or the state itself)
-                logging.debug(f"Stream event: {event}")
-
-                # Check if the event contains the final response or intermediate steps
-                # Adjust this logic based on your graph structure and node names
-                response_chunk = None
-
-                # Look for response chunks in the event data
-                # This depends heavily on your graph structure and node names
-                for node_name, node_output in event.items():
-                    if isinstance(node_output, dict):
-                        # Check common places for response chunks
-                        if "response" in node_output and isinstance(node_output["response"], str):
-                            # Check if it's an update to the final response
-                            if node_output["response"] != full_response:
-                                new_part = node_output["response"][len(
-                                    full_response):]
-                                if new_part:
-                                    response_chunk = new_part
-                                    # Update tracked full response
-                                    full_response = node_output["response"]
-                                    break  # Found response chunk in this node output
-                        elif "messages" in node_output and isinstance(node_output["messages"], list):
-                            # Check the last message if it's an AIMessage chunk
-                            if node_output["messages"]:
-                                last_message = node_output["messages"][-1]
-                                if isinstance(last_message, AIMessage) and isinstance(last_message.content, str):
-                                    # Check if it's a new chunk added to the last AI message
-                                    # This logic assumes streaming updates the content of the last message
-                                    current_ai_content = last_message.content
-                                    # Find the previous AI message content to diff (more complex state needed)
-                                    # Simple approach: assume any AI message content is part of the stream
-                                    # This might repeat content if the full message is sent multiple times
-                                    # A better approach relies on LangChain's streaming format if available directly
-                                    # Let's assume the 'generate_response' node output might be the direct chunk
-                                    pass  # Avoid complex message diffing for now
-
-                # Specific check for the likely response generation node
-                # Replace 'generate_response_node_name' with the actual name of your LLM call node
-                generate_node_name = "generate_response"  # Assuming this is the node name
-                if generate_node_name in event:
-                    node_output = event[generate_node_name]
-                    # Check if the output is directly the AIMessageChunk or similar streaming object
-                    if hasattr(node_output, 'content'):
-                        response_chunk = node_output.content
-                        if response_chunk:
-                            full_response += response_chunk  # Accumulate here if chunks are delta
-                    # Fallback check if node output is a dict containing the response
-                    elif isinstance(node_output, dict) and "response" in node_output:
-                        # This logic assumes the full response is sent each time, calculate delta
-                        current_full = node_output["response"]
-                        if isinstance(current_full, str) and current_full != full_response:
-                            new_part = current_full[len(full_response):]
-                            if new_part:
-                                response_chunk = new_part
-                                full_response = current_full  # Update tracked full response
-
-                # Fallback: If the event itself is a string (less likely with LangGraph state updates)
-                elif isinstance(event, str):
-                    response_chunk = event
-
-                # If a chunk was identified, process and callback
-                if response_chunk:
-                    # full_response += response_chunk # Accumulate only if chunk represents new part
-                    if callback:
-                        try:
-                            # Ensure callback runs in the correct context if needed
-                            # loop = asyncio.get_running_loop()
-                            # loop.call_soon_threadsafe(callback, response_chunk) # If callback needs main thread
-                            # Direct call if callback is thread-safe/async-safe
-                            callback(response_chunk)
-                        except Exception as cb_err:
-                            logging.error(
-                                f"Error in stream callback: {cb_err}")
-
-            logging.debug("Stream finished.")
-            return full_response
-        except Exception as e:
-            logging.exception(f"Error processing LLM stream: {e}")
-            if callback:
-                try:
-                    callback(f"Error during streaming: {e}")
-                except Exception as cb_err:
-                    logging.error(
-                        f"Error calling callback with stream error message: {cb_err}")
-            return full_response  # Return whatever was accumulated before the error
 
     def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default", selected_text: str = None, mode: str = "chat", image_data: Optional[str] = None) -> str:
         """Synchronous wrapper for get_response_async."""
