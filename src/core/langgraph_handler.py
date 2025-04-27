@@ -8,6 +8,7 @@ from pathlib import Path
 import asyncio
 import nest_asyncio
 import re  # Import re for _extract_code_block
+import time  # Add time for timing logs
 
 # LangChain imports
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
@@ -100,8 +101,12 @@ class LangGraphHandler:
         # Set up all tools - both web_search and system_info
         self.tool_call_handler.setup_tools(
             web_search_handler=self.web_search_handler)
+
+        # Initialize tool call event - reinitialized here to be safe
         self.tool_call_event = asyncio.Event()
         self.tool_call_result = None
+
+        # Connect the signal after initializing the event
         self.tool_call_handler.tool_call_completed.connect(
             self._on_tool_call_completed)
 
@@ -600,11 +605,29 @@ class LangGraphHandler:
                         f"Added system info ToolMessage with ID: {tool_call_id}")
                 else:
                     # Generic format for other tools or error cases
-                    tool_content = str(result)
+                    if isinstance(result, dict) and 'data' in result:
+                        tool_content = result.get('data')
+                    elif isinstance(result, dict) and 'status' in result and 'data' in result:
+                        tool_content = result.get('data')
+                    else:
+                        # Try to extract useful information from nested structures
+                        if isinstance(result, dict) and 'result' in result and isinstance(result['result'], dict):
+                            inner_result = result['result']
+                            if 'data' in inner_result:
+                                tool_content = inner_result['data']
+                            elif 'status' in inner_result and inner_result.get('status') == 'success':
+                                tool_content = str(inner_result)
+                            else:
+                                tool_content = str(result)
+                        else:
+                            tool_content = str(result)
+
                     messages.append(ToolMessage(
                         content=tool_content, tool_call_id=tool_call_id))
                     logging.info(
                         f"Added generic ToolMessage for {tool_name} with ID: {tool_call_id}")
+                    logging.debug(f"Tool content: {tool_content[:100]}..." if len(
+                        str(tool_content)) > 100 else tool_content)
 
             # Clear the tool call result after using it to prevent reprocessing
             updated_state['tool_call_result'] = None
@@ -1019,18 +1042,63 @@ class LangGraphHandler:
             self.tool_call_handler.request_tool_call(tool_name, tool_args)
             self.tool_call_event.clear()
 
-            # Wait for user response (this will be set by _on_tool_call_completed)
-            logging.info(
-                f"Waiting for user confirmation of {tool_name} tool call...")
-            await self.tool_call_event.wait()
-            logging.info(f"Received user response for {tool_name} tool call")
+            # Log the start of waiting period
+            wait_start_time = time.monotonic()
+            logging.info(f"Waiting for user to confirm tool call: {tool_name}")
 
-            # After user responds, get the result
+            # Update the UI callback if available to show we're waiting
+            if callback:
+                callback(accumulated_response +
+                         "\n\n[Waiting for your confirmation to use the tool...]")
+
+            # Wait for user response with periodic progress updates
+            logging.info(
+                f"Waiting for user response for {tool_name} tool call")
+            try:
+                # Periodic updates while waiting
+                if callback:
+                    wait_start = time.monotonic()
+                    while not self.tool_call_event.is_set():
+                        # Check if the event is set every second
+                        try:
+                            await asyncio.wait_for(self.tool_call_event.wait(), timeout=1.0)
+                            break  # Event was set, exit the loop
+                        except asyncio.TimeoutError:
+                            # Event wasn't set within 1 second, continue waiting
+                            wait_duration = time.monotonic() - wait_start
+                            dots = "." * (int(wait_duration) % 4)
+                            waiting_message = f"{accumulated_response}\n\n[Waiting for your confirmation to use the tool{dots}]"
+                            callback(waiting_message)
+                            continue
+                else:
+                    # If no callback, just wait normally
+                    await asyncio.wait_for(self.tool_call_event.wait(), timeout=120.0)
+
+                wait_end_time = time.monotonic()
+                wait_duration = wait_end_time - wait_start_time
+                logging.info(
+                    f"Received user response for {tool_name} tool call after {wait_duration:.3f} seconds")
+            except asyncio.TimeoutError:
+                logging.warning(
+                    f"Timeout waiting for tool call response for {tool_name}")
+                # Create a timeout result to move forward
+                self.tool_call_result = {
+                    'tool': tool_name,
+                    'id': tool_id,
+                    'result': {
+                        'status': 'error',
+                        'message': 'Timeout waiting for user confirmation'
+                    }
+                }
+
+            # Clear the event for the next tool call
+            self.tool_call_event.clear()
+
+            # Get the result
             result = self.tool_call_result
 
             # Add the tool_call_id to the result for proper association
             if result and isinstance(result, dict):
-                # If ID not already in result (from ToolCallHandler), add it
                 if 'id' not in result:
                     result['id'] = tool_id
 
@@ -1066,10 +1134,27 @@ class LangGraphHandler:
                 - id: The ID of the tool call
         """
         logging.info(f"Tool call completed with result: {result}")
+
         # Store the result for the tool_call_node to use
         self.tool_call_result = result
+
         # Signal that the tool call is complete
-        self.tool_call_event.set()
+        try:
+            # Make sure we're logging the event state for debugging
+            logging.info(
+                f"Setting tool_call_event. Current state: {self.tool_call_event.is_set()}")
+            self.tool_call_event.set()
+            logging.info(
+                f"Event set successfully. New state: {self.tool_call_event.is_set()}")
+        except Exception as e:
+            logging.exception(f"Error setting tool call event: {e}")
+            # Try to recreate the event if it's somehow invalid
+            try:
+                self.tool_call_event = asyncio.Event()
+                self.tool_call_event.set()
+                logging.info("Created new event and set it successfully")
+            except Exception as e2:
+                logging.exception(f"Failed to recreate event: {e2}")
 
     async def get_response_async(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default", selected_text: str = None, mode: str = "chat", image_data: Optional[str] = None) -> str:
         """
@@ -1249,10 +1334,59 @@ class LangGraphHandler:
                                 tool_name, tool_args)
                             self.tool_call_event.clear()
 
-                            # Wait for user response
-                            await self.tool_call_event.wait()
+                            # Log the start of waiting period
+                            wait_start_time = time.monotonic()
                             logging.info(
-                                f"Received user response for {tool_name} tool call")
+                                f"Waiting for user to confirm tool call: {tool_name}")
+
+                            # Update the UI callback if available to show we're waiting
+                            if callback:
+                                callback(
+                                    accumulated_response + "\n\n[Waiting for your confirmation to use the tool...]")
+
+                            # Wait for user response with periodic progress updates
+                            logging.info(
+                                f"Waiting for user response for {tool_name} tool call")
+                            try:
+                                # Periodic updates while waiting
+                                if callback:
+                                    wait_start = time.monotonic()
+                                    while not self.tool_call_event.is_set():
+                                        # Check if the event is set every second
+                                        try:
+                                            await asyncio.wait_for(self.tool_call_event.wait(), timeout=1.0)
+                                            break  # Event was set, exit the loop
+                                        except asyncio.TimeoutError:
+                                            # Event wasn't set within 1 second, continue waiting
+                                            wait_duration = time.monotonic() - wait_start
+                                            dots = "." * \
+                                                (int(wait_duration) % 4)
+                                            waiting_message = f"{accumulated_response}\n\n[Waiting for your confirmation to use the tool{dots}]"
+                                            callback(waiting_message)
+                                            continue
+                                else:
+                                    # If no callback, just wait normally
+                                    await asyncio.wait_for(self.tool_call_event.wait(), timeout=120.0)
+
+                                wait_end_time = time.monotonic()
+                                wait_duration = wait_end_time - wait_start_time
+                                logging.info(
+                                    f"Received user response for {tool_name} tool call after {wait_duration:.3f} seconds")
+                            except asyncio.TimeoutError:
+                                logging.warning(
+                                    f"Timeout waiting for tool call response for {tool_name}")
+                                # Create a timeout result to move forward
+                                self.tool_call_result = {
+                                    'tool': tool_name,
+                                    'id': tool_id,
+                                    'result': {
+                                        'status': 'error',
+                                        'message': 'Timeout waiting for user confirmation'
+                                    }
+                                }
+
+                            # Clear the event for the next tool call
+                            self.tool_call_event.clear()
 
                             # Get the result
                             result = self.tool_call_result
@@ -1265,19 +1399,54 @@ class LangGraphHandler:
                             # If the result is not rejected
                             if result and result.get('result') != 'rejected':
                                 # Create state with tool call result for a second round of processing
+                                logging.info(
+                                    "Processing tool results for follow-up response")
                                 tool_state = state.copy()
                                 tool_state['tool_call_result'] = result
 
                                 # Process through prepare_messages to incorporate the tool result
+                                logging.info(
+                                    "Processing tool results for follow-up response")
                                 tool_state = self.prepare_messages(tool_state)
+
+                                # Log the tool state messages for debugging
+                                logging.info(
+                                    f"Prepared {len(tool_state['messages'])} messages for follow-up LLM call")
+                                # Log the last few messages to see if the tool result is included
+                                for i, msg in enumerate(tool_state['messages'][-3:]):
+                                    content_preview = ""
+                                    if hasattr(msg, 'content'):
+                                        if isinstance(msg.content, str):
+                                            content_preview = msg.content[:100]
+                                        elif isinstance(msg.content, list):
+                                            content_preview = str(
+                                                msg.content)[:100]
+                                        else:
+                                            content_preview = str(
+                                                msg.content)[:100]
+                                    logging.info(
+                                        f"Message {len(tool_state['messages']) - 3 + i}: {type(msg).__name__} - {content_preview}...")
 
                                 # Get a second response from the LLM with the tool results
                                 logging.info(
                                     "Getting follow-up response with tool results")
 
+                                # Give the UI a moment to update with the tool result before continuing
+                                await asyncio.sleep(0.5)
+
                                 # Send initial empty chunk to signal continuation
                                 if callback:
                                     callback(full_response + "\n\n")
+
+                                # Explicitly check if the LLM instance is available
+                                if not llm_instance:
+                                    logging.error(
+                                        "LLM instance not available for follow-up call")
+                                    return full_response
+
+                                # Log before the second LLM call
+                                logging.info("Starting follow-up LLM stream")
+                                start_time = time.monotonic()
 
                                 # Stream the follow-up response
                                 follow_up_accumulated = full_response + "\n\n"
@@ -1303,6 +1472,12 @@ class LangGraphHandler:
                                             logging.error(
                                                 f"Error in follow-up callback: {e}")
 
+                                # Log after the second LLM call completes
+                                end_time = time.monotonic()
+                                duration = end_time - start_time
+                                logging.info(
+                                    f"Follow-up LLM stream completed in {duration:.3f} seconds")
+
                                 # Update full response with the follow-up
                                 full_response = follow_up_accumulated
 
@@ -1313,8 +1488,14 @@ class LangGraphHandler:
                                     state['messages'][-1])  # User message
 
                                 # Add tool message
-                                tool_content = str(result.get('result', {}).get(
-                                    'data', 'Tool execution completed'))
+                                tool_content = None
+                                if isinstance(result.get('result'), dict) and 'data' in result.get('result'):
+                                    tool_content = result.get(
+                                        'result').get('data')
+                                else:
+                                    tool_content = str(result.get('result', {}).get(
+                                        'data', 'Tool execution completed'))
+
                                 message_history.add_message(ToolMessage(
                                     content=tool_content, tool_call_id=tool_id))
 
