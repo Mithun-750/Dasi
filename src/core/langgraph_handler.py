@@ -8,17 +8,8 @@ import nest_asyncio
 import re  # Import re for _extract_code_block
 
 # LangChain imports
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.output_parsers import StrOutputParser
-from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_ollama import ChatOllama
-from langchain_groq import ChatGroq
-from langchain_anthropic import ChatAnthropic
-from langchain_deepseek import ChatDeepSeek
-from langchain_together import ChatTogether
-from langchain_xai import ChatXAI
 from langchain_community.chat_message_histories import SQLChatMessageHistory
 
 # LangGraph imports
@@ -30,11 +21,11 @@ from ui.settings import Settings
 from .web_search_handler import WebSearchHandler
 from .vision_handler import VisionHandler
 from .llm_factory import create_llm_instance
+from .filename_suggester import FilenameSuggester
 from .prompts_hub import (
     LANGGRAPH_BASE_SYSTEM_PROMPT,
     COMPOSE_MODE_INSTRUCTION,
     CHAT_MODE_INSTRUCTION,
-    FILENAME_SUGGESTION_TEMPLATE,
     TOOL_CALLING_INSTRUCTION
 )
 from core.tools.tool_call_handler import ToolCallHandler
@@ -95,15 +86,22 @@ class LangGraphHandler:
         self.web_search_handler = WebSearchHandler(self)
         self.vision_handler = VisionHandler(self.settings)
 
+        # Build system prompt
+        self._initialize_system_prompt()
+
+        # Initialize filename suggester
+        self.filename_suggester = FilenameSuggester(
+            self.llm, self.system_prompt)
+
         # Use shared tool call handler from instance manager
         self.tool_call_handler = DasiInstanceManager.get_tool_call_handler()
+        # Set up all tools - both web_search and system_info
+        self.tool_call_handler.setup_tools(
+            web_search_handler=self.web_search_handler)
         self.tool_call_event = asyncio.Event()
         self.tool_call_result = None
         self.tool_call_handler.tool_call_completed.connect(
             self._on_tool_call_completed)
-
-        # Build system prompt
-        self._initialize_system_prompt()
 
         # Connect to settings changes
         self.settings.models_changed.connect(self.on_models_changed)
@@ -273,6 +271,8 @@ class LangGraphHandler:
             if llm_instance:
                 self.llm = llm_instance
                 self.current_provider = provider
+                # Update the filename suggester's LLM instance
+                self.filename_suggester.llm = llm_instance
                 logging.info(
                     f"Successfully initialized {provider} model: {model_id} via factory")
                 return True
@@ -484,31 +484,87 @@ class LangGraphHandler:
 
         messages.append(SystemMessage(content=mode_instruction))
 
-        # <<< MODIFIED SECTION: Incorporate Web Search/Scrape Results >>>
-        web_search_results = state.get('web_search_results')
-        final_query_text = updated_state['query']  # Start with original query
+        # Add chat history
+        session_id = state['session_id']
+        message_history = self._get_message_history(session_id)
+        history_messages = message_history.messages[-self.history_limit:
+                                                    ] if message_history.messages else []
 
-        # If there's a tool call result from user confirmation, add it to the message
+        # Convert to appropriate message types
+        typed_history = []
+        for msg in history_messages:
+            if isinstance(msg, HumanMessage):
+                typed_history.append(msg)
+            elif isinstance(msg, AIMessage):
+                typed_history.append(msg)
+            elif isinstance(msg, SystemMessage):
+                typed_history.append(msg)
+            elif isinstance(msg, ToolMessage):
+                typed_history.append(msg)  # Make sure to include ToolMessages
+            elif hasattr(msg, 'type') and hasattr(msg, 'content'):
+                if msg.type == 'human':
+                    typed_history.append(HumanMessage(content=msg.content))
+                elif msg.type == 'ai':
+                    typed_history.append(AIMessage(content=msg.content))
+                elif msg.type == 'tool':
+                    # Handle legacy tool messages
+                    tool_call_id = getattr(msg, 'tool_call_id', None)
+                    typed_history.append(ToolMessage(
+                        content=msg.content, tool_call_id=tool_call_id))
+
+        messages.extend(typed_history)
+
+        # <<< MODIFIED SECTION: Handle Tool Call Results >>>
+        # If there's a tool call result from user confirmation, add a ToolMessage to the messages
         tool_call_result = state.get('tool_call_result')
-        if tool_call_result:
+        if tool_call_result and isinstance(tool_call_result, dict):
             logging.info(
                 f"Adding tool call result to messages: {tool_call_result}")
             tool_name = tool_call_result.get('tool', 'unknown')
             result = tool_call_result.get('result', {})
+            # Get the tool call ID if present
+            tool_call_id = tool_call_result.get('id')
 
-            if tool_name == 'web_search' and isinstance(result, dict) and result.get('status') == 'success':
-                # Format similar to web search results for consistency
-                search_data = result.get('data', 'No results found')
-                final_query_text += f"\n\n=====TOOL_RESULT=====<web_search>\n{search_data}\n======================="
-            elif result == 'rejected':
-                # Inform the LLM that the user rejected the tool call
-                final_query_text += "\n\n=====TOOL_RESULT=====<rejected>\nThe user rejected the tool call. Please proceed without using external tools.\n======================="
+            if result == 'rejected':
+                # For rejected tool calls, add a special ToolMessage indicating rejection
+                # This provides explicit feedback to the model about the rejection
+                messages.append(ToolMessage(
+                    content="The user rejected this tool call request. Please proceed without using this tool.",
+                    tool_call_id=tool_call_id
+                ))
+                logging.info("Added tool rejection message")
             else:
-                # Generic format for other tools or error cases
-                final_query_text += f"\n\n=====TOOL_RESULT=====<{tool_name}>\n{result}\n======================="
+                # For successful tool calls:
+                if tool_name == 'web_search' and isinstance(result, dict) and result.get('status') == 'success':
+                    # Format web search results as a structured ToolMessage
+                    tool_content = result.get('data', 'No results found')
+                    messages.append(ToolMessage(
+                        content=tool_content, tool_call_id=tool_call_id))
+                    logging.info(
+                        f"Added web search ToolMessage with ID: {tool_call_id}")
+                elif tool_name == 'system_info' and isinstance(result, dict) and result.get('status') == 'success':
+                    # Format system info results
+                    tool_content = result.get(
+                        'data', 'No system information available')
+                    messages.append(ToolMessage(
+                        content=tool_content, tool_call_id=tool_call_id))
+                    logging.info(
+                        f"Added system info ToolMessage with ID: {tool_call_id}")
+                else:
+                    # Generic format for other tools or error cases
+                    tool_content = str(result)
+                    messages.append(ToolMessage(
+                        content=tool_content, tool_call_id=tool_call_id))
+                    logging.info(
+                        f"Added generic ToolMessage for {tool_name} with ID: {tool_call_id}")
 
-            # Clear the tool call result after using it
+            # Clear the tool call result after using it to prevent reprocessing
             updated_state['tool_call_result'] = None
+        # <<< END MODIFIED SECTION >>>
+
+        # Handle web search results (separate from tool calls)
+        web_search_results = state.get('web_search_results')
+        final_query_text = updated_state['query']  # Start with original query
 
         # Existing web search results handling
         if web_search_results:
@@ -545,38 +601,9 @@ class LangGraphHandler:
                     f"Web search results present but status is not 'success' or 'error': {web_search_results.get('status')}")
                 # Fallback to original query if status is unexpected
 
-        # <<< END MODIFIED SECTION >>>
-
-        # Add chat history
-        session_id = state['session_id']
-        message_history = self._get_message_history(session_id)
-        history_messages = message_history.messages[-self.history_limit:
-                                                    ] if message_history.messages else []
-
-        # Convert to appropriate message types
-        typed_history = []
-        for msg in history_messages:
-            if isinstance(msg, HumanMessage):
-                typed_history.append(msg)
-            elif isinstance(msg, AIMessage):
-                typed_history.append(msg)
-            elif isinstance(msg, SystemMessage):
-                typed_history.append(msg)
-            elif hasattr(msg, 'type') and hasattr(msg, 'content'):
-                if msg.type == 'human':
-                    typed_history.append(HumanMessage(content=msg.content))
-                elif msg.type == 'ai':
-                    typed_history.append(AIMessage(content=msg.content))
-
-        messages.extend(typed_history)
-
-        # Start constructing the final query content
-        # Already contains web results if applicable
-        final_query_content = final_query_text
-
         # Append selected text if present AND not already added via web blocks
-        if state.get('selected_text') and "=====SELECTED_TEXT=====" not in final_query_content:
-            final_query_content += f"\\n\\n=====SELECTED_TEXT=====<text selected by the user>\\n{state['selected_text']}\\n======================="
+        if state.get('selected_text') and "=====SELECTED_TEXT=====" not in final_query_text:
+            final_query_text += f"\n\n=====SELECTED_TEXT=====<text selected by the user>\n{state['selected_text']}\n======================="
 
         # Determine final message type based on image and vision description
         image_data = state.get('image_data')
@@ -587,7 +614,7 @@ class LangGraphHandler:
             # Case 1: Vision model success - Append description, send text-only
             logging.info(
                 "Vision description present. Appending to text query.")
-            final_query_content += f"\\n\\n=====VISUAL_DESCRIPTION=====<description generated by vision model>\\n{vision_description}\\n======================="
+            final_query_content = f"\n\n=====VISUAL_DESCRIPTION=====<description generated by vision model>\n{vision_description}\n======================="
             query_message = HumanMessage(content=final_query_content)
 
         elif image_data:
@@ -596,7 +623,7 @@ class LangGraphHandler:
                 # Case 3: Vision model configured but failed - Send text-only with error note
                 logging.warning(
                     "Image present, vision model configured but failed. Adding system note.")
-                final_query_content += "\\n\\n=====SYSTEM_NOTE=====\\n(Failed to process the provided visual input using the configured vision model.)\\n====================="
+                final_query_content = "\n\n=====SYSTEM_NOTE=====\n(Failed to process the provided visual input using the configured vision model.)\n====================="
                 query_message = HumanMessage(content=final_query_content)
             else:
                 # Case 2: No vision model configured - Send multimodal message
@@ -616,7 +643,7 @@ class LangGraphHandler:
         else:
             # Case 4: No image data - Send text-only
             logging.info("No image data. Constructing text-only message.")
-            query_message = HumanMessage(content=final_query_content)
+            query_message = HumanMessage(content=final_query_text)
 
         # Add the final prepared query message to the list
         messages.append(query_message)
@@ -649,39 +676,132 @@ class LangGraphHandler:
             logging.debug(f"LLM raw response: {final_response[:200]}..." if len(
                 final_response) > 200 else final_response)
 
-            # Tool call detection (simple example: look for special marker)
-            # In production, use OpenAI function calling or similar
+            # Improved tool call detection - check for both marker format and function calling if available
+            tool_detected = False
+            tool_name = None
+            tool_args = None
+            tool_id = None
+
+            # Check for the custom tool marker format
             if '<<TOOL:' in final_response:
                 logging.info("Tool call marker detected in LLM response")
                 import json
                 import re
+                import uuid
+
                 match = re.search(
                     r'<<TOOL:\s*(\w+)\s*(\{.*?\})>>', final_response)
                 if match:
+                    tool_detected = True
                     tool_name = match.group(1)
                     tool_args_str = match.group(2)
                     logging.info(
                         f"Parsed tool call: {tool_name} with args: {tool_args_str}")
                     try:
                         tool_args = json.loads(tool_args_str)
-                        updated_state['pending_tool_call'] = {
-                            'tool': tool_name, 'args': tool_args}
-                        # Remove tool call marker from response
+                        # Generate a unique ID for this tool call if none exists
+                        tool_id = f"call_{uuid.uuid4().hex[:24]}"
+                        # Clean the response by removing the tool call marker
                         cleaned_response = re.sub(
                             r'<<TOOL:.*?>>', '', final_response).strip()
-                        updated_state['response'] = cleaned_response
-                        logging.info(
-                            f"Tool call for {tool_name} added to state, routing to tool_call node")
-                        return updated_state
+                        final_response = cleaned_response
                     except json.JSONDecodeError as e:
                         logging.error(f"Error parsing tool args JSON: {e}")
+                        tool_detected = False
                 else:
                     logging.warning(
                         "Tool call marker found but couldn't parse the format")
-            else:
-                logging.debug("No tool call markers found in response")
 
-            # Normal response
+            # Check for function calling in OpenAI/Anthropic response format if available
+            # This is model-dependent and would need to be expanded for each supported model's format
+            elif hasattr(response, 'additional_kwargs') and response.additional_kwargs:
+                # OpenAI format
+                if 'function_call' in response.additional_kwargs:
+                    func_call = response.additional_kwargs['function_call']
+                    if isinstance(func_call, dict) and 'name' in func_call and 'arguments' in func_call:
+                        tool_detected = True
+                        tool_name = func_call['name']
+                        try:
+                            import json
+                            tool_args = json.loads(func_call['arguments'])
+                            tool_id = func_call.get('id')
+                            if not tool_id:
+                                import uuid
+                                tool_id = f"call_{uuid.uuid4().hex[:24]}"
+                            logging.info(
+                                f"Detected OpenAI function call: {tool_name}, id: {tool_id}")
+                        except json.JSONDecodeError:
+                            logging.error(
+                                f"Error parsing OpenAI function args JSON")
+                            tool_detected = False
+
+                # Anthropic format (tool_use)
+                elif 'tool_use' in response.additional_kwargs:
+                    tool_use = response.additional_kwargs['tool_use']
+                    if isinstance(tool_use, dict) and 'name' in tool_use and 'input' in tool_use:
+                        tool_detected = True
+                        tool_name = tool_use['name']
+                        # Already a dict in Anthropic's format
+                        tool_args = tool_use['input']
+                        tool_id = tool_use.get('id')
+                        if not tool_id:
+                            import uuid
+                            tool_id = f"call_{uuid.uuid4().hex[:24]}"
+                        logging.info(
+                            f"Detected Anthropic tool_use: {tool_name}, id: {tool_id}")
+
+                # Check for tool_calls array (newer format like OpenAI API)
+                elif 'tool_calls' in response.additional_kwargs:
+                    tool_calls = response.additional_kwargs['tool_calls']
+                    if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
+                        first_call = tool_calls[0]
+                        if isinstance(first_call, dict):
+                            # Extract from potential nested structure
+                            if 'function' in first_call and isinstance(first_call['function'], dict):
+                                tool_detected = True
+                                tool_name = first_call['function'].get('name')
+                                try:
+                                    import json
+                                    args_str = first_call['function'].get(
+                                        'arguments', '{}')
+                                    tool_args = json.loads(args_str)
+                                    tool_id = first_call.get('id')
+                                    if not tool_id:
+                                        import uuid
+                                        tool_id = f"call_{uuid.uuid4().hex[:24]}"
+                                    logging.info(
+                                        f"Detected tool_calls array: {tool_name}, id: {tool_id}")
+                                except json.JSONDecodeError:
+                                    logging.error(
+                                        f"Error parsing tool_calls args JSON")
+                                    tool_detected = False
+                            else:
+                                # Direct structure
+                                tool_detected = True
+                                tool_name = first_call.get('name')
+                                tool_args = first_call.get('args', {})
+                                tool_id = first_call.get('id')
+                                if not tool_id:
+                                    import uuid
+                                    tool_id = f"call_{uuid.uuid4().hex[:24]}"
+                                logging.info(
+                                    f"Detected direct tool_calls: {tool_name}, id: {tool_id}")
+
+            if tool_detected and tool_name and tool_args is not None:
+                # Add the tool call to state and let the graph handle routing
+                updated_state['pending_tool_call'] = {
+                    'tool': tool_name,
+                    'args': tool_args,
+                    'id': tool_id  # Include the tool ID
+                }
+                updated_state['response'] = final_response
+                logging.info(
+                    f"Tool call for {tool_name} (ID: {tool_id}) added to state, routing to tool_call node")
+                return updated_state
+            else:
+                logging.debug("No tool calls detected in response")
+
+            # Normal response processing (non-tool call)
             is_compose_mode = (state['mode'] == 'compose')
             if is_compose_mode:
                 final_response, detected_language = self._extract_code_block(
@@ -740,10 +860,13 @@ class LangGraphHandler:
         graph.add_node("vision_processing", self.vision_processing)
         graph.add_node("prepare_messages", self.prepare_messages)
         graph.add_node("generate_response", self.generate_response)
-        graph.add_node("tool_call", self.tool_call_node)  # New node
+        graph.add_node("tool_call", self.tool_call_node)  # Tool call node
+
+        # Initial graph flow
         graph.add_edge(START, "initialize")
         graph.add_edge("initialize", "parse_query")
 
+        # Conditional routing after parsing the query
         def route_after_parse(state: GraphState):
             use_web = state.get("use_web_search", False)
             use_vis = state.get("use_vision", False)
@@ -766,6 +889,7 @@ class LangGraphHandler:
             }
         )
 
+        # Conditional routing after web search
         def route_after_web_search(state: GraphState):
             use_vis = state.get("use_vision", False)
             has_img = state.get("image_data") is not None
@@ -781,9 +905,14 @@ class LangGraphHandler:
                 "prepare_messages": "prepare_messages"
             }
         )
-        graph.add_edge("vision_processing", "prepare_messages")
-        # Route to tool_call if pending_tool_call is set after generate_response
 
+        # Vision processing always goes to prepare_messages
+        graph.add_edge("vision_processing", "prepare_messages")
+
+        # After preparing messages, always go to generate_response
+        graph.add_edge("prepare_messages", "generate_response")
+
+        # Route to tool_call if pending_tool_call is set after generate_response
         def route_after_generate_response(state: GraphState):
             if state.get('pending_tool_call'):
                 return "tool_call"
@@ -797,34 +926,101 @@ class LangGraphHandler:
                 END: END
             }
         )
-        # After tool_call, go back to prepare_messages (tool result in state)
+
+        # CRITICAL: After tool_call, ALWAYS go to prepare_messages to properly incorporate results
+        # This ensures the tool results are added to the conversation before generating a response
         graph.add_edge("tool_call", "prepare_messages")
-        graph.add_edge("prepare_messages", "generate_response")
-        graph.add_edge("generate_response", END)
-        logging.info("LangGraph graph definition built with tool_call node.")
+
+        logging.info(
+            "LangGraph graph definition built with proper tool calling flow")
         return graph
 
     async def tool_call_node(self, state):
-        """LangGraph node for tool calling with user confirmation."""
-        # Assume tool call info is in state['pending_tool_call']
+        """
+        LangGraph node for tool calling with user confirmation.
+
+        This node:
+        1. Takes a tool call request from the LLM
+        2. Sends it to the ToolCallHandler for user confirmation
+        3. Waits for user response (accept/reject)
+        4. Receives the tool result
+        5. Updates the state with the result
+        6. Routes back to prepare_messages
+        """
+        # Get the pending tool call
         tool_call = state.get('pending_tool_call')
         if not tool_call:
-            # No tool call, just return state
+            logging.warning(
+                "tool_call_node entered without a pending_tool_call in state")
             return state
+
         tool_name = tool_call.get('tool')
         tool_args = tool_call.get('args', {})
-        # Emit to UI and wait for user
-        self.tool_call_handler.request_tool_call(tool_name, tool_args)
-        self.tool_call_event.clear()
-        await self.tool_call_event.wait()
-        # After user responds, update state with result
-        result = self.tool_call_result
+        # The tool call ID for proper response association
+        tool_id = tool_call.get('id')
+
+        logging.info(
+            f"Tool call node processing: {tool_name} with ID: {tool_id}")
+
+        # Clear the pending tool call from state to prevent reprocessing
         new_state = state.copy()
-        new_state['tool_call_result'] = result
+        new_state['pending_tool_call'] = None
+
+        try:
+            # Emit to UI and wait for user confirmation
+            self.tool_call_handler.request_tool_call(tool_name, tool_args)
+            self.tool_call_event.clear()
+
+            # Wait for user response (this will be set by _on_tool_call_completed)
+            logging.info(
+                f"Waiting for user confirmation of {tool_name} tool call...")
+            await self.tool_call_event.wait()
+            logging.info(f"Received user response for {tool_name} tool call")
+
+            # After user responds, get the result
+            result = self.tool_call_result
+
+            # Add the tool_call_id to the result for proper association
+            if result and isinstance(result, dict):
+                # If ID not already in result (from ToolCallHandler), add it
+                if 'id' not in result:
+                    result['id'] = tool_id
+
+            # Store the result in the state for prepare_messages to process
+            new_state['tool_call_result'] = result
+            logging.info(f"Tool call result added to state: {result}")
+
+            # Reset the tool_call_result to avoid reuse
+            self.tool_call_result = None
+
+        except Exception as e:
+            logging.error(f"Error in tool_call_node: {e}", exc_info=True)
+            # Add error result to state
+            new_state['tool_call_result'] = {
+                'tool': tool_name,
+                'result': {
+                    'status': 'error',
+                    'message': f"Error during tool execution: {str(e)}"
+                },
+                'id': tool_id
+            }
+
         return new_state
 
     def _on_tool_call_completed(self, result):
+        """
+        Callback for when a tool call is completed.
+
+        Args:
+            result: The result of the tool call, containing:
+                - tool: The name of the tool that was called
+                - result: The result of the tool call
+                - id: The ID of the tool call
+        """
+        logging.info(f"Tool call completed with result: {result}")
+        # Store the result for the tool_call_node to use
         self.tool_call_result = result
+        # Signal that the tool call is complete
         self.tool_call_event.set()
 
     async def get_response_async(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default", selected_text: str = None, mode: str = "chat", image_data: Optional[str] = None) -> str:
@@ -1113,114 +1309,20 @@ class LangGraphHandler:
                         recent_query = msg.content
                         break
 
-            # Check if we have a detected language that would suggest a better extension
-            file_extension = ".md"  # Default extension
-            extension_hint = ""
-
+            # Update the filename suggester's detected language if we have one
             if self.detected_language:
-                # Map language to file extension
-                extension_map = {
-                    "python": ".py",
-                    "py": ".py",
-                    "javascript": ".js",
-                    "js": ".js",
-                    "typescript": ".ts",
-                    "ts": ".ts",
-                    "java": ".java",
-                    "c": ".c",
-                    "cpp": ".cpp",
-                    "c++": ".cpp",
-                    "csharp": ".cs",
-                    "c#": ".cs",
-                    "go": ".go",
-                    "rust": ".rs",
-                    "ruby": ".rb",
-                    "php": ".php",
-                    "swift": ".swift",
-                    "kotlin": ".kt",
-                    "html": ".html",
-                    "css": ".css",
-                    "sql": ".sql",
-                    "shell": ".sh",
-                    "bash": ".sh",
-                    "json": ".json",
-                    "xml": ".xml",
-                    "yaml": ".yaml",
-                    "yml": ".yml",
-                    "markdown": ".md",
-                    "md": ".md",
-                    "text": ".txt",
-                    "plaintext": ".txt",
-                }
+                self.filename_suggester.set_detected_language(
+                    self.detected_language)
+                # Reset our copy since the suggester will handle it
+                self.detected_language = None
 
-                if self.detected_language.lower() in extension_map:
-                    file_extension = extension_map[self.detected_language.lower(
-                    )]
-                    extension_hint = f"(use {file_extension} extension for this {self.detected_language} code)"
-
-            # Create the prompt for filename suggestion using the template from prompts hub
-            filename_query = FILENAME_SUGGESTION_TEMPLATE.format(
-                file_extension=file_extension,
-                extension_hint=extension_hint,
-                recent_query=recent_query,
-                content=content[:500]
-            )
-
-            # Create direct message list
-            messages = [
-                SystemMessage(content=self.system_prompt),
-                HumanMessage(content=filename_query)
-            ]
-
-            # Invoke the LLM directly
-            response = self.llm.invoke(messages)
-            suggested_filename = response.content.strip().strip('"').strip("'").strip()
-
-            # Ensure correct extension
-            if not suggested_filename.endswith(file_extension):
-                if '.' in suggested_filename:
-                    suggested_filename = suggested_filename.split('.')[0]
-                suggested_filename += file_extension
-
-            # Reset detected language
-            self.detected_language = None
-
-            return suggested_filename
+            # Get suggestion from the filename suggester
+            return self.filename_suggester.suggest_filename(content, recent_query)
 
         except Exception as e:
             logging.error(
-                f"Error suggesting filename: {str(e)}", exc_info=True)
+                f"Error in suggest_filename: {str(e)}", exc_info=True)
             # Return default filename with timestamp
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-            # Use stored language for extension if available
-            extension = ".md"
-            # Simplified extension logic based on potential language hints
-            lang_lower = (self.detected_language or "").lower()
-            if lang_lower in ["python", "py"]:
-                extension = ".py"
-            elif lang_lower in ["javascript", "js"]:
-                extension = ".js"
-            elif lang_lower in ["typescript", "ts"]:
-                extension = ".ts"
-            elif lang_lower in ["html"]:
-                extension = ".html"
-            elif lang_lower in ["css"]:
-                extension = ".css"
-            elif lang_lower in ["json"]:
-                extension = ".json"
-            elif lang_lower in ["yaml", "yml"]:
-                extension = ".yaml"
-            elif lang_lower in ["shell", "bash", "sh"]:
-                extension = ".sh"
-            elif lang_lower in ["sql"]:
-                extension = ".sql"
-            # Add other common languages as needed
-            elif lang_lower in ["text", "plaintext"]:
-                extension = ".txt"
-
-            # Reset detected language
-            self.detected_language = None
-
-            return f"dasi_response_{timestamp}{extension}"
+            return f"dasi_response_{timestamp}.md"

@@ -582,7 +582,6 @@ class DasiWindow(QWidget):
         self.preview_panel.set_response(f"Error: {error_msg}")
         self.preview_panel.show_preview(True)
         self.preview_panel.show_actions(True)
-        self.preview_panel.accept_button.hide()  # Hide accept button for errors
         self.right_panel.show()
 
         # Adjust window size
