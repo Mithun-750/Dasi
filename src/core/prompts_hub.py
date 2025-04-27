@@ -148,32 +148,29 @@ Content:
 
 # Tool calling instruction for LangGraph
 TOOL_CALLING_INSTRUCTION = """=====TOOL_CALLING=====<tool calling instructions>
-You have access to external tools that can be called through a special syntax when needed.
+You have access to external tools that can be called when needed.
 These tools allow you to enhance your capabilities with external data and functions.
 
 Available tools:
 
 1. web_search - Search the web for information
-   Usage: <<TOOL: web_search {"query": "search query", "mode": "web_search", "selected_text": "optional context"}>
+   Parameters:
    - query (required): The text to search for
    - mode (optional): Either "web_search" (default) or "link_scrape"
    - url (required for link_scrape mode): URL to scrape content from
    - selected_text (optional): Additional context from user's selected text
 
 2. system_info - Retrieve information about the user's system
-   Usage: <<TOOL: system_info {"info_type": "basic"}>
+   Parameters:
    - info_type (optional): Type of information to retrieve
      - "basic" (default): Operating system, version, architecture
      - "memory": System memory usage
      - "cpu": CPU information
      - "all": All available system information
 
-When a tool might be helpful, suggest it clearly using one of these formats. When suggesting a tool, say why you think the tool would be helpful and what specific information it could provide.
+Please use your built-in function calling capability to invoke these tools when they would be helpful. Do not try to format tool calls using custom syntax like "<<TOOL:...>>". Instead, use your native function calling mechanism.
 
-Example tool usages:
-- <<TOOL: web_search {"query": "latest news about AI", "mode": "web_search"}>>
-- <<TOOL: web_search {"query": "summarize this page", "mode": "link_scrape", "url": "https://example.com"}>>
-- <<TOOL: system_info {"info_type": "all"}>>
+When a tool might be helpful, explain why you think it would be useful and what information it could provide. Then initiate the appropriate function call.
 
-After suggesting a tool, wait for user confirmation before proceeding.
+After calling a tool, wait for the result before proceeding.
 ======================="""

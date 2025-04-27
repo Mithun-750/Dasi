@@ -28,6 +28,35 @@ The tool system consists of:
 1. **Individual Tool Classes**: Self-contained classes that implement a `run` method
 2. **ToolCallHandler**: Manages tool registration, user confirmation, and execution
 3. **LangGraphHandler**: Detects tool calls from LLM responses and routes to the appropriate tool
+4. **LangGraphToolNode**: Processes tool calls within the LangGraph system, acting as an execution node in the graph
+5. **LangGraphToolConfig**: Defines schemas and configurations for tools used with LangGraph
+
+## LangGraph Tool Integration
+
+Dasi uses LangGraph to coordinate the flow of tool usage. The key components are:
+
+### LangGraphToolNode (`langgraph_tool_node.py`)
+
+A specialized node class for the LangGraph system that handles tool execution.
+
+**Features:**
+- Asynchronous tool call processing
+- JSON-based response formatting
+- Proper error handling and logging
+- Extensible handler system for different tool types
+
+**Methods:**
+- `process_tool_call(tool_name, tool_args)`: Main entry point for tool execution
+- Tool-specific handlers (e.g., `_handle_web_search`, `_handle_system_info`)
+
+### LangGraphToolConfig (`langgraph_tool_config.py`)
+
+Provides schemas and configurations for tools used with LangGraph.
+
+**Features:**
+- Pydantic models for tool inputs
+- Tool descriptions for LLM prompts
+- Centralized tool registration
 
 ## Creating a New Tool
 
@@ -36,7 +65,9 @@ Follow these steps to create a new tool:
 1. Create a new file `your_tool_name_tool.py` in the `src/core/tools/` directory
 2. Implement your tool class with a `run` method that returns a structured result
 3. Update `tool_call_handler.py` to register and use your tool
-4. (Optional) Update requirements.txt if your tool requires additional dependencies
+4. Add a handler method in `LangGraphToolNode` for your new tool
+5. (Optional) Add a Pydantic schema in `LangGraphToolConfig` for your tool's inputs
+6. (Optional) Update requirements.txt if your tool requires additional dependencies
 
 ### Tool Template
 
@@ -84,6 +115,43 @@ class YourToolNameTool:
             }
 ```
 
+### LangGraphToolNode Handler
+
+Add a handler for your tool in the `LangGraphToolNode` class:
+
+```python
+async def _handle_your_tool(self, args: Dict[str, Any]) -> str:
+    """
+    Handle your custom tool calls.
+
+    Args:
+        args (Dict[str, Any]): Must contain required parameters for your tool
+
+    Returns:
+        str: JSON string containing tool results
+    """
+    # Validate required parameters
+    param1 = args.get("param1")
+    if not param1:
+        raise ValueError("Your tool requires a 'param1' parameter")
+
+    # TODO: Implement actual tool functionality
+    return json.dumps({
+        "status": "success",
+        "data": f"Tool results for: {param1}"
+    })
+```
+
+Then register it in the `__init__` method:
+
+```python
+self._tool_handlers: Dict[str, Callable[[Dict[str, Any]], Awaitable[str]]] = {
+    "web_search": self._handle_web_search,
+    "system_info": self._handle_system_info,
+    "your_tool_name": self._handle_your_tool,  # Add your new tool here
+}
+```
+
 ### Integration with ToolCallHandler
 
 After creating your tool, add it to the `ToolCallHandler` class:
@@ -113,3 +181,5 @@ LLMs can invoke tools using the following formats:
 4. Ensure your tool can be initialized without crashing the application
 5. Document your tool's arguments and return values
 6. Add tests for your tool 
+7. Use async handlers in `LangGraphToolNode` for potentially long-running operations
+8. Return properly formatted JSON strings from tool handlers 

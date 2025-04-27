@@ -48,7 +48,7 @@ class GraphState(TypedDict):
     # Processing fields
     messages: List[Any]
     use_web_search: bool
-    web_search_query: Optional[str]  # Query used for web search
+    web_search_query: Optional[str]  # Query used for web search node
     web_search_results: Optional[Dict]  # Results from web search node
     use_vision: bool
     vision_description: Optional[str]
@@ -257,17 +257,63 @@ class LangGraphHandler:
             temperature = self.settings.get(
                 'general', 'temperature', default=0.7)
 
+            # Define the tools that will be available to the LLM
+            tools = [
+                {
+                    "name": "web_search",
+                    "description": "Search the web for information",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "The text to search for"
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["web_search", "link_scrape"],
+                                "description": "Either 'web_search' (default) or 'link_scrape'"
+                            },
+                            "url": {
+                                "type": "string",
+                                "description": "URL to scrape content from (required for link_scrape mode)"
+                            },
+                            "selected_text": {
+                                "type": "string",
+                                "description": "Additional context from user's selected text"
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                },
+                {
+                    "name": "system_info",
+                    "description": "Retrieve information about the user's system",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "info_type": {
+                                "type": "string",
+                                "enum": ["basic", "memory", "cpu", "all"],
+                                "description": "Type of information to retrieve (basic, memory, cpu, or all)"
+                            }
+                        }
+                    }
+                }
+            ]
+
             logging.info(
                 f"Attempting to create LLM instance via factory: provider={provider}, model={model_id}, temp={temperature}")
 
-            # Call the factory function
+            # Call the factory function with tools
             llm_instance = create_llm_instance(
                 provider=provider,
                 model_id=model_id,
                 settings=self.settings,
                 temperature=temperature,
                 # Pass resolved info which might contain base_url etc.
-                model_info=resolved_model_info
+                model_info=resolved_model_info,
+                tools=tools
             )
 
             if llm_instance:
@@ -1180,153 +1226,6 @@ class LangGraphHandler:
 
             logging.info(
                 f"Streaming completed. Final response length: {len(full_response)}")
-
-            # Check for the custom tool marker format first
-            has_custom_tool_format = False
-            custom_tool_name = None
-            custom_tool_args = None
-            custom_tool_id = None
-
-            if '<<TOOL:' in full_response:
-                logging.info(
-                    "Custom tool call marker detected in LLM response")
-                try:
-                    import re
-                    match = re.search(
-                        r'<<TOOL:\s*(\w+)\s*(\{.*?\})>>', full_response)
-                    if match:
-                        has_custom_tool_format = True
-                        custom_tool_name = match.group(1)
-                        custom_tool_args_str = match.group(2)
-                        logging.info(
-                            f"Parsed custom tool call: {custom_tool_name} with args: {custom_tool_args_str}")
-                        try:
-                            custom_tool_args = json.loads(custom_tool_args_str)
-                            # Generate a unique ID for this tool call
-                            custom_tool_id = f"call_{uuid.uuid4().hex[:24]}"
-                            # Clean the response by removing the tool call marker
-                            cleaned_response = re.sub(
-                                r'<<TOOL:.*?>>', '', full_response).strip()
-                            full_response = cleaned_response
-                        except json.JSONDecodeError as e:
-                            logging.error(
-                                f"Error parsing custom tool args JSON: {e}")
-                            has_custom_tool_format = False
-                    else:
-                        logging.warning(
-                            "Custom tool call marker found but couldn't parse the format")
-                except Exception as e:
-                    logging.error(f"Error processing custom tool format: {e}")
-                    has_custom_tool_format = False
-
-            # Process the custom tool marker if found
-            if has_custom_tool_format and custom_tool_name and custom_tool_args is not None:
-                logging.info(
-                    f"Processing custom format tool call: {custom_tool_name} with ID: {custom_tool_id}")
-
-                try:
-                    # Request tool call confirmation from the user
-                    self.tool_call_handler.request_tool_call(
-                        custom_tool_name, custom_tool_args)
-                    self.tool_call_event.clear()
-
-                    # Wait for user response
-                    await self.tool_call_event.wait()
-                    logging.info(
-                        f"Received user response for {custom_tool_name} tool call")
-
-                    # Get the result
-                    result = self.tool_call_result
-
-                    # Add the tool_call_id to the result for proper association
-                    if result and isinstance(result, dict):
-                        if 'id' not in result:
-                            result['id'] = custom_tool_id
-
-                    # If the result is not rejected
-                    if result and result.get('result') != 'rejected':
-                        # Create state with tool call result for a second round of processing
-                        tool_state = state.copy()
-                        tool_state['tool_call_result'] = result
-
-                        # Process through prepare_messages to incorporate the tool result
-                        tool_state = self.prepare_messages(tool_state)
-
-                        # Get a second response from the LLM with the tool results
-                        logging.info(
-                            "Getting follow-up response with tool results")
-
-                        # Send initial empty chunk to signal continuation
-                        if callback:
-                            callback(full_response + "\n\n")
-
-                        # Stream the follow-up response
-                        follow_up_accumulated = full_response + "\n\n"
-                        follow_up_chunk = None
-
-                        async for chunk in llm_instance.astream(tool_state['messages']):
-                            # Accumulate chunks for the follow-up response
-                            if follow_up_chunk is None:
-                                follow_up_chunk = chunk
-                            else:
-                                follow_up_chunk = follow_up_chunk + chunk
-
-                            # Extract content
-                            chunk_content = chunk.content if hasattr(
-                                chunk, 'content') else str(chunk)
-                            follow_up_accumulated += chunk_content
-
-                            # Send the updated full text with each chunk
-                            if callback:
-                                try:
-                                    callback(follow_up_accumulated)
-                                except Exception as e:
-                                    logging.error(
-                                        f"Error in follow-up callback: {e}")
-
-                        # Update full response with the follow-up
-                        full_response = follow_up_accumulated
-
-                        # Save the entire conversation to history
-                        message_history = self._get_message_history(
-                            session_id)
-                        message_history.add_message(
-                            state['messages'][-1])  # User message
-
-                        # Add tool message
-                        tool_content = str(result.get('result', {}).get(
-                            'data', 'Tool execution completed'))
-                        message_history.add_message(ToolMessage(
-                            content=tool_content, tool_call_id=custom_tool_id))
-
-                        # Add final AI response
-                        message_history.add_message(
-                            AIMessage(content=full_response))
-                        return full_response
-                    else:
-                        # Just save the normal conversation if tool was rejected
-                        message_history = self._get_message_history(
-                            session_id)
-                        message_history.add_message(
-                            state['messages'][-1])
-                        message_history.add_message(
-                            AIMessage(content=full_response))
-
-                        # Reset the tool_call_result to avoid reuse
-                        self.tool_call_result = None
-
-                except Exception as e:
-                    logging.error(
-                        f"Error processing custom tool call: {e}", exc_info=True)
-                    # Save normal conversation on error
-                    message_history = self._get_message_history(
-                        session_id)
-                    message_history.add_message(state['messages'][-1])
-                    message_history.add_message(
-                        AIMessage(content=full_response))
-
-                # Early return after processing custom tool
-                return full_response
 
             # Once streaming is done, check if we've accumulated any tool calls
             if accumulated_chunk and hasattr(accumulated_chunk, 'tool_calls') and accumulated_chunk.tool_calls:
