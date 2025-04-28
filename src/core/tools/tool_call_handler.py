@@ -128,6 +128,8 @@ class ToolCallHandler(QObject):
     # Signal emitted when a tool call requires user confirmation
     # e.g., {"tool": "web_search", "args": {...}}
     tool_call_requested = pyqtSignal(dict)
+    # Signal emitted right after user accepts the tool call, before execution starts
+    tool_call_accepted = pyqtSignal(dict)
     # Signal emitted when a tool call is completed (success or failure)
     # e.g., {"tool": "web_search", "result": ...}
     tool_call_completed = pyqtSignal(dict)
@@ -178,8 +180,12 @@ class ToolCallHandler(QObject):
 
     def request_tool_call(self, tool_name, args):
         """Request a tool call and emit a signal for UI confirmation."""
-        logging.info(f"Tool call requested: {tool_name} with args: {args}")
-        self.pending_tool_call = {"tool": tool_name, "args": args}
+        # Generate an ID for the tool call immediately upon request
+        tool_id = f"call_{uuid.uuid4().hex[:24]}"
+        logging.info(
+            f"Tool call requested: {tool_name} (ID: {tool_id}) with args: {args}")
+        self.pending_tool_call = {
+            "tool": tool_name, "args": args, "id": tool_id}
         self.awaiting_confirmation = True
         # Emit signal to UI - this should trigger the confirmation panel to be shown
         logging.debug("Emitting tool_call_requested signal")
@@ -191,18 +197,17 @@ class ToolCallHandler(QObject):
             logging.warning("No pending tool call to confirm.")
             return
 
-        tool_name = self.pending_tool_call.get("tool", "unknown")
-        tool_id = self.pending_tool_call.get("id")  # Get the ID if present
-
-        # Generate a default ID if none exists
-        if not tool_id:
-            tool_id = f"call_{uuid.uuid4().hex[:24]}"
-            self.pending_tool_call["id"] = tool_id
+        tool_call_info = self.pending_tool_call
+        tool_name = tool_call_info.get("tool", "unknown")
+        tool_id = tool_call_info.get("id")
 
         if approved:
             logging.info(
                 f"User accepted tool call: {tool_name} (ID: {tool_id})")
-            self.execute_tool_call(self.pending_tool_call)
+            # Emit accepted signal IMMEDIATELY, before starting execution
+            self.tool_call_accepted.emit(tool_call_info)
+            # Now start the execution in the background worker
+            self.execute_tool_call(tool_call_info)
         else:
             logging.info(
                 f"User rejected tool call: {tool_name} (ID: {tool_id})")
@@ -211,6 +216,7 @@ class ToolCallHandler(QObject):
                 "result": "rejected",
                 "id": tool_id  # Include ID in the rejection result
             })
+
         self.awaiting_confirmation = False
         self.pending_tool_call = None
 
