@@ -496,8 +496,28 @@ Be direct and informative in your response.
                                 if not follow_up_response.strip():
                                     logging.warning(
                                         "Follow-up response is empty. The LLM didn't generate a proper analysis.")
-                                    # Create a default follow-up response with a message about the issue
-                                    follow_up_response = "The AI was unable to generate an analysis of the tool result. Please try asking your question again or in a different way."
+
+                                    # Instead of a generic message, show the tool results directly
+                                    # Extract the tool result content to show to the user
+                                    tool_result_content = None
+                                    if isinstance(result.get('result'), dict) and 'data' in result.get('result'):
+                                        tool_result_content = result.get(
+                                            'result').get('data')
+                                    else:
+                                        tool_result_content = str(result.get('result', {}).get(
+                                            'data', 'Tool execution completed'))
+
+                                    # Format the result to be more readable
+                                    if isinstance(tool_result_content, dict) or isinstance(tool_result_content, list):
+                                        import json
+                                        formatted_result = json.dumps(
+                                            tool_result_content, indent=2)
+                                    else:
+                                        formatted_result = str(
+                                            tool_result_content)
+
+                                    # Create a more informative response that includes the actual data
+                                    follow_up_response = f"Here are the results from the {tool_name} tool:\n\n{formatted_result}\n\nTo get an analysis of this information, please ask a follow-up question."
 
                                 # Log a preview of the follow-up response content
                                 try:

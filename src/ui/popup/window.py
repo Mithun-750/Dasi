@@ -804,7 +804,7 @@ class DasiWindow(QWidget):
         self.setFixedWidth(680)
 
     def _handle_tool_call_completed(self, result_info):
-        """Handle completion of a tool call (switch to web search panel or back to preview)."""
+        """Handle completion of a tool call (switch directly to preview panel)."""
         tool = result_info.get("tool")
         result = result_info.get("result")
 
@@ -827,20 +827,12 @@ class DasiWindow(QWidget):
         # Show completion after a short delay (to ensure loading panel is visible)
         QApplication.processEvents()
 
-        # For web_search, show the web search panel when loading is done
-        if tool == "web_search" and isinstance(result, dict) and result.get("status") == "success":
-            # Mark loading as complete after a short delay
-            loading_panel.show_complete()
-            self.web_search_panel.start(result.get("data", ""))
-            self.web_search_panel.show()
-            self.setFixedWidth(680)
-        else:
-            # For all other tools, show preview panel with appropriate message during processing
-            self.preview_panel.set_response("Processing tool results...")
-            self.preview_panel.show()
-            # Show loading complete status
-            loading_panel.show_complete()
-            self.setFixedWidth(680)
+        # Always show preview panel for all tools
+        self.preview_panel.set_response("Processing tool results...")
+        self.preview_panel.show()
+        # Show loading complete status
+        loading_panel.show_complete()
+        self.setFixedWidth(680)
 
     def _remove_loading_panel(self, loading_panel):
         """Remove the loading panel from the layout."""
