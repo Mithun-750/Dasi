@@ -362,3 +362,17 @@ class ToolCallHandler(QObject):
             "status": "success",
             "data": markdown
         }
+
+    def get_tool_description(self, tool_name):
+        """Get the description of a tool by name."""
+        tool = self.get_tool(tool_name)
+        if tool:
+            if hasattr(tool, 'description'):
+                return tool.description
+            elif hasattr(tool, 'name') and hasattr(tool, 'description_for_model'):
+                return tool.description_for_model
+        return f"Tool: {tool_name}"
+
+    def get_tools(self):
+        """Get all available tools."""
+        return list(self.tools.values())

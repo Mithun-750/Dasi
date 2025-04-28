@@ -10,6 +10,7 @@ import nest_asyncio
 import re  # Import re for _extract_code_block
 import time  # Add time for timing logs
 import threading
+from PyQt6.QtCore import QTimer
 
 # LangChain imports
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
@@ -623,12 +624,39 @@ class LangGraphHandler:
                         else:
                             tool_content = str(result)
 
+                    # Format the tool content for better readability
+                    try:
+                        # If it's already a string, we're good
+                        if isinstance(tool_content, str):
+                            formatted_content = tool_content
+                        # If it's a dict or list, format it nicely as JSON with indentation
+                        elif isinstance(tool_content, (dict, list)):
+                            import json
+                            formatted_content = json.dumps(
+                                tool_content, indent=2)
+                        else:
+                            # For any other type, use string representation
+                            formatted_content = str(tool_content)
+
+                        # Add a title to help the LLM understand what this tool result is
+                        final_tool_content = f"Result from {tool_name} tool:\n\n{formatted_content}"
+                    except Exception as e:
+                        logging.warning(f"Error formatting tool content: {e}")
+                        final_tool_content = str(tool_content)
+
                     messages.append(ToolMessage(
-                        content=tool_content, tool_call_id=tool_call_id))
+                        content=final_tool_content, tool_call_id=tool_call_id))
                     logging.info(
                         f"Added generic ToolMessage for {tool_name} with ID: {tool_call_id}")
-                    logging.debug(f"Tool content: {tool_content[:100]}..." if len(
-                        str(tool_content)) > 100 else tool_content)
+                    logging.debug(f"Tool content: {final_tool_content[:200]}..." if len(
+                        str(final_tool_content)) > 200 else final_tool_content)
+
+                # Add a system instruction to analyze the tool result
+                messages.append(SystemMessage(
+                    content=f"This is the result of the {tool_name} tool call you requested. Incorporate this information into your response to the user."
+                ))
+                logging.info(
+                    f"Added system instruction for {tool_name} tool result")
 
             # Clear the tool call result after using it to prevent reprocessing
             updated_state['tool_call_result'] = None
@@ -1145,6 +1173,17 @@ class LangGraphHandler:
                 if 'id' not in result:
                     result['id'] = tool_id
 
+                # Ensure the tool name is present
+                if 'tool' not in result:
+                    result['tool'] = tool_name
+
+                # Enrich the result with metadata to aid the LLM in understanding the tool context
+                if result.get('result') != 'rejected' and 'metadata' not in result:
+                    result['metadata'] = {
+                        'tool_description': self.tool_call_handler.get_tool_description(tool_name),
+                        'timestamp': time.time()
+                    }
+
             # Store the result in the state for prepare_messages to process
             new_state['tool_call_result'] = result
             logging.info(f"Tool call result added to state: {result}")
@@ -1155,9 +1194,18 @@ class LangGraphHandler:
             # Notify the UI that we're about to process the tool results with the LLM
             # This helps ensure the preview panel is visible for the follow-up response
             try:
+                # First signal processing is starting
                 self.tool_call_handler.tool_call_processing.emit(tool_name)
+
+                # Then after a short delay, signal it's complete to transition UI
+                QTimer.singleShot(200, lambda: self.tool_call_handler.tool_call_completed.emit({
+                    "tool": tool_name,
+                    "id": tool_id,
+                    "result": "processed",  # Special flag to indicate UI should update
+                }))
             except Exception as e:
-                logging.error(f"Error emitting processing signal: {e}")
+                logging.error(
+                    f"Error emitting tool_call_processing signal: {e}")
 
         except Exception as e:
             logging.error(f"Error in tool_call_node: {e}", exc_info=True)
@@ -1482,31 +1530,96 @@ class LangGraphHandler:
                                 # Create state with tool call result for a second round of processing
                                 logging.info(
                                     "Processing tool results for follow-up response")
+
+                                # Instead of reprocessing through prepare_messages, let's build a more focused
+                                # conversation for the follow-up response
+                                focused_messages = []
+
+                                # Start with system message
+                                focused_messages.append(
+                                    SystemMessage(content=self.system_prompt))
+
+                                # Add a specific instruction for tool result analysis
+                                analysis_instruction = f"""
+This is the result of the {tool_name} tool call you requested.
+Incorporate this information directly into your response to answer the user's question.
+Be direct and informative in your response.
+"""
+                                focused_messages.append(
+                                    SystemMessage(content=analysis_instruction))
+
+                                # Add original user query as a human message
+                                original_query = None
+                                for msg in state['messages']:
+                                    if isinstance(msg, HumanMessage):
+                                        original_query = msg
+                                        break
+
+                                if original_query:
+                                    focused_messages.append(HumanMessage(
+                                        content=f"My original question was: {original_query.content}"))
+
+                                # Convert tool result to a regular AI message instead of ToolMessage
+                                if result and isinstance(result, dict):
+                                    tool_content = None
+                                    if isinstance(result.get('result'), dict) and 'data' in result['result']:
+                                        tool_content = result['result']['data']
+                                    elif isinstance(result.get('result'), str):
+                                        tool_content = result['result']
+
+                                    if tool_content:
+                                        # Format the tool content for better readability
+                                        try:
+                                            # If it's already a string, we're good
+                                            if isinstance(tool_content, str):
+                                                formatted_content = tool_content
+                                            # If it's a dict or list, format it nicely as JSON with indentation
+                                            elif isinstance(tool_content, (dict, list)):
+                                                import json
+                                                formatted_content = json.dumps(
+                                                    tool_content, indent=2)
+                                            else:
+                                                # For any other type, use string representation
+                                                formatted_content = str(
+                                                    tool_content)
+
+                                            # Add a title to help the LLM understand what this tool result is
+                                            final_tool_content = f"Tool result:\n\n{formatted_content}"
+
+                                            # Use AIMessage instead of ToolMessage
+                                            focused_messages.append(AIMessage(
+                                                content=f"I retrieved this information for you:\n\n{final_tool_content}"))
+
+                                        except Exception as e:
+                                            logging.warning(
+                                                f"Error formatting tool content: {e}")
+                                            focused_messages.append(AIMessage(
+                                                content=f"I retrieved this information for you: {str(tool_content)}"))
+
+                                # Add a final prompt to analyze as human message
+                                focused_messages.append(HumanMessage(
+                                    content="Please analyze this information and provide a helpful response to my original question."))
+
+                                # Use the focused messages instead of the full conversation
                                 tool_state = state.copy()
-                                tool_state['tool_call_result'] = result
+                                tool_state['messages'] = focused_messages
 
-                                # Process through prepare_messages to incorporate the tool result
+                                # Log the messages being sent
                                 logging.info(
-                                    "Processing tool results for follow-up response")
-                                tool_state = self.prepare_messages(tool_state)
+                                    f"Prepared {len(focused_messages)} focused messages for follow-up LLM call")
 
-                                # Log the tool state messages for debugging
-                                logging.info(
-                                    f"Prepared {len(tool_state['messages'])} messages for follow-up LLM call")
-                                # Log the last few messages to see if the tool result is included
-                                for i, msg in enumerate(tool_state['messages'][-3:]):
+                                # Log all messages for debugging
+                                for i, msg in enumerate(focused_messages):
                                     content_preview = ""
                                     if hasattr(msg, 'content'):
                                         if isinstance(msg.content, str):
-                                            content_preview = msg.content[:100]
-                                        elif isinstance(msg.content, list):
-                                            content_preview = str(
-                                                msg.content)[:100]
+                                            content_preview = msg.content[:200] + (
+                                                "..." if len(msg.content) > 200 else "")
                                         else:
-                                            content_preview = str(
-                                                msg.content)[:100]
+                                            content_preview = str(msg.content)[
+                                                :200] + ("..." if len(str(msg.content)) > 200 else "")
                                     logging.info(
-                                        f"Message {len(tool_state['messages']) - 3 + i}: {type(msg).__name__} - {content_preview}...")
+                                        f"Focused message {i} ({type(msg).__name__}): {content_preview}")
 
                                 # Get a second response from the LLM with the tool results
                                 logging.info(
@@ -1529,8 +1642,9 @@ class LangGraphHandler:
                                 logging.info("Starting follow-up LLM stream")
                                 start_time = time.monotonic()
 
-                                # Stream the follow-up response
-                                follow_up_accumulated = full_response + "\n\n"
+                                # Remove the temperature adjustment that was causing errors
+                                # Stream the follow-up response separately from the original
+                                follow_up_response = ""
                                 follow_up_chunk = None
 
                                 async for chunk in llm_instance.astream(tool_state['messages']):
@@ -1543,12 +1657,14 @@ class LangGraphHandler:
                                     # Extract content
                                     chunk_content = chunk.content if hasattr(
                                         chunk, 'content') else str(chunk)
-                                    follow_up_accumulated += chunk_content
+                                    follow_up_response += chunk_content
 
                                     # Send the updated full text with each chunk
                                     if callback:
                                         try:
-                                            callback(follow_up_accumulated)
+                                            # For the UI, we combine the original and follow-up
+                                            combined_response = full_response + "\n\n" + follow_up_response
+                                            callback(combined_response)
                                         except Exception as e:
                                             logging.error(
                                                 f"Error in follow-up callback: {e}")
@@ -1559,17 +1675,55 @@ class LangGraphHandler:
                                 logging.info(
                                     f"Follow-up LLM stream completed in {duration:.3f} seconds")
 
-                                # Signal that the tool call is being processed with a new follow-up response
+                                # Check if the response is empty and log a warning
+                                if not follow_up_response.strip():
+                                    logging.warning(
+                                        "Follow-up response is empty. The LLM didn't generate a proper analysis.")
+                                    # Create a default follow-up response with a message about the issue
+                                    follow_up_response = "The AI was unable to generate an analysis of the tool result. Please try asking your question again or in a different way."
+
+                                # Log a preview of the follow-up response content
+                                try:
+                                    preview_length = min(
+                                        200, len(follow_up_response))
+                                    logging.info(
+                                        f"Follow-up response content (first {preview_length} chars): {follow_up_response[:preview_length]}" +
+                                        ("..." if len(follow_up_response)
+                                         > preview_length else "")
+                                    )
+                                except Exception as e:
+                                    logging.error(
+                                        f"Error logging follow-up response: {e}")
+
+                                # Update full response with the follow-up
+                                # Combine original response with the follow-up response without visible separator
+                                if follow_up_response.strip():
+                                    # Use a simple newline break instead of the visible separator
+                                    full_response = full_response.rstrip() + "\n\n" + follow_up_response
+                                else:
+                                    # If somehow still empty, don't modify the original response
+                                    pass
+
+                                # Ensure the UI displays this combined response first before signaling completion
+                                if callback:
+                                    callback(full_response)
+
+                                # Signal that the tool call is complete and processing is done
                                 # This helps ensure the UI is ready to show the response
                                 try:
-                                    self.tool_call_handler.tool_call_processing.emit(
-                                        tool_name)
+                                    # Short delay to ensure UI has updated with the final response
+                                    QTimer.singleShot(
+                                        100, lambda: self.tool_call_handler.tool_call_processing.emit(tool_name))
+
+                                    # Then after another delay, signal it's complete to transition UI
+                                    QTimer.singleShot(300, lambda: self.tool_call_handler.tool_call_completed.emit({
+                                        "tool": tool_name,
+                                        "id": tool_id,
+                                        "result": "processed",  # Special flag to indicate UI should update
+                                    }))
                                 except Exception as e:
                                     logging.error(
                                         f"Error emitting tool_call_processing signal: {e}")
-
-                                # Update full response with the follow-up
-                                full_response = follow_up_accumulated
 
                                 # Save the entire conversation to history
                                 message_history = self._get_message_history(
@@ -1586,8 +1740,8 @@ class LangGraphHandler:
                                     tool_content = str(result.get('result', {}).get(
                                         'data', 'Tool execution completed'))
 
-                                message_history.add_message(ToolMessage(
-                                    content=tool_content, tool_call_id=tool_id))
+                                message_history.add_message(AIMessage(
+                                    content=f"I retrieved this information: {tool_content}"))
 
                                 # Add final AI response
                                 message_history.add_message(
