@@ -1,4 +1,4 @@
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal, QThread
 import logging
 from typing import Dict, Any, Optional
 import uuid
@@ -15,6 +15,85 @@ from pathlib import Path
 from .web_search_tool import WebSearchTool
 from .system_info_tool import SystemInfoTool
 from ..web_search_handler import WebSearchHandler
+
+
+class ToolCallWorker(QThread):
+    """Worker thread for executing tool calls without blocking the UI."""
+    tool_completed = pyqtSignal(dict)
+
+    def __init__(self, tool_handler, tool_name, args, tool_id):
+        super().__init__()
+        self.tool_handler = tool_handler
+        self.tool_name = tool_name
+        self.args = args
+        self.tool_id = tool_id
+
+    def run(self):
+        """Execute the tool call in a background thread."""
+        try:
+            result = None
+
+            # Execute web_search tool
+            if self.tool_name == "web_search":
+                tool = self.tool_handler.tools.get("web_search")
+                if tool:
+                    # Extract arguments for the tool
+                    query = self.args.get('query', '')
+                    mode = self.args.get('mode', 'web_search')
+                    url = self.args.get(
+                        'url') if mode == 'link_scrape' else None
+                    selected_text = self.args.get('selected_text')
+
+                    # Use the run method directly (which is now thread-safe)
+                    result = tool.run(query=query, mode=mode,
+                                      url=url, selected_text=selected_text)
+                else:
+                    result = {
+                        "status": "error",
+                        "message": "Web search tool not initialized"
+                    }
+
+            # Handle system_info tool
+            elif self.tool_name == "system_info":
+                tool = self.tool_handler.tools.get("system_info")
+                if tool:
+                    # Extract the info_type argument or use default
+                    info_type = self.args.get('info_type', 'basic')
+                    result = tool.run(info_type=info_type)
+                else:
+                    result = {
+                        "status": "error",
+                        "message": "System info tool not initialized"
+                    }
+
+            # Add other tools here in the future
+            # elif self.tool_name == "another_tool":
+            #    ...
+
+            else:
+                result = {
+                    "status": "error",
+                    "message": f"Unknown tool: {self.tool_name}"
+                }
+
+            # Emit the result with the tool name and ID
+            self.tool_completed.emit({
+                "tool": self.tool_name,
+                "result": result,
+                "id": self.tool_id
+            })
+
+        except Exception as e:
+            logging.exception(
+                f"Error executing {self.tool_name} in worker thread: {e}")
+            self.tool_completed.emit({
+                "tool": self.tool_name,
+                "result": {
+                    "status": "error",
+                    "message": f"Error executing {self.tool_name}: {str(e)}"
+                },
+                "id": self.tool_id
+            })
 
 
 class ToolCallHandler(QObject):
@@ -39,6 +118,7 @@ class ToolCallHandler(QObject):
         self.web_search_handler = None  # Will be set later from the LLM handler
         self.user_response = None
         self.user_response_event = threading.Event()
+        self.current_worker = None  # Track the current tool call worker
         logging.info("ToolCallHandler initialized")
 
     def setup_tools(self, web_search_handler: Optional[WebSearchHandler] = None):
@@ -105,7 +185,7 @@ class ToolCallHandler(QObject):
 
     def execute_tool_call(self, tool_call: Dict[str, Any]):
         """
-        Execute a tool call with the appropriate tool instance.
+        Execute a tool call with the appropriate tool instance in a background thread.
 
         Args:
             tool_call: Dictionary with 'tool' name and 'args' to pass to the tool
@@ -155,101 +235,40 @@ class ToolCallHandler(QObject):
                 })
                 return
 
-        # Execute web_search tool
-        if tool_name == "web_search":
-            try:
-                # Extract arguments for the tool
-                query = args.get('query', '')
-                mode = args.get('mode', 'web_search')
-                url = args.get('url') if mode == 'link_scrape' else None
-                selected_text = args.get('selected_text')
-
-                # Prepare process_result for the async search
-                process_result = {
-                    'mode': mode,
-                    'query': query,
-                    'url': url,
-                    'original_query': query
-                }
-
-                # Define callback function for when the search completes
-                def on_search_completed(result):
-                    # Emit the result with ID
-                    logging.info(
-                        f"Web search completed, emitting result: {result.get('status', 'unknown')}")
-                    self.tool_call_completed.emit({
-                        "tool": tool_name,
-                        "result": result,
-                        "id": tool_id  # Include the ID in the result
-                    })
-
-                # Run the search asynchronously
+        try:
+            # Cancel any existing worker
+            if self.current_worker and self.current_worker.isRunning():
                 logging.info(
-                    f"Starting asynchronous web search with query: '{query}', mode: {mode}")
-                self.tools["web_search"].run_async(
-                    process_result=process_result,
-                    selected_text=selected_text,
-                    callback=on_search_completed
-                )
+                    f"Cancelling existing tool call worker for {self.current_worker.tool_name}")
+                self.current_worker.requestInterruption()
+                self.current_worker.wait(1000)  # Wait up to 1 second
 
-                # Don't emit completion signal here - it will be emitted by the callback
+            # Create and start a new worker
+            self.current_worker = ToolCallWorker(
+                self, tool_name, args, tool_id)
+            self.current_worker.tool_completed.connect(
+                self._handle_tool_completion)
 
-            except Exception as e:
-                logging.exception(f"Error executing web_search tool: {e}")
-                self.tool_call_completed.emit({
-                    "tool": tool_name,
-                    "result": {
-                        "status": "error",
-                        "message": f"Error executing web search: {str(e)}"
-                    },
-                    "id": tool_id  # Include ID in error result
-                })
+            # Start the worker thread
+            logging.info(f"Starting worker thread for {tool_name}")
+            self.current_worker.start()
 
-        # Handle system_info tool
-        elif tool_name == "system_info":
-            try:
-                # Extract the info_type argument or use default
-                info_type = args.get('info_type', 'basic')
-
-                # Run the tool
-                logging.info(
-                    f"Calling SystemInfoTool with info_type: {info_type}")
-                result = self.tools["system_info"].run(info_type=info_type)
-
-                # Emit the result with ID
-                logging.info(
-                    f"System info retrieved, emitting result: {result.get('status', 'unknown')}")
-                self.tool_call_completed.emit({
-                    "tool": tool_name,
-                    "result": result,
-                    "id": tool_id  # Include the ID in the result
-                })
-
-            except Exception as e:
-                logging.exception(f"Error executing system_info tool: {e}")
-                self.tool_call_completed.emit({
-                    "tool": tool_name,
-                    "result": {
-                        "status": "error",
-                        "message": f"Error retrieving system info: {str(e)}"
-                    },
-                    "id": tool_id  # Include ID in error result
-                })
-
-        # Add other tools here in the future
-        # elif tool_name == "another_tool":
-        #     ...
-
-        else:
-            logging.error(f"Unknown tool: {tool_name}")
+        except Exception as e:
+            logging.exception(f"Error starting tool call worker: {e}")
             self.tool_call_completed.emit({
                 "tool": tool_name,
                 "result": {
                     "status": "error",
-                    "message": f"Unknown tool: {tool_name}"
+                    "message": f"Error executing tool: {str(e)}"
                 },
-                "id": tool_id  # Include ID in error result
+                "id": tool_id
             })
+
+    def _handle_tool_completion(self, result: Dict[str, Any]):
+        """Handle the completion of a tool call from the worker thread."""
+        logging.info(
+            f"Tool call completed: {result.get('tool')} with ID: {result.get('id')}")
+        self.tool_call_completed.emit(result)
 
     def wait_for_user_response(self, timeout=120):
         """Wait for the user to respond to a tool call request."""

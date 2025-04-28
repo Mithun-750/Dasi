@@ -48,8 +48,6 @@ class WebSearchTool:
             raise TypeError(
                 "web_search_handler must be an instance of WebSearchHandler")
         self.web_search_handler = web_search_handler
-        self.current_worker = None
-        self.callback = None
         logging.info("WebSearchTool initialized.")
 
     def run(self, query: str, mode: str = 'web_search', url: Optional[str] = None, selected_text: Optional[str] = None) -> Dict[str, Any]:
@@ -87,75 +85,38 @@ class WebSearchTool:
         }
 
         try:
-            # Create a promise-like object to wait for the result
-            loop = asyncio.get_event_loop()
-            future = loop.create_future()
+            # Use the WebSearchHandler's execute method
+            execution_result = self.web_search_handler.execute_search_or_scrape(
+                process_result=process_result,
+                selected_text=selected_text
+            )
 
-            # Define a callback to resolve the future when the search completes
-            def on_search_completed(result):
-                if not future.done():
-                    if result.get('status') == 'success':
-                        # Extract the formatted query/content prepared for the LLM
-                        formatted_data = result.get(
-                            'query', 'No data returned.')
-                        system_instruction = result.get(
-                            'system_instruction')  # Optional
+            # Process the result from the handler
+            if execution_result.get('status') == 'success':
+                # Extract the formatted query/content prepared for the LLM
+                formatted_data = execution_result.get(
+                    'query', 'No data returned.')
+                system_instruction = execution_result.get(
+                    'system_instruction')  # Optional
 
-                        # Return a structured success response
-                        response_data = {'status': 'success',
-                                         'data': formatted_data}
-                        if system_instruction:
-                            response_data['system_instruction'] = system_instruction
-                        logging.info("WebSearchTool execution successful.")
-                        future.set_result(response_data)
-                    else:
-                        # Return a structured error response
-                        error_message = result.get(
-                            'error', 'Unknown error during web search/scrape.')
-                        logging.error(
-                            f"WebSearchTool execution failed: {error_message}")
-                        future.set_result(
-                            {'status': 'error', 'message': error_message})
-
-            # Start the search in a background thread
-            self.run_async(process_result, selected_text, on_search_completed)
-
-            # Wait for the result
-            return loop.run_until_complete(future)
+                # Return a structured success response
+                response_data = {'status': 'success', 'data': formatted_data}
+                if system_instruction:
+                    response_data['system_instruction'] = system_instruction
+                logging.info("WebSearchTool execution successful.")
+                return response_data
+            else:
+                # Return a structured error response
+                error_message = execution_result.get(
+                    'error', 'Unknown error during web search/scrape.')
+                logging.error(
+                    f"WebSearchTool execution failed: {error_message}")
+                return {'status': 'error', 'message': error_message}
 
         except Exception as e:
             logging.exception(
                 f"Unexpected error during WebSearchTool execution: {e}")
             return {'status': 'error', 'message': f"An unexpected error occurred: {str(e)}"}
-
-    def run_async(self, process_result: dict, selected_text: Optional[str] = None,
-                  callback: Optional[Callable[[Dict[str, Any]], None]] = None) -> None:
-        """
-        Run the web search asynchronously in a background thread.
-
-        Args:
-            process_result: Dictionary containing search parameters
-            selected_text: Optional selected text context
-            callback: Function to call with the result when complete
-        """
-        # Cancel any existing search
-        if self.current_worker and self.current_worker.isRunning():
-            logging.info("Cancelling existing web search")
-            self.current_worker.requestInterruption()
-            self.current_worker.wait()
-
-        # Create and start a new worker
-        self.callback = callback
-        self.current_worker = WebSearchWorker(
-            self.web_search_handler, process_result, selected_text)
-        self.current_worker.search_completed.connect(
-            self._handle_search_completed)
-        self.current_worker.start()
-
-    def _handle_search_completed(self, result: Dict[str, Any]) -> None:
-        """Handle the completion of a background web search."""
-        if self.callback:
-            self.callback(result)
 
 
 # Example Usage (for testing purposes, remove or comment out in production)
