@@ -7,13 +7,14 @@ class QueryWorker(QThread):
 
     def __init__(self, process_fn: Callable[[str], str],
                  query: str, signals, model: Optional[str] = None,
-                 session_id: Optional[str] = None):
+                 session_id: Optional[str] = None, image_data: Optional[str] = None):
         super().__init__()
         self.process_fn = process_fn
         self.query = query
         self.signals = signals
         self.model = model
         self.session_id = session_id
+        self.image_data = image_data  # Store image data
         self.is_stopped = False
         self.termination_timeout = 5000  # 5 seconds timeout
 
@@ -29,7 +30,9 @@ class QueryWorker(QThread):
             if self.session_id:
                 self.query = f"!session:{self.session_id}|{self.query}"
 
-            result = self.process_fn(self.query, stream_callback, self.model)
+            # Call process function with all parameters including image_data
+            result = self.process_fn(
+                self.query, stream_callback, self.model, self.image_data)
             if not self.is_stopped and not result:
                 self.signals.process_error.emit("No response received")
             # Signal completion
@@ -44,12 +47,12 @@ class QueryWorker(QThread):
     def stop(self):
         """Stop the worker cleanly."""
         self.is_stopped = True
-        
+
     def terminate_safely(self):
         """Terminate the thread safely with a timeout."""
         # First try to stop gracefully
         self.stop()
-        
+
         # Set up a timer for timeout
         if not self.wait(500):  # Give it 500ms to stop gracefully
             # If still running, terminate and wait with timeout
@@ -58,4 +61,5 @@ class QueryWorker(QThread):
                 # If still not terminated, log warning but don't force quit
                 # This avoids the SIGKILL that was happening before
                 import logging
-                logging.warning("Worker thread could not be terminated within timeout period.") 
+                logging.warning(
+                    "Worker thread could not be terminated within timeout period.")

@@ -23,7 +23,7 @@ from .models_tab import ModelsTab
 from .general_tab import GeneralTab
 from .prompt_chunks_tab import PromptChunksTab
 from .web_search_tab import WebSearchTab
-from instance_manager import DasiInstanceManager
+from core.instance_manager import DasiInstanceManager
 from ui.assets import apply_theme
 
 

@@ -1,6 +1,7 @@
 import logging
 import os
 from typing import Optional, Dict
+import base64
 
 from langchain_core.messages import HumanMessage, SystemMessage
 # Import necessary LangChain chat models that support vision
@@ -13,6 +14,9 @@ from langchain_anthropic import ChatAnthropic
 # from langchain_groq import ChatGroq
 
 from ui.settings import Settings
+from .prompts_hub import VISION_SYSTEM_PROMPT
+
+# Note: We're removing the VISION_USER_PROMPT import since we'll use the actual user query
 
 
 class VisionHandler:
@@ -24,6 +28,24 @@ class VisionHandler:
         self.vision_llm = None
         self.vision_model_info = None
         self._is_initialized = False
+
+        # Connect to settings models_changed signal to reload vision model
+        self.settings.models_changed.connect(self.refresh_settings)
+
+        # Load initial model
+        self.refresh_settings()
+
+    def refresh_settings(self):
+        """Reload settings and vision model configuration."""
+        logging.info("Refreshing vision model settings")
+        # Clear current model to force reload on next use
+        self.vision_llm = None
+        self._is_initialized = False
+
+    def has_vision_model_configured(self) -> bool:
+        """Check if a vision model is configured in settings."""
+        model_info = self.settings.get_vision_model_info()
+        return model_info is not None and isinstance(model_info, dict) and bool(model_info.get('id'))
 
     def _initialize_vision_llm(self) -> bool:
         """Initialize the specific vision LLM based on settings. Returns True on success."""
@@ -143,43 +165,56 @@ class VisionHandler:
         """
         Generates a detailed text description of the visual input using the configured vision model.
 
+        If no vision model is configured, returns None, indicating image should be passed directly
+        to the main model.
+
         Args:
             image_data_base64: The base64 encoded image data (without prefix).
             prompt_hint: Optional text from the user's query to guide the description focus.
 
         Returns:
-            A detailed text description of the visual input, or None if an error occurs.
+            A detailed text description of the visual input, or None if an error occurs or no vision model is configured.
         """
-        if not self._is_initialized:
-            logging.info("VisionHandler: First use, initializing vision LLM.")
-            if not self._initialize_vision_llm():
-                logging.error(
-                    "VisionHandler: Failed to initialize vision LLM for description.")
-                return None
+        # Check if a vision model is actually configured
+        if not self.has_vision_model_configured():
+            logging.info(
+                "No vision model configured, image will be passed directly to main model")
+            return None
+
+        logging.info(
+            "Generating visual description using dedicated vision model")
+
+        if not image_data_base64:
+            logging.warning("No image data provided for vision processing")
+            return None
+
+        # If vision model is None, try to initialize it
+        if self.vision_llm is None:
+            self._initialize_vision_llm()
+
+        # If still None after initialization attempt, return error
+        if self.vision_llm is None:
+            logging.error("Could not initialize vision model")
+            return None
 
         if not self.vision_llm:
             logging.error("VisionHandler: Vision LLM is not available.")
             return None
 
-        # Craft the prompt for the vision model
-        system_prompt = """You are an expert visual analyst. Your sole task is to describe the provided visual input in objective, extensive detail. Focus on:
+        # Get system prompt from prompts_hub
+        system_prompt = VISION_SYSTEM_PROMPT
 
-- Objects: Identify all significant objects, their appearance, and positions.
-- People: Describe appearance, expressions, actions, and relationships(if any).
-- Text: Transcribe any visible text accurately.
-- Setting: Describe the environment, location, and time of day(if discernible).
-- Colors and Lighting: Describe dominant colors, overall palette, and lighting conditions.
-- Composition: Briefly mention the layout and focus of the visual.
-- Mood/Atmosphere: Describe the overall feeling conveyed(e.g., cheerful, somber, busy).
-- Action/Interaction: Describe any ongoing actions or interactions.
-
-Be as specific and thorough as possible. Do NOT add any conversational filler, commentary, or interpretation beyond objective description. Output only the description."""
-
-        user_prompt_text = "Describe the provided visual input in comprehensive detail according to the system instructions."
-        # Add hint from user query if provided
-        if prompt_hint:
-            # Limit hint length
-            user_prompt_text += f"\n\nPay special attention to aspects relevant to this user query context: '{prompt_hint[:200]}...'"
+        # Instead of using a fixed user prompt, use the actual user query if available
+        if prompt_hint and prompt_hint.strip():
+            # Use the user's actual query as the primary instruction
+            user_prompt_text = f"Based on this query: '{prompt_hint.strip()}', analyze and describe the provided visual input."
+            logging.info(
+                f"VisionHandler: Using user's query as prompt: {user_prompt_text[:100]}...")
+        else:
+            # Fallback to a generic prompt only if user query is not available
+            user_prompt_text = "Describe the provided visual input in comprehensive detail according to the system instructions."
+            logging.info(
+                "VisionHandler: Using generic prompt (no user query provided)")
 
         # Create multimodal message content
         # Ensure the base64 data doesn't have the prefix 'data:image/png;base64,'

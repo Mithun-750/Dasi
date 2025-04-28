@@ -9,6 +9,11 @@ from langchain_core.documents import Document
 from langchain_community.utilities.google_serper import GoogleSerperAPIWrapper
 from langchain_community.utilities.brave_search import BraveSearchWrapper
 from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIWrapper
+from .prompts_hub import (
+    WEB_SEARCH_QUERY_OPTIMIZATION_TEMPLATE,
+    WEB_SEARCH_RESULTS_INSTRUCTION,
+    SCRAPED_CONTENT_INSTRUCTION
+)
 # Exa is now in a separate package
 try:
     from langchain_exa import ExaSearchRetriever
@@ -133,9 +138,40 @@ class WebSearchHandler:
         default_provider = self.settings.get(
             'web_search', 'default_provider', default='google_serper')
 
-        # Only initialize the default provider to avoid wasting API credits
         logging.info(
-            f"Reinitializing search providers with default provider: {default_provider}")
+            f"Initializing search providers with default provider: {default_provider}")
+
+        # Check if API key exists for the default provider
+        if default_provider == 'google_serper':
+            api_key = self.settings.get_api_key('google_serper')
+            logging.info(f"Google Serper API key exists: {bool(api_key)}")
+            if not api_key:
+                logging.warning(
+                    "Google Serper API key is missing or empty. Please add it in settings.")
+        elif default_provider == 'brave_search':
+            api_key = self.settings.get_api_key('brave_search')
+            logging.info(f"Brave Search API key exists: {bool(api_key)}")
+            if not api_key:
+                logging.warning(
+                    "Brave Search API key is missing or empty. Please add it in settings.")
+        elif default_provider == 'tavily_search':
+            api_key = self.settings.get_api_key('tavily_search')
+            logging.info(f"Tavily Search API key exists: {bool(api_key)}")
+            if not api_key:
+                logging.warning(
+                    "Tavily Search API key is missing or empty. Please add it in settings.")
+        elif default_provider == 'exa_search':
+            api_key = self.settings.get_api_key('exa_search')
+            logging.info(f"Exa Search API key exists: {bool(api_key)}")
+            if not api_key:
+                logging.warning(
+                    "Exa Search API key is missing or empty. Please add it in settings.")
+        elif default_provider == 'ddg_search':
+            logging.info(
+                "DuckDuckGo search doesn't require an API key. Checking DDGS availability.")
+            logging.info(f"DDGS available: {has_ddgs}")
+
+        # Only initialize the default provider to avoid wasting API credits
         self._initialize_provider(default_provider)
 
         # Log available providers
@@ -145,6 +181,21 @@ class WebSearchHandler:
         else:
             logging.warning(
                 f"Failed to initialize default provider '{default_provider}'. Please check API keys.")
+
+            # Try to fallback to DuckDuckGo if available and no other provider is working
+            if default_provider != 'ddg_search' and has_ddgs:
+                logging.info(
+                    "Attempting to initialize DuckDuckGo as fallback provider")
+                self._initialize_provider('ddg_search')
+                if 'ddg_search' in self.search_providers:
+                    logging.info(
+                        "Successfully initialized DuckDuckGo as fallback provider")
+                else:
+                    logging.error(
+                        "Failed to initialize DuckDuckGo fallback provider")
+
+        logging.info(
+            f"Available search providers after initialization: {list(self.search_providers.keys())}")
 
     def _initialize_provider(self, provider: str):
         """Initialize a specific search provider."""
@@ -309,23 +360,9 @@ class WebSearchHandler:
                         logging.info(
                             f"Extracted inner query from recursive template: {user_query}")
 
-            # Create a prompt to optimize the search query
-            prompt = f"""You are an AI assistant designed to generate effective search queries. When a user needs information, create queries that will retrieve the most relevant results across different search engines.
-
-To generate optimal search queries:
-
-1. Prioritize natural language over search operators (avoid OR, AND, quotes unless necessary)
-2. Format queries conversationally as complete questions when possible
-3. Include specific key terms, especially for technical or specialized topics
-4. Incorporate relevant time frames if the information needs to be current
-5. Keep queries concise (4-7 words is often ideal) but complete
-6. Avoid ambiguous terms that could have multiple meanings
-7. Use synonyms for important concepts to broaden coverage
-
-The search query should be clear, focused, and unlikely to retrieve irrelevant results. Provide ONLY the search query text with no additional explanation or commentary.
-
-USER QUERY: "{user_query}"
-"""
+            # Create a prompt to optimize the search query using the template from prompts_hub
+            prompt = WEB_SEARCH_QUERY_OPTIMIZATION_TEMPLATE.format(
+                user_query=user_query)
 
             # Add selected text context if available
             if selected_text and selected_text.strip():
@@ -389,12 +426,12 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
 
     def search(self, query: str, provider: Optional[str] = None, max_results: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        Perform a web search using the specified provider.
+        Execute a search using the specified provider.
 
         Args:
             query: The search query
-            provider: The search provider to use (defaults to the default provider in settings)
-            max_results: Maximum number of results to return (defaults to settings value)
+            provider: Optional search provider name
+            max_results: Maximum number of results to return
 
         Returns:
             List of search results
@@ -403,6 +440,8 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
         self._cancellation_requested = False
 
         logging.info(f"WebSearchHandler.search called with query: '{query}'")
+        logging.info(
+            f"Currently available search providers: {list(self.search_providers.keys())}")
 
         # Get default provider if none specified
         if not provider:
@@ -416,11 +455,15 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
         if not max_results:
             max_results = self.settings.get(
                 'web_search', 'max_results', default=5)
+            logging.info(f"Using default max_results: {max_results}")
+        else:
+            logging.info(f"Using specified max_results: {max_results}")
 
         # Check if provider is available
         if provider not in self.search_providers:
             available_providers = list(self.search_providers.keys())
-            logging.info(f"Available search providers: {available_providers}")
+            logging.warning(
+                f"Provider '{provider}' not available. Available providers: {available_providers}")
 
             if not available_providers:
                 error_msg = "No search providers are available. Please add API keys in settings."
@@ -446,21 +489,26 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
 
             # Perform search with ONLY the specified/default provider
             search_provider = self.search_providers[provider]
-            logging.info(f"Performing search with provider: {provider}")
+            logging.info(
+                f"Executing search with provider: {provider}, type: {type(search_provider).__name__}")
 
             # Different providers have different methods/return formats
             if provider == 'google_serper':
-                logging.info("Using Google Serper search")
+                logging.info(
+                    f"Starting Google Serper search for query: {query}")
                 # Check if cancellation was requested
                 if self._cancellation_requested:
                     logging.info("Google Serper search cancelled")
                     return []
+
                 results = search_provider.results(query)
+
                 # Extract organic results
                 search_results = results.get('organic', [])[:max_results]
                 logging.info(
                     f"Google Serper search returned {len(search_results)} results")
-                return [
+
+                formatted_results = [
                     {
                         'title': result.get('title', ''),
                         'snippet': result.get('snippet', ''),
@@ -468,6 +516,9 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
                     }
                     for result in search_results
                 ]
+                logging.info(
+                    f"Returning {len(formatted_results)} formatted results from Google Serper")
+                return formatted_results
 
             elif provider == 'brave_search':
                 logging.info("Using Brave search")
@@ -818,7 +869,7 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
 
     def scrape_content(self, urls: List[str]) -> List[Document]:
         """
-        Scrape content from the provided URLs.
+        Scrape content from the provided URLs, stripping URL fragments.
 
         Args:
             urls: List of URLs to scrape
@@ -826,6 +877,8 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
         Returns:
             List of Document objects containing the scraped content
         """
+        import urllib.parse
+
         documents = []
 
         # Limit the number of URLs to scrape to avoid hanging
@@ -833,7 +886,24 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
             'web_search', 'max_scrape_urls', default=5)
         urls = urls[:max_urls]
 
-        for url in urls:
+        for raw_url in urls:
+            # --- NEW: Strip fragment from URL --- START ---
+            try:
+                parsed_url = urllib.parse.urlparse(raw_url)
+                # Reconstruct URL without the fragment
+                url = urllib.parse.urlunparse(
+                    (parsed_url.scheme, parsed_url.netloc, parsed_url.path,
+                     parsed_url.params, parsed_url.query, '')  # Empty fragment
+                )
+                if raw_url != url:
+                    logging.info(
+                        f"Stripped fragment from URL: '{raw_url}' -> '{url}'")
+            except Exception as parse_err:
+                logging.error(
+                    f"Failed to parse or strip fragment from URL '{raw_url}': {parse_err}. Using raw URL.")
+                url = raw_url  # Fallback to raw URL if parsing fails
+            # --- NEW: Strip fragment from URL --- END ----
+
             # Check if cancellation was requested between URL scraping
             if self._cancellation_requested:
                 logging.info(
@@ -859,12 +929,14 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
                             from bs4 import BeautifulSoup
 
                             # Use a timeout to avoid hanging
+                            # Use the processed URL (fragment stripped)
                             logging.info(
                                 f"Scraping content from {url} with timeout")
                             headers = {
                                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                             }
                             # Increased from 10 to 20 seconds
+                            # Use the processed URL (fragment stripped)
                             response = requests.get(
                                 url, headers=headers, timeout=20)
 
@@ -892,6 +964,7 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
 
                             # Create a document
                             from langchain_core.documents import Document
+                            # Use the processed URL (fragment stripped) in metadata
                             doc = Document(page_content=content,
                                            metadata={"source": url})
                             website_doc = doc
@@ -902,10 +975,19 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
                             # Fall back to WebBaseLoader if requests/BS4 approach fails
                             logging.warning(
                                 f"Falling back to WebBaseLoader for {url}: {str(e)}")
+                            # Use the processed URL (fragment stripped)
                             loader = WebBaseLoader(url)
                             docs = loader.load()
                             if docs:
                                 website_doc = docs[0]
+                                # Ensure source metadata uses the cleaned URL
+                                if 'source' not in website_doc.metadata:
+                                    website_doc.metadata['source'] = url
+                                elif website_doc.metadata['source'] != url:
+                                    logging.info(
+                                        f"Updating WebBaseLoader metadata source to cleaned URL: {url}")
+                                    website_doc.metadata['source'] = url
+
                             logging.info(
                                 f"Successfully scraped content from {url} using WebBaseLoader")
 
@@ -1116,6 +1198,19 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
             'error': None
         }
 
+        logging.info(
+            f"execute_search_or_scrape called with mode: {process_result['mode']}")
+        logging.info(
+            f"Available search providers: {list(self.search_providers.keys())}")
+
+        # Early failure if no search providers are available
+        if not self.search_providers and process_result['mode'] == 'web_search':
+            result['status'] = 'error'
+            result['error'] = "No search providers are configured. Please add API keys in settings."
+            logging.error(
+                "Web search attempted but no search providers are available")
+            return result
+
         try:
             # Try to get the selected model from the UI
             model = None
@@ -1133,15 +1228,19 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
             #     model = None
 
             if process_result['mode'] == 'web_search':
+                logging.info("Processing web search request")
+
                 # Get the currently active model from the main LLM handler instance
                 if self.llm_handler and self.llm_handler.llm:
                     if hasattr(self.llm_handler.llm, 'model'):
                         model = self.llm_handler.llm.model
                     elif hasattr(self.llm_handler.llm, 'model_name'):
                         model = self.llm_handler.llm.model_name
-                logging.info(f"Passing model {model} to search_and_scrape")
+                logging.info(f"Using model {model} for search_and_scrape")
 
                 # Perform web search and scraping with the correct model
+                logging.info(
+                    f"Calling search_and_scrape with query: {process_result['query']}")
                 search_results = self.search_and_scrape(
                     process_result['query'],
                     optimize_query=True,
@@ -1149,9 +1248,13 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
                     model=model  # Pass the model determined from the handler
                 )
 
+                logging.info(
+                    f"Search results obtained: {len(search_results.get('search_results', []))} results")
+
                 if not search_results['search_results']:
                     result['status'] = 'error'
                     result['error'] = "No search results found."
+                    logging.warning("No search results found")
                     return result
 
                 # Format search results for LLM
@@ -1184,19 +1287,10 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
 
                 # Add search results to the query
                 result['query'] = f"{search_results_text}Based on the web search results above, please answer: {process_result['original_query']}"
+                logging.info("Successfully formatted search results for LLM")
 
-                # Add web search instruction
-                result['system_instruction'] = """=====WEB_SEARCH_INSTRUCTIONS=====<instructions for handling web search results>
-                You have been provided with web search results to help answer the user's query. Use this information to enhance your response, but do not rely on it exclusively.
-                When using this information:
-                1. Treat the search results as supplementary information to your own knowledge base.
-                2. Synthesize information from the search results and your internal knowledge to provide the most comprehensive and accurate answer possible.
-                3. If the search results do not seem relevant or helpful for the user's query, state that clearly and proceed to answer the query using your own knowledge. DO NOT simply say the search failed.
-                4. Focus on the most relevant information from the search results if they are useful.
-                5. If the information seems outdated or contradictory (either within the results or with your knowledge), note this potential discrepancy to the user.
-                6. If both original and optimized queries are shown, consider how the query optimization may have affected the search results.
-                7. IMPORTANT: DO NOT include any citations or reference numbers (like [1], [2]) in your response.
-                ======================="""
+                # Add web search instruction from prompts_hub
+                result['system_instruction'] = WEB_SEARCH_RESULTS_INSTRUCTION
 
             elif process_result['mode'] == 'link_scrape':
                 # Scrape content from the URL
@@ -1222,16 +1316,8 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
                 # Add scraped content to the query
                 result['query'] = f"{scraped_content_text}Based on the scraped content above from {process_result['url']}, please answer: {process_result['query']}"
 
-                # Add scraped content instruction
-                result['system_instruction'] = """=====SCRAPED_CONTENT_INSTRUCTIONS=====<instructions for handling scraped content>
-                You have been provided with content scraped from a specific URL.
-                When using this information:
-                1. Provide a comprehensive analysis of the content
-                2. Extract key information and present it in a clear, organized manner
-                3. If the content appears incomplete or doesn't contain information relevant to the query, acknowledge this
-                4. If the content has been truncated, note that your analysis is based on partial information
-                5. IMPORTANT: DO NOT include any citations or reference numbers (like [1], [2]) in your response
-                ======================="""
+                # Add scraped content instruction from prompts_hub
+                result['system_instruction'] = SCRAPED_CONTENT_INSTRUCTION
 
         except Exception as e:
             result['status'] = 'error'

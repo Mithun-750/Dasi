@@ -342,14 +342,14 @@ class GeneralTab(QWidget):
             }),
             'start_on_boot': self.settings.get('general', 'start_on_boot', default=False),
             'export_path': self.settings.get('general', 'export_path', default=os.path.expanduser("~/Documents")),
-            'use_cache': self.settings.get('general', 'use_cache', default=True)
+            'use_cache': self.settings.get('general', 'use_cache', default=True),
         }
         self.has_unsaved_changes = False
         self.update_button_visibility()
 
     def get_current_values(self):
-        """Get the current values from the form."""
-        current_values = {
+        """Get the current values from UI elements."""
+        return {
             'custom_instructions': self.custom_instructions.toPlainText(),
             'temperature': self.temperature.value(),
             'hotkey': {
@@ -362,22 +362,20 @@ class GeneralTab(QWidget):
             },
             'start_on_boot': self.startup_checkbox.isChecked(),
             'export_path': self.export_path.text(),
-            'use_cache': self.use_cache_checkbox.isChecked()
+            'use_cache': self.use_cache_checkbox.isChecked(),
         }
-        return current_values
 
     def check_for_changes(self):
         """Check if there are any unsaved changes."""
         current = self.get_current_values()
-        self.has_unsaved_changes = any([
-            current['custom_instructions'] != self.original_values['custom_instructions'],
-            abs(current['temperature'] -
-                self.original_values['temperature']) > 0.001,
-            current['hotkey'] != self.original_values['hotkey'],
-            current['start_on_boot'] != self.original_values['start_on_boot'],
-            current['export_path'] != self.original_values['export_path'],
+        self.has_unsaved_changes = (
+            current['custom_instructions'] != self.original_values['custom_instructions'] or
+            current['temperature'] != self.original_values['temperature'] or
+            self._hotkey_changed(current['hotkey'], self.original_values['hotkey']) or
+            current['start_on_boot'] != self.original_values['start_on_boot'] or
+            current['export_path'] != self.original_values['export_path'] or
             current['use_cache'] != self.original_values['use_cache']
-        ])
+        )
         self.update_button_visibility()
 
     def update_button_visibility(self):
@@ -857,6 +855,25 @@ class GeneralTab(QWidget):
         # Add to main layout (before the prompt customization section)
         layout.insertWidget(1, cache_section)
 
+        # Add Advanced Section between Cache and App Settings or at the end
+        advanced_section = SectionFrame(
+            "Advanced Settings",
+            "Advanced settings for Dasi's operation. Note: Changes to these settings require restarting Dasi."
+        )
+
+        # Add to advanced section
+        advanced_widget = QWidget()
+        advanced_widget.setProperty("class", "transparent-container")
+        advanced_layout = QVBoxLayout(advanced_widget)
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_layout.setSpacing(16)
+
+        advanced_section.layout.addWidget(advanced_widget)
+
+        # Add to main layout after Cache section
+        # (The exact position depends on your layout - adjust the index as needed)
+        layout.addWidget(advanced_section)
+
         # Add spacing at the bottom
         layout.addStretch()
 
@@ -966,6 +983,7 @@ class GeneralTab(QWidget):
 
         self.startup_checkbox.setChecked(self.original_values['start_on_boot'])
         self.export_path.setText(self.original_values['export_path'])
+        self.use_cache_checkbox.setChecked(self.original_values['use_cache'])
 
         self.has_unsaved_changes = False
         self.update_button_visibility()
@@ -984,6 +1002,7 @@ class GeneralTab(QWidget):
 
         self.startup_checkbox.setChecked(False)
         self.export_path.setText(os.path.expanduser("~/Documents"))
+        self.use_cache_checkbox.setChecked(True)
 
         self.check_for_changes()
 
@@ -1010,18 +1029,16 @@ class GeneralTab(QWidget):
     def _apply_all_settings(self):
         """Apply all settings at once."""
         try:
-            # Save custom instructions
-            self.settings.set('general', 'custom_instructions',
-                              self.custom_instructions.toPlainText())
-            self.settings.custom_instructions_changed.emit()
-
             # Save temperature
             self.settings.set('general', 'temperature',
                               self.temperature.value())
-            self.settings.temperature_changed.emit()
+
+            # Save custom instructions
+            self.settings.set('general', 'custom_instructions',
+                              self.custom_instructions.toPlainText())
 
             # Save hotkey settings
-            hotkey_settings = {
+            hotkey = {
                 'ctrl': self.ctrl_checkbox.isChecked(),
                 'alt': self.alt_checkbox.isChecked(),
                 'shift': self.shift_checkbox.isChecked(),
@@ -1029,12 +1046,14 @@ class GeneralTab(QWidget):
                 'fn': self.fn_checkbox.isChecked(),
                 'key': self.key_selector.currentText()
             }
-            self.settings.set('general', 'hotkey', hotkey_settings)
+            self.settings.set('general', 'hotkey', hotkey)
 
-            # Save startup settings
-            start_on_boot = self.startup_checkbox.isChecked()
-            self.settings.set('general', 'start_on_boot', start_on_boot)
-            self._update_startup_file(start_on_boot)
+            # Save startup setting
+            self.settings.set('general', 'start_on_boot',
+                              self.startup_checkbox.isChecked())
+
+            # Update startup file
+            self._update_startup_file(self.startup_checkbox.isChecked())
 
             # Save export path
             path = self.export_path.text()
@@ -1046,45 +1065,71 @@ class GeneralTab(QWidget):
             self.settings.set('general', 'use_cache',
                               self.use_cache_checkbox.isChecked())
 
+            # Always set use_langgraph to True since we only support LangGraph now
+            self.settings.set('general', 'use_langgraph', True)
+
             # Update original values and hide buttons
             self.save_original_values()
 
-            # Create custom message box with restart button
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("Settings Applied")
-            msg_box.setText("All settings have been saved successfully.")
-            msg_box.setInformativeText(
-                "For the changes to take full effect, would you like to restart the Dasi service now?")
-            msg_box.setStandardButtons(
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+            # Detect if restart is needed
+            needs_restart = False
+            restart_items = []
 
-            # Style the buttons
-            for button in msg_box.buttons():
-                if msg_box.buttonRole(button) == QMessageBox.ButtonRole.YesRole:
-                    button.setStyleSheet("""
-                        QPushButton {
-                            background-color: #e67e22;
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            padding: 6px 12px;
-                            font-weight: bold;
-                        }
-                        QPushButton:hover {
-                            background-color: #f39c12;
-                        }
-                    """)
+            if self.original_values['temperature'] != self.temperature.value():
+                needs_restart = True
+                restart_items.append("- Temperature")
 
-            response = msg_box.exec()
+            if self.original_values['custom_instructions'] != self.custom_instructions.toPlainText():
+                needs_restart = True
+                restart_items.append("- Custom Instructions")
 
-            if response == QMessageBox.StandardButton.Yes:
-                self._restart_dasi_service()
+            if needs_restart:
+                # Create custom message box with restart button
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle("Settings Applied")
+
+                restart_message = "The following settings have changed and require a restart to take full effect:\n\n"
+                restart_message += "\n".join(restart_items)
+
+                msg_box.setText("Settings have been saved successfully.")
+                msg_box.setInformativeText(
+                    f"{restart_message}\n\nWould you like to restart the Dasi service now?")
+                msg_box.setStandardButtons(
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+                # Style the buttons
+                for button in msg_box.buttons():
+                    if msg_box.buttonRole(button) == QMessageBox.ButtonRole.YesRole:
+                        button.setStyleSheet("""
+                            QPushButton {
+                                background-color: #e67e22;
+                                color: white;
+                                border: none;
+                                border-radius: 4px;
+                                padding: 6px 12px;
+                                font-weight: bold;
+                            }
+                            QPushButton:hover {
+                                background-color: #f39c12;
+                            }
+                        """)
+
+                response = msg_box.exec()
+
+                if response == QMessageBox.StandardButton.Yes:
+                    self._restart_dasi_service()
+            else:
+                # Just show a simple message for non-critical changes
+                QMessageBox.information(
+                    self,
+                    "Settings Applied",
+                    "All settings have been saved successfully.",
+                    QMessageBox.StandardButton.Ok
+                )
 
         except Exception as e:
             logging.error(f"Error applying settings: {str(e)}", exc_info=True)
-            QMessageBox.critical(
-                self, "Error", f"Failed to apply settings: {str(e)}")
 
     def _restart_dasi_service(self):
         """Helper method to restart Dasi service with a single message."""
@@ -1198,7 +1243,7 @@ X-GNOME-Autostart-enabled=true
         """Clear the response cache."""
         try:
             # Import cache manager on demand
-            from cache_manager import CacheManager
+            from core.cache_manager import CacheManager
             cache = CacheManager()
             cache.clear_cache()
             QMessageBox.information(

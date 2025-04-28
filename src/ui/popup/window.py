@@ -16,8 +16,9 @@ import re
 import uuid
 from datetime import datetime
 
-# Import LLMHandler for filename suggestions
-from llm_handler import LLMHandler
+# Import LangGraphHandler directly from core
+from core.langgraph_handler import LangGraphHandler
+from core.instance_manager import DasiInstanceManager  # Import DasiInstanceManager
 
 # Import components
 from .components.input_panel import InputPanel
@@ -378,7 +379,7 @@ class DasiWindow(QWidget):
             }
         """)
 
-    def _handle_input_submit(self, query: str):
+    def _handle_input_submit(self, query: str, model_info=None):
         """Handle query submitted from the input panel."""
         if query:
             # Check if this is a web search query (check for #web anywhere in the query)
@@ -408,27 +409,31 @@ class DasiWindow(QWidget):
             # Build context dictionary
             context = self.input_panel.get_context()
 
-            # Format query with context
-            if context:
-                full_query = "Context:\n"
-                if 'selected_text' in context:
-                    full_query += f"=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n=======================\n\n"
-                if 'image_data' in context:
-                    full_query += f"=====IMAGE_DATA=====\n{context['image_data']}\n=======================\n\n"
-                full_query += f"=====MODE=====<user selected mode>\n{context['mode']}\n=======================\n\n"
-                full_query += f"Query:\n{query}"
-            else:
-                full_query = query
+            # Format query with context (except image_data)
+            full_query = "Context:\n"
+            if 'selected_text' in context:
+                full_query += f"=====SELECTED_TEXT=====<text selected by the user>\n{context['selected_text']}\n=======================\n\n"
 
-            # Get selected model
-            model_info = self.input_panel.get_selected_model()
+            # CHANGE: Don't include image_data in the query text!
+            # Instead, extract it for direct passing to the worker
+            image_data = None
+            if 'image_data' in context:
+                image_data = context['image_data']
+                # Add a note about image presence but don't include the actual base64 data
+                full_query += f"=====IMAGE=====<image data is attached separately>\n=====================\n\n"
+
+            full_query += f"=====MODE=====<user selected mode>\n{context['mode']}\n=======================\n\n"
+            full_query += f"Query:\n{query}"
+
+            # Get model ID from the model_info parameter
             model = None
             if model_info and 'id' in model_info:
                 model = model_info['id']
+                logging.info(f"Using selected model: {model}")
 
             # Process query in background with session ID
             self.worker = QueryWorker(
-                self.process_query, full_query, self.signals, model, self.session_id)
+                self.process_query, full_query, self.signals, model, self.session_id, image_data)
             self.worker.start()
 
     def _reset_ui_after_stop(self):
@@ -461,7 +466,6 @@ class DasiWindow(QWidget):
                 if self.is_web_search:
                     try:
                         # Get the Dasi instance from the instance manager
-                        from instance_manager import DasiInstanceManager
                         dasi_instance = DasiInstanceManager.get_instance()
 
                         if dasi_instance and dasi_instance.llm_handler and dasi_instance.llm_handler.web_search_handler:
@@ -494,7 +498,6 @@ class DasiWindow(QWidget):
             if self.is_web_search and self.worker and self.worker.isRunning():
                 try:
                     # Get the Dasi instance from the instance manager
-                    from instance_manager import DasiInstanceManager
                     dasi_instance = DasiInstanceManager.get_instance()
 
                     if dasi_instance and dasi_instance.llm_handler and dasi_instance.llm_handler.web_search_handler:
@@ -677,237 +680,39 @@ class DasiWindow(QWidget):
         # Reset window size
         self.setFixedWidth(340)  # Input-only mode width
 
-    def _handle_export(self, response: str):
-        """Export the generated response to a file with the appropriate extension."""
-        # Show loading state in the export button
-        original_text = self.preview_panel.export_button.text()
-        self.preview_panel.export_button.setText("Cancel")
-
-        # Create a worker thread for filename suggestion
-        class FilenameWorker(QThread):
-            finished = pyqtSignal(str)
-            error = pyqtSignal(str)
-
-            def __init__(self, content, session_id, code_language=None):
-                super().__init__()
-                self.content = content
-                self.session_id = session_id
-                self.code_language = code_language
-                self.is_stopped = False
-
-            def run(self):
-                try:
-                    if not self.is_stopped:
-                        llm_handler = LLMHandler()
-                        # Set the detected language in LLMHandler if we have it
-                        if self.code_language:
-                            llm_handler.detected_language = self.code_language
-                            logging.info(
-                                f"Setting detected language in LLMHandler: {self.code_language}")
-
-                        filename = llm_handler.suggest_filename(
-                            content=self.content,
-                            session_id=self.session_id
-                        )
-                        self.finished.emit(filename)
-                except Exception as e:
-                    self.error.emit(str(e))
-
-            def stop(self):
-                self.is_stopped = True
-
-        # Get code language from preview panel if available
-        code_language = getattr(self.preview_panel, '_code_language', None)
-        # Debug logging to trace the issue
-        logging.info(
-            f"Window._handle_export: code_language={code_language}, preview_panel={id(self.preview_panel)}")
-
-        # Create and configure the worker with clean response and detected language
-        self.filename_worker = FilenameWorker(
-            response, self.session_id, code_language)
-
-        def handle_filename_ready(suggested_filename):
-            # Restore button state
-            self.preview_panel.export_button.setText(original_text)
-            self.preview_panel.export_button.setEnabled(True)
-            # Restore the original click handler
-            self.preview_panel.export_button.clicked.disconnect()
-            self.preview_panel.export_button.clicked.connect(
-                self.preview_panel._handle_export)
-
+    def _handle_export(self):
+        """Handle export button click."""
+        if self.last_response:
             try:
-                # Get the default export path from settings
-                default_path = self.settings.get(
-                    'general', 'export_path', default=os.path.expanduser("~/Documents"))
+                # Use LangGraphHandler directly for filename suggestion
+                # Get the handler instance from the main application
+                # Note: This assumes a way to access the main app's handler instance.
+                # If DasiInstanceManager is used, we can get it from there.
+                dasi_instance = DasiInstanceManager.get_instance()
+                if dasi_instance and hasattr(dasi_instance, 'llm_handler') and isinstance(dasi_instance.llm_handler, LangGraphHandler):
+                    langgraph_handler = dasi_instance.llm_handler
+                else:
+                    # Fallback: Create a temporary instance if needed (not ideal)
+                    logging.warning(
+                        "Could not get main LangGraphHandler instance, creating temporary one for filename suggestion.")
+                    langgraph_handler = LangGraphHandler()
 
-                # Combine default path with suggested filename
-                default_filepath = os.path.join(
-                    default_path, suggested_filename)
+                # Use the handler's method
+                suggested_filename = langgraph_handler.suggest_filename(
+                    self.last_response, self.session_id)
 
-                # Determine file extension and filter based on detected language
-                file_extension = os.path.splitext(suggested_filename)[1]
-                filter_string = self._get_filter_string_for_extension(
-                    file_extension)
+                # Rest of the export logic...
+                save_path, _ = QFileDialog.getSaveFileName(
+                    self, "Export Response", suggested_filename, "Markdown Files (*.md);;Text Files (*.txt);;All Files (*)")
 
-                logging.info(
-                    f"Using file extension: {file_extension} with filter: {filter_string}")
-
-                # Open file dialog with suggested name and default path
-                filename, _ = QFileDialog.getSaveFileName(
-                    self,
-                    "Save Response",
-                    default_filepath,
-                    filter_string
-                )
-
-                if filename:  # Only save if user didn't cancel
-                    # Write response to file
-                    with open(filename, "w") as f:
-                        f.write(response)
-
+                if save_path:
+                    with open(save_path, 'w', encoding='utf-8') as f:
+                        f.write(self.last_response)
+                    logging.info(f"Response exported to {save_path}")
             except Exception as e:
-                logging.error(f"Error during export: {str(e)}", exc_info=True)
-                self._handle_export_error(response)
-
-        def handle_filename_error(error):
-            logging.error(f"Error getting filename suggestion: {error}")
-            self._handle_export_error(response)
-
-        # Connect signals
-        self.filename_worker.finished.connect(handle_filename_ready)
-        self.filename_worker.error.connect(handle_filename_error)
-
-        # Update export button to allow cancellation
-        self.preview_panel.export_button.clicked.disconnect()
-        self.preview_panel.export_button.clicked.connect(self._cancel_export)
-
-        # Start the worker
-        self.filename_worker.start()
-
-    def _get_filter_string_for_extension(self, file_extension):
-        """Get the appropriate filter string for QFileDialog based on file extension."""
-        extension_filters = {
-            ".py": "Python Files (*.py);;All Files (*)",
-            ".js": "JavaScript Files (*.js);;All Files (*)",
-            ".ts": "TypeScript Files (*.ts);;All Files (*)",
-            ".java": "Java Files (*.java);;All Files (*)",
-            ".c": "C Files (*.c);;All Files (*)",
-            ".cpp": "C++ Files (*.cpp);;All Files (*)",
-            ".cs": "C# Files (*.cs);;All Files (*)",
-            ".go": "Go Files (*.go);;All Files (*)",
-            ".rs": "Rust Files (*.rs);;All Files (*)",
-            ".rb": "Ruby Files (*.rb);;All Files (*)",
-            ".php": "PHP Files (*.php);;All Files (*)",
-            ".swift": "Swift Files (*.swift);;All Files (*)",
-            ".kt": "Kotlin Files (*.kt);;All Files (*)",
-            ".html": "HTML Files (*.html);;All Files (*)",
-            ".css": "CSS Files (*.css);;All Files (*)",
-            ".sql": "SQL Files (*.sql);;All Files (*)",
-            ".sh": "Shell Script Files (*.sh);;All Files (*)",
-            ".json": "JSON Files (*.json);;All Files (*)",
-            ".xml": "XML Files (*.xml);;All Files (*)",
-            ".yaml": "YAML Files (*.yaml);;All Files (*)",
-            ".yml": "YAML Files (*.yml);;All Files (*)",
-            ".txt": "Text Files (*.txt);;All Files (*)",
-        }
-
-        # Default to markdown if extension not found in our dictionary
-        return extension_filters.get(file_extension.lower(), "Markdown Files (*.md);;All Files (*)")
-
-    def _handle_export_error(self, response: str):
-        """Handle export errors by falling back to timestamp-based filename."""
-        try:
-            # Restore button state
-            self.preview_panel.export_button.setText("Export")
-            self.preview_panel.export_button.clicked.disconnect()
-            self.preview_panel.export_button.clicked.connect(
-                self.preview_panel._handle_export)
-            self.preview_panel.export_button.setEnabled(True)
-
-            # Check if we have a code language for a better extension
-            code_language = getattr(self.preview_panel, '_code_language', None)
-            extension = ".md"  # Default extension
-
-            if code_language:
-                # Map language to file extension
-                extension_map = {
-                    "python": ".py",
-                    "javascript": ".js",
-                    "typescript": ".ts",
-                    "java": ".java",
-                    "c": ".c",
-                    "cpp": ".cpp",
-                    "c++": ".cpp",
-                    "csharp": ".cs",
-                    "c#": ".cs",
-                    "go": ".go",
-                    "rust": ".rs",
-                    "ruby": ".rb",
-                    "php": ".php",
-                    "swift": ".swift",
-                    "kotlin": ".kt",
-                    "html": ".html",
-                    "css": ".css",
-                    "sql": ".sql",
-                    "shell": ".sh",
-                    "bash": ".sh",
-                    "json": ".json",
-                    "xml": ".xml",
-                    "yaml": ".yaml",
-                    "yml": ".yml",
-                    "text": ".txt",
-                    "plaintext": ".txt",
-                }
-
-                if code_language.lower() in extension_map:
-                    extension = extension_map[code_language.lower()]
-                    logging.info(
-                        f"Using extension {extension} based on language {code_language}")
-
-            # Use timestamp for filename
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            suggested_filename = f"dasi_response_{timestamp}{extension}"
-            default_path = self.settings.get(
-                'general', 'export_path', default=os.path.expanduser("~/Documents"))
-            default_filepath = os.path.join(default_path, suggested_filename)
-
-            # Get the appropriate filter string
-            filter_string = self._get_filter_string_for_extension(extension)
-
-            # Open file dialog with fallback name
-            filename, _ = QFileDialog.getSaveFileName(
-                self,
-                "Save Response",
-                default_filepath,
-                filter_string
-            )
-
-            if filename:  # Only save if user didn't cancel
-                # Write response to file
-                with open(filename, "w") as f:
-                    f.write(response)
-
-        except Exception as e:
-            logging.error(
-                f"Error during export fallback: {str(e)}", exc_info=True)
-            QMessageBox.critical(
-                self,
-                "Export Error",
-                f"Failed to export response: {str(e)}",
-                QMessageBox.StandardButton.Ok
-            )
-
-    def _cancel_export(self):
-        """Cancel the export operation."""
-        if hasattr(self, 'filename_worker') and self.filename_worker.isRunning():
-            self.filename_worker.stop()
-            self.filename_worker.wait()
-
-            # Restore export button
-            self.preview_panel.export_button.setText("Export")
-            self.preview_panel.export_button.clicked.disconnect()
-            self.preview_panel.export_button.clicked.connect(
-                self.preview_panel._handle_export)
+                logging.error(f"Error exporting file: {str(e)}", exc_info=True)
+                QMessageBox.warning(self, "Export Error",
+                                    f"Failed to export file: {str(e)}")
 
     def keyPressEvent(self, event):
         """Handle global key events for the window."""
