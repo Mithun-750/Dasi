@@ -14,6 +14,7 @@ from pathlib import Path
 # Import the tools
 from .web_search_tool import WebSearchTool
 from .system_info_tool import SystemInfoTool
+from .terminal_command_tool import TerminalCommandTool
 from ..web_search_handler import WebSearchHandler
 
 
@@ -64,6 +65,29 @@ class ToolCallWorker(QThread):
                     result = {
                         "status": "error",
                         "message": "System info tool not initialized"
+                    }
+
+            # Handle terminal_command tool
+            elif self.tool_name == "terminal_command":
+                tool = self.tool_handler.tools.get("terminal_command")
+                if tool:
+                    # Extract the command and optional arguments
+                    command = self.args.get('command', '')
+                    working_dir = self.args.get('working_dir')
+                    timeout = self.args.get('timeout', 30)
+                    shell_type = self.args.get('shell_type')
+
+                    # Run the command
+                    result = tool.run(
+                        command=command,
+                        working_dir=working_dir,
+                        timeout=timeout,
+                        shell_type=shell_type
+                    )
+                else:
+                    result = {
+                        "status": "error",
+                        "message": "Terminal command tool not initialized"
                     }
 
             # Add other tools here in the future
@@ -145,6 +169,13 @@ class ToolCallHandler(QObject):
         except Exception as e:
             logging.error(f"Failed to initialize SystemInfoTool: {e}")
 
+        # Setup TerminalCommandTool
+        try:
+            self.tools["terminal_command"] = TerminalCommandTool()
+            logging.info("TerminalCommandTool initialized successfully")
+        except Exception as e:
+            logging.error(f"Failed to initialize TerminalCommandTool: {e}")
+
     def request_tool_call(self, tool_name, args):
         """Request a tool call and emit a signal for UI confirmation."""
         logging.info(f"Tool call requested: {tool_name} with args: {args}")
@@ -219,6 +250,22 @@ class ToolCallHandler(QObject):
                         "result": {
                             "status": "error",
                             "message": f"Failed to initialize system info tool: {str(e)}"
+                        },
+                        "id": tool_id  # Include ID in error result
+                    })
+                    return
+            elif tool_name == "terminal_command":
+                try:
+                    self.tools["terminal_command"] = TerminalCommandTool()
+                    logging.info("TerminalCommandTool initialized on demand")
+                except Exception as e:
+                    logging.error(
+                        f"Failed to initialize TerminalCommandTool: {e}")
+                    self.tool_call_completed.emit({
+                        "tool": tool_name,
+                        "result": {
+                            "status": "error",
+                            "message": f"Failed to initialize terminal command tool: {str(e)}"
                         },
                         "id": tool_id  # Include ID in error result
                     })
@@ -395,7 +442,10 @@ class ToolCallHandler(QObject):
 
     def get_tool_description(self, tool_name):
         """Get the description of a tool by name."""
-        tool = self.get_tool(tool_name)
+        if tool_name == "terminal_command":
+            return "Execute terminal commands safely. Can run common shell commands like ls, cat, grep, etc."
+
+        tool = self.get_tools().get(tool_name)
         if tool:
             if hasattr(tool, 'description'):
                 return tool.description
@@ -405,4 +455,4 @@ class ToolCallHandler(QObject):
 
     def get_tools(self):
         """Get all available tools."""
-        return list(self.tools.values())
+        return self.tools

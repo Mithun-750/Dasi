@@ -14,6 +14,17 @@ class SystemInfoInput(BaseModel):
                            description="Type of system information to retrieve")
 
 
+class TerminalCommandInput(BaseModel):
+    """Input schema for terminal command tool."""
+    command: str = Field(..., description="The terminal command to execute")
+    working_dir: Optional[str] = Field(
+        None, description="Optional working directory (use ~ for home directory)")
+    timeout: Optional[int] = Field(
+        30, description="Maximum execution time in seconds")
+    shell_type: Optional[str] = Field(
+        None, description="Specific shell to use (bash, fish, zsh, sh)")
+
+
 class WebSearchTool(BaseTool):
     """Tool for performing web searches."""
     name = "web_search"
@@ -38,6 +49,19 @@ class SystemInfoTool(BaseTool):
             "Tool calls should be handled by ToolCallHandler")
 
 
+class TerminalCommandTool(BaseTool):
+    """Tool for executing terminal commands safely."""
+    name = "terminal_command"
+    description = "Execute terminal commands safely. Can run common shell commands like ls, cat, grep, and git."
+    args_schema = TerminalCommandInput
+
+    def _run(self, command: str, working_dir: Optional[str] = None,
+             timeout: int = 30, shell_type: Optional[str] = None) -> Dict[str, Any]:
+        """This method should not be called directly - tool calls are handled by ToolCallHandler"""
+        raise NotImplementedError(
+            "Tool calls should be handled by ToolCallHandler")
+
+
 def get_available_tools() -> List[BaseTool]:
     """
     Get a list of all available tools for use with LangGraph.
@@ -47,7 +71,8 @@ def get_available_tools() -> List[BaseTool]:
     """
     return [
         WebSearchTool(),
-        SystemInfoTool()
+        SystemInfoTool(),
+        TerminalCommandTool()
     ]
 
 

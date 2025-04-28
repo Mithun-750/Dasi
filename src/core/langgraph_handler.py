@@ -281,6 +281,33 @@ class LangGraphHandler:
                             }
                         }
                     }
+                },
+                {
+                    "name": "terminal_command",
+                    "description": "Execute terminal commands safely",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "The terminal command to execute"
+                            },
+                            "working_dir": {
+                                "type": "string",
+                                "description": "Optional working directory for the command (use ~ for home directory)"
+                            },
+                            "timeout": {
+                                "type": "integer",
+                                "description": "Maximum execution time in seconds (default: 30)"
+                            },
+                            "shell_type": {
+                                "type": "string",
+                                "enum": ["bash", "sh", "fish", "zsh"],
+                                "description": "Specific shell to use (default is user's shell)"
+                            }
+                        },
+                        "required": ["command"]
+                    }
                 }
             ]
 

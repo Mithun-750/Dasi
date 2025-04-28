@@ -21,6 +21,24 @@ Provides system information like OS details, memory usage, and CPU information.
 **Arguments:**
 - `info_type` (string): Type of information to retrieve ('basic', 'memory', 'cpu', 'all')
 
+### TerminalCommandTool (`terminal_command_tool.py`)
+
+Executes terminal commands safely in a background thread, with security restrictions, metadata collection, and proper error handling.
+
+**Arguments:**
+- `command` (string): The terminal command to execute
+- `working_dir` (string, optional): Working directory for the command (use ~ for home directory)
+- `timeout` (integer, optional): Maximum execution time in seconds (default: 30)
+- `shell_type` (string, optional): Specific shell to use (bash, fish, zsh, sh)
+
+**Features:**
+- Runs commands asynchronously in a background thread to prevent UI freezing
+- Validates commands against an allowlist for security
+- Automatically detects the user's default shell
+- Provides detailed metadata about execution environment
+- Handles command timeouts and proper error reporting
+- Formats output in a user-friendly way with markdown code blocks
+
 ## Architecture
 
 The tool system consists of:
@@ -148,6 +166,7 @@ Then register it in the `__init__` method:
 self._tool_handlers: Dict[str, Callable[[Dict[str, Any]], Awaitable[str]]] = {
     "web_search": self._handle_web_search,
     "system_info": self._handle_system_info,
+    "terminal_command": self._handle_terminal_command,  # Added terminal command tool handler
     "your_tool_name": self._handle_your_tool,  # Add your new tool here
 }
 ```
@@ -172,6 +191,7 @@ LLMs can invoke tools using the following formats:
 
 - The WebSearchTool requires the WebSearchHandler from `src/core/web_search_handler.py`
 - The SystemInfoTool requires the `psutil` package (add with `uv add psutil`)
+- The TerminalCommandTool requires `subprocess`, `shlex`, `pwd` and `shutil` (all standard library)
 
 ## Best Practices
 
@@ -182,4 +202,5 @@ LLMs can invoke tools using the following formats:
 5. Document your tool's arguments and return values
 6. Add tests for your tool 
 7. Use async handlers in `LangGraphToolNode` for potentially long-running operations
-8. Return properly formatted JSON strings from tool handlers 
+8. Return properly formatted JSON strings from tool handlers
+9. For long-running operations, use background threads to prevent UI freezing
