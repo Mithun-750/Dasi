@@ -2,6 +2,14 @@ from PyQt6.QtCore import QObject, pyqtSignal
 import logging
 from typing import Dict, Any, Optional
 import uuid
+import json
+import threading
+import time
+import os
+import psutil
+import platform
+import socket
+from pathlib import Path
 
 # Import the tools
 from .web_search_tool import WebSearchTool
@@ -20,6 +28,8 @@ class ToolCallHandler(QObject):
     # Signal emitted when a tool call is completed (success or failure)
     # e.g., {"tool": "web_search", "result": ...}
     tool_call_completed = pyqtSignal(dict)
+    # Signal for when a tool call result is being processed by the LLM
+    tool_call_processing = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -27,6 +37,8 @@ class ToolCallHandler(QObject):
         self.awaiting_confirmation = False
         self.tools = {}  # Dictionary to store tool instances
         self.web_search_handler = None  # Will be set later from the LLM handler
+        self.user_response = None
+        self.user_response_event = threading.Event()
         logging.info("ToolCallHandler initialized")
 
     def setup_tools(self, web_search_handler: Optional[WebSearchHandler] = None):
@@ -62,7 +74,7 @@ class ToolCallHandler(QObject):
         logging.debug("Emitting tool_call_requested signal")
         self.tool_call_requested.emit(self.pending_tool_call)
 
-    def handle_user_response(self, accepted: bool):
+    def handle_user_response(self, approved: bool):
         """Handle the user's response to the tool call confirmation."""
         if not self.awaiting_confirmation or not self.pending_tool_call:
             logging.warning("No pending tool call to confirm.")
@@ -76,7 +88,7 @@ class ToolCallHandler(QObject):
             tool_id = f"call_{uuid.uuid4().hex[:24]}"
             self.pending_tool_call["id"] = tool_id
 
-        if accepted:
+        if approved:
             logging.info(
                 f"User accepted tool call: {tool_name} (ID: {tool_id})")
             self.execute_tool_call(self.pending_tool_call)
@@ -227,3 +239,126 @@ class ToolCallHandler(QObject):
                 },
                 "id": tool_id  # Include ID in error result
             })
+
+    def wait_for_user_response(self, timeout=120):
+        """Wait for the user to respond to a tool call request."""
+        logging.info(f"Waiting for user response (timeout: {timeout}s)")
+
+        if self.user_response_event.wait(timeout):
+            return self.user_response
+        else:
+            logging.warning("Timeout waiting for user response")
+            return False
+
+    def process_tool_call_request(self, tool_name, args, tool_id=None):
+        """Process a tool call request from start to finish."""
+        # Request user confirmation
+        self.request_tool_call(tool_name, args)
+
+        # Wait for user response
+        approved = self.wait_for_user_response()
+
+        if approved:
+            # Execute the tool
+            return self.execute_tool_call(self.pending_tool_call)
+        else:
+            # User rejected the tool call
+            result = {
+                "tool": tool_name,
+                "id": tool_id,
+                "result": "rejected"
+            }
+            self.tool_call_completed.emit(result)
+            return result
+
+    def _web_search_tool(self, args):
+        """Web search tool implementation."""
+        if not self.web_search_handler:
+            return {
+                "status": "error",
+                "message": "Web search handler not configured"
+            }
+
+        query = args.get("query", "")
+        if not query:
+            return {
+                "status": "error",
+                "message": "No query provided for web search"
+            }
+
+        # Execute web search
+        try:
+            result = self.web_search_handler.execute_search({
+                "query": query,
+                "mode": args.get("mode", "web_search"),
+                "url": args.get("url", ""),
+                "context": {
+                    "selected_text": args.get("selected_text", "")
+                }
+            })
+            return {
+                "status": "success",
+                "data": result.get("content", "No results found")
+            }
+        except Exception as e:
+            logging.error(f"Error executing web search: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"Error executing web search: {str(e)}"
+            }
+
+    def _system_info_tool(self, args):
+        """System info tool implementation."""
+        info_type = args.get("info_type", "basic")
+
+        system_info = {
+            "os": platform.system(),
+            "os_version": platform.version(),
+            "hostname": socket.gethostname(),
+            "python_version": platform.python_version()
+        }
+
+        if info_type in ["memory", "all"]:
+            memory = psutil.virtual_memory()
+            system_info["memory"] = {
+                "total": f"{memory.total / (1024**3):.2f} GB",
+                "available": f"{memory.available / (1024**3):.2f} GB",
+                "used": f"{memory.used / (1024**3):.2f} GB",
+                "percent": f"{memory.percent}%"
+            }
+
+        if info_type in ["cpu", "all"]:
+            system_info["cpu"] = {
+                "cores_physical": psutil.cpu_count(logical=False),
+                "cores_logical": psutil.cpu_count(logical=True),
+                "current_usage": f"{psutil.cpu_percent(interval=0.5)}%"
+            }
+
+        # Format system info as markdown
+        markdown = "# System Information\n\n"
+
+        # Basic info section
+        markdown += "## Basic Information\n"
+        markdown += f"- **OS**: {system_info['os']} {system_info['os_version']}\n"
+        markdown += f"- **Hostname**: {system_info['hostname']}\n"
+        markdown += f"- **Python Version**: {system_info['python_version']}\n\n"
+
+        # Memory section if available
+        if "memory" in system_info:
+            markdown += "## Memory\n"
+            markdown += f"- **Total**: {system_info['memory']['total']}\n"
+            markdown += f"- **Available**: {system_info['memory']['available']}\n"
+            markdown += f"- **Used**: {system_info['memory']['used']}\n"
+            markdown += f"- **Usage**: {system_info['memory']['percent']}\n\n"
+
+        # CPU section if available
+        if "cpu" in system_info:
+            markdown += "## CPU\n"
+            markdown += f"- **Physical Cores**: {system_info['cpu']['cores_physical']}\n"
+            markdown += f"- **Logical Cores**: {system_info['cpu']['cores_logical']}\n"
+            markdown += f"- **Current Usage**: {system_info['cpu']['current_usage']}\n\n"
+
+        return {
+            "status": "success",
+            "data": markdown
+        }

@@ -9,6 +9,7 @@ import asyncio
 import nest_asyncio
 import re  # Import re for _extract_code_block
 import time  # Add time for timing logs
+import threading
 
 # LangChain imports
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
@@ -103,7 +104,7 @@ class LangGraphHandler:
             web_search_handler=self.web_search_handler)
 
         # Initialize tool call event - reinitialized here to be safe
-        self.tool_call_event = asyncio.Event()
+        self.tool_call_event = threading.Event()
         self.tool_call_result = None
 
         # Connect the signal after initializing the event
@@ -1047,6 +1048,12 @@ class LangGraphHandler:
             logging.info(f"Waiting for user to confirm tool call: {tool_name}")
 
             # Update the UI callback if available to show we're waiting
+            callback = None  # Define callback to avoid reference errors
+            accumulated_response = ""
+            # TODO: Get callback and current accumulated response if possible
+            if 'response' in state:
+                accumulated_response = state['response']
+
             if callback:
                 callback(accumulated_response +
                          "\n\n[Waiting for your confirmation to use the tool...]")
@@ -1055,39 +1062,75 @@ class LangGraphHandler:
             logging.info(
                 f"Waiting for user response for {tool_name} tool call")
             try:
-                # Periodic updates while waiting
+                # Run the blocking threading.Event.wait() in a separate thread
+                # to avoid blocking the main asyncio event loop.
+                loop = asyncio.get_running_loop()
+                tool_call_timeout = 120.0
+
                 if callback:
+                    # If we have a callback, we need to periodically check
                     wait_start = time.monotonic()
-                    while not self.tool_call_event.is_set():
-                        # Check if the event is set every second
-                        try:
-                            await asyncio.wait_for(self.tool_call_event.wait(), timeout=1.0)
-                            break  # Event was set, exit the loop
-                        except asyncio.TimeoutError:
-                            # Event wasn't set within 1 second, continue waiting
-                            wait_duration = time.monotonic() - wait_start
-                            dots = "." * (int(wait_duration) % 4)
-                            waiting_message = f"{accumulated_response}\n\n[Waiting for your confirmation to use the tool{dots}]"
-                            callback(waiting_message)
-                            continue
+                    while True:
+                        # Wait for 1 second in executor
+                        event_set = await loop.run_in_executor(
+                            None, self.tool_call_event.wait, 1.0
+                        )
+                        if event_set:
+                            break  # Event was set
+
+                        # Check for timeout
+                        wait_duration = time.monotonic() - wait_start
+                        if wait_duration >= tool_call_timeout:
+                            logging.warning(
+                                f"Timeout waiting for tool call response for {tool_name}")
+                            # Set result to timeout error
+                            self.tool_call_result = {
+                                'tool': tool_name,
+                                'id': tool_id,
+                                'result': {
+                                    'status': 'error',
+                                    'message': 'Timeout waiting for user confirmation'
+                                }
+                            }
+                            break  # Exit loop on timeout
+
+                        # Update dots for UI callback
+                        dots = "." * (int(wait_duration) % 4)
+                        waiting_message = f"{accumulated_response}\n\n[Waiting for your confirmation to use the tool{dots}]"
+                        callback(waiting_message)
                 else:
-                    # If no callback, just wait normally
-                    await asyncio.wait_for(self.tool_call_event.wait(), timeout=120.0)
+                    # If no callback, just wait directly in executor
+                    event_set = await loop.run_in_executor(
+                        None, self.tool_call_event.wait, tool_call_timeout
+                    )
+                    if not event_set:
+                        logging.warning(
+                            f"Timeout waiting for tool call response for {tool_name}")
+                        # Set result to timeout error
+                        self.tool_call_result = {
+                            'tool': tool_name,
+                            'id': tool_id,
+                            'result': {
+                                'status': 'error',
+                                'message': 'Timeout waiting for user confirmation'
+                            }
+                        }
 
                 wait_end_time = time.monotonic()
                 wait_duration = wait_end_time - wait_start_time
                 logging.info(
                     f"Received user response for {tool_name} tool call after {wait_duration:.3f} seconds")
-            except asyncio.TimeoutError:
-                logging.warning(
-                    f"Timeout waiting for tool call response for {tool_name}")
-                # Create a timeout result to move forward
+
+            except Exception as e:
+                logging.error(
+                    f"Error during tool call wait: {e}", exc_info=True)
+                # Set result to error
                 self.tool_call_result = {
                     'tool': tool_name,
                     'id': tool_id,
                     'result': {
                         'status': 'error',
-                        'message': 'Timeout waiting for user confirmation'
+                        'message': f'Error waiting for response: {str(e)}'
                     }
                 }
 
@@ -1108,6 +1151,13 @@ class LangGraphHandler:
 
             # Reset the tool_call_result to avoid reuse
             self.tool_call_result = None
+
+            # Notify the UI that we're about to process the tool results with the LLM
+            # This helps ensure the preview panel is visible for the follow-up response
+            try:
+                self.tool_call_handler.tool_call_processing.emit(tool_name)
+            except Exception as e:
+                logging.error(f"Error emitting processing signal: {e}")
 
         except Exception as e:
             logging.error(f"Error in tool_call_node: {e}", exc_info=True)
@@ -1138,23 +1188,19 @@ class LangGraphHandler:
         # Store the result for the tool_call_node to use
         self.tool_call_result = result
 
-        # Signal that the tool call is complete
+        # Use threading.Event.set() instead of asyncio.Event.set()
         try:
-            # Make sure we're logging the event state for debugging
-            logging.info(
-                f"Setting tool_call_event. Current state: {self.tool_call_event.is_set()}")
             self.tool_call_event.set()
-            logging.info(
-                f"Event set successfully. New state: {self.tool_call_event.is_set()}")
+            logging.info("Tool call event set successfully")
         except Exception as e:
-            logging.exception(f"Error setting tool call event: {e}")
+            logging.error(f"Error setting tool call event: {e}")
             # Try to recreate the event if it's somehow invalid
             try:
-                self.tool_call_event = asyncio.Event()
+                self.tool_call_event = threading.Event()
                 self.tool_call_event.set()
                 logging.info("Created new event and set it successfully")
-            except Exception as e2:
-                logging.exception(f"Failed to recreate event: {e2}")
+            except Exception as inner_e:
+                logging.error(f"Failed to recreate event: {inner_e}")
 
     async def get_response_async(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default", selected_text: str = None, mode: str = "chat", image_data: Optional[str] = None) -> str:
         """
@@ -1348,40 +1394,75 @@ class LangGraphHandler:
                             logging.info(
                                 f"Waiting for user response for {tool_name} tool call")
                             try:
-                                # Periodic updates while waiting
+                                # Run the blocking threading.Event.wait() in a separate thread
+                                # to avoid blocking the main asyncio event loop.
+                                loop = asyncio.get_running_loop()
+                                tool_call_timeout = 120.0
+
                                 if callback:
+                                    # If we have a callback, we need to periodically check
                                     wait_start = time.monotonic()
-                                    while not self.tool_call_event.is_set():
-                                        # Check if the event is set every second
-                                        try:
-                                            await asyncio.wait_for(self.tool_call_event.wait(), timeout=1.0)
-                                            break  # Event was set, exit the loop
-                                        except asyncio.TimeoutError:
-                                            # Event wasn't set within 1 second, continue waiting
-                                            wait_duration = time.monotonic() - wait_start
-                                            dots = "." * \
-                                                (int(wait_duration) % 4)
-                                            waiting_message = f"{accumulated_response}\n\n[Waiting for your confirmation to use the tool{dots}]"
-                                            callback(waiting_message)
-                                            continue
+                                    while True:
+                                        # Wait for 1 second in executor
+                                        event_set = await loop.run_in_executor(
+                                            None, self.tool_call_event.wait, 1.0
+                                        )
+                                        if event_set:
+                                            break  # Event was set
+
+                                        # Check for timeout
+                                        wait_duration = time.monotonic() - wait_start
+                                        if wait_duration >= tool_call_timeout:
+                                            logging.warning(
+                                                f"Timeout waiting for tool call response for {tool_name}")
+                                            # Set result to timeout error
+                                            self.tool_call_result = {
+                                                'tool': tool_name,
+                                                'id': tool_id,
+                                                'result': {
+                                                    'status': 'error',
+                                                    'message': 'Timeout waiting for user confirmation'
+                                                }
+                                            }
+                                            break  # Exit loop on timeout
+
+                                        # Update dots for UI callback
+                                        dots = "." * (int(wait_duration) % 4)
+                                        waiting_message = f"{accumulated_response}\n\n[Waiting for your confirmation to use the tool{dots}]"
+                                        callback(waiting_message)
                                 else:
-                                    # If no callback, just wait normally
-                                    await asyncio.wait_for(self.tool_call_event.wait(), timeout=120.0)
+                                    # If no callback, just wait directly in executor
+                                    event_set = await loop.run_in_executor(
+                                        None, self.tool_call_event.wait, tool_call_timeout
+                                    )
+                                    if not event_set:
+                                        logging.warning(
+                                            f"Timeout waiting for tool call response for {tool_name}")
+                                        # Set result to timeout error
+                                        self.tool_call_result = {
+                                            'tool': tool_name,
+                                            'id': tool_id,
+                                            'result': {
+                                                'status': 'error',
+                                                'message': 'Timeout waiting for user confirmation'
+                                            }
+                                        }
 
                                 wait_end_time = time.monotonic()
                                 wait_duration = wait_end_time - wait_start_time
                                 logging.info(
                                     f"Received user response for {tool_name} tool call after {wait_duration:.3f} seconds")
-                            except asyncio.TimeoutError:
-                                logging.warning(
-                                    f"Timeout waiting for tool call response for {tool_name}")
-                                # Create a timeout result to move forward
+
+                            except Exception as e:
+                                logging.error(
+                                    f"Error during tool call wait: {e}", exc_info=True)
+                                # Set result to error
                                 self.tool_call_result = {
                                     'tool': tool_name,
                                     'id': tool_id,
                                     'result': {
                                         'status': 'error',
-                                        'message': 'Timeout waiting for user confirmation'
+                                        'message': f'Error waiting for response: {str(e)}'
                                     }
                                 }
 
@@ -1477,6 +1558,15 @@ class LangGraphHandler:
                                 duration = end_time - start_time
                                 logging.info(
                                     f"Follow-up LLM stream completed in {duration:.3f} seconds")
+
+                                # Signal that the tool call is being processed with a new follow-up response
+                                # This helps ensure the UI is ready to show the response
+                                try:
+                                    self.tool_call_handler.tool_call_processing.emit(
+                                        tool_name)
+                                except Exception as e:
+                                    logging.error(
+                                        f"Error emitting tool_call_processing signal: {e}")
 
                                 # Update full response with the follow-up
                                 full_response = follow_up_accumulated
@@ -1646,3 +1736,22 @@ class LangGraphHandler:
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             return f"dasi_response_{timestamp}.md"
+
+    def handle_tool_call_result(self, result):
+        """Handle the result of a tool call from the tool handler."""
+        logging.info(f"Received tool call result: {result}")
+        self.tool_call_result = result
+
+        # Use threading.Event.set() instead of asyncio.Event.set()
+        try:
+            self.tool_call_event.set()
+            logging.info("Tool call event set successfully")
+        except Exception as e:
+            logging.error(f"Error setting tool call event: {e}")
+            # Try to recreate the event if it's somehow invalid
+            try:
+                self.tool_call_event = threading.Event()
+                self.tool_call_event.set()
+                logging.info("Created new event and set it successfully")
+            except Exception as inner_e:
+                logging.error(f"Failed to recreate event: {inner_e}")

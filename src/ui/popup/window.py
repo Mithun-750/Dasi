@@ -25,6 +25,7 @@ from .components.input_panel import InputPanel
 from .components.web_search import WebSearchPanel
 from .components.preview_panel import PreviewPanel
 from .components.confirmation_panel import ConfirmationPanel
+from .components.loading_panel import LoadingPanel
 from core.tools.tool_call_handler import ToolCallHandler
 
 
@@ -775,6 +776,8 @@ class DasiWindow(QWidget):
             self._show_confirmation_panel)
         self.tool_call_handler.tool_call_completed.connect(
             self._handle_tool_call_completed)
+        self.tool_call_handler.tool_call_processing.connect(
+            self._handle_tool_call_processing)
 
     def _show_confirmation_panel(self, tool_call_info):
         """Show the confirmation panel for a tool call."""
@@ -804,19 +807,63 @@ class DasiWindow(QWidget):
         """Handle completion of a tool call (switch to web search panel or back to preview)."""
         tool = result_info.get("tool")
         result = result_info.get("result")
+
         # Remove confirmation panel
         if self.confirmation_panel:
             self.right_layout.removeWidget(self.confirmation_panel)
             self.confirmation_panel.deleteLater()
             self.confirmation_panel = None
-        # For web_search, show the web search panel
+
+        # Create and show loading panel
+        loading_panel = LoadingPanel(tool)
+        self.right_layout.insertWidget(0, loading_panel)
+        loading_panel.show()
+        self.right_panel.show()
+
+        # Connect loading panel's finished signal to remove it when done
+        loading_panel.finished.connect(
+            lambda: self._remove_loading_panel(loading_panel))
+
+        # Show completion after a short delay (to ensure loading panel is visible)
+        QApplication.processEvents()
+
+        # For web_search, show the web search panel when loading is done
         if tool == "web_search" and isinstance(result, dict) and result.get("status") == "success":
+            # Mark loading as complete after a short delay
+            loading_panel.show_complete()
             self.web_search_panel.start(result.get("data", ""))
             self.web_search_panel.show()
-            self.right_panel.show()
             self.setFixedWidth(680)
         else:
-            # For rejected or unknown tool, show preview panel
+            # For all other tools, show preview panel with appropriate message during processing
+            self.preview_panel.set_response("Processing tool results...")
             self.preview_panel.show()
-            self.right_panel.show()
-            self.setFixedWidth(360)
+            # Show loading complete status
+            loading_panel.show_complete()
+            self.setFixedWidth(680)
+
+    def _remove_loading_panel(self, loading_panel):
+        """Remove the loading panel from the layout."""
+        self.right_layout.removeWidget(loading_panel)
+        loading_panel.deleteLater()
+
+        # After removing the loading panel, ensure the preview panel is visible
+        # This allows the next streamed LLM response (that interprets the tool results) to be seen
+        self.preview_panel.show_preview(True)
+        self.preview_panel.show()
+
+    def _handle_tool_call_processing(self, tool_name):
+        """Handle the signal that the LLM is processing tool results."""
+        logging.info(f"LLM is processing {tool_name} results")
+
+        # Ensure the preview panel is visible and ready to receive the LLM's follow-up response
+        self.preview_panel.set_response(
+            "Processing tool results...\nGenerating response...")
+        self.preview_panel.show()
+        self.preview_panel.show_preview(True)
+
+        # Make right panel visible if not already
+        self.right_panel.show()
+
+        # Adjust window width consistently with other tool operations
+        self.setFixedWidth(680)
