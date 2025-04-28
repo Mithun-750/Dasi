@@ -164,24 +164,35 @@ class ToolCallHandler(QObject):
                 url = args.get('url') if mode == 'link_scrape' else None
                 selected_text = args.get('selected_text')
 
-                # Run the tool
+                # Prepare process_result for the async search
+                process_result = {
+                    'mode': mode,
+                    'query': query,
+                    'url': url,
+                    'original_query': query
+                }
+
+                # Define callback function for when the search completes
+                def on_search_completed(result):
+                    # Emit the result with ID
+                    logging.info(
+                        f"Web search completed, emitting result: {result.get('status', 'unknown')}")
+                    self.tool_call_completed.emit({
+                        "tool": tool_name,
+                        "result": result,
+                        "id": tool_id  # Include the ID in the result
+                    })
+
+                # Run the search asynchronously
                 logging.info(
-                    f"Calling WebSearchTool with query: '{query}', mode: {mode}")
-                result = self.tools["web_search"].run(
-                    query=query,
-                    mode=mode,
-                    url=url,
-                    selected_text=selected_text
+                    f"Starting asynchronous web search with query: '{query}', mode: {mode}")
+                self.tools["web_search"].run_async(
+                    process_result=process_result,
+                    selected_text=selected_text,
+                    callback=on_search_completed
                 )
 
-                # Emit the result with ID
-                logging.info(
-                    f"Web search completed, emitting result: {result.get('status', 'unknown')}")
-                self.tool_call_completed.emit({
-                    "tool": tool_name,
-                    "result": result,
-                    "id": tool_id  # Include the ID in the result
-                })
+                # Don't emit completion signal here - it will be emitted by the callback
 
             except Exception as e:
                 logging.exception(f"Error executing web_search tool: {e}")
