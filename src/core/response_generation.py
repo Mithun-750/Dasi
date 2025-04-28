@@ -175,452 +175,265 @@ class ResponseGenerator:
             if callback:
                 callback("")
 
-            # Use LangChain's streaming capability directly
-            accumulated_response = ""
-            accumulated_chunk = None
+            # Use LangChain's streaming capability directly in a loop for multi-turn tool calls
+            final_response_content = ""
+            last_ai_message = None  # Store the last complete AI message object
 
-            # We'll capture tool calls here if they happen
-            detected_tool_calls = []
+            # Add initial HumanMessage to history
+            message_history = self.handler._get_message_history(session_id)
+            if state['messages'] and isinstance(state['messages'][-1], HumanMessage):
+                message_history.add_message(state['messages'][-1])
 
-            # Process each chunk from the stream
-            async for chunk in llm_instance.astream(state['messages']):
-                # If this is our first chunk, remember it for accumulation
-                if accumulated_chunk is None:
-                    accumulated_chunk = chunk
-                else:
-                    # Otherwise, add this chunk to our accumulated chunk
-                    accumulated_chunk = accumulated_chunk + chunk
+            while True:  # Loop for potential multiple tool calls
+                accumulated_response_this_turn = ""
+                accumulated_chunk = None
+                detected_tool_calls = []
+                tool_call_info = None  # Store info about the tool call requested in this turn
 
-                # Extract content for displaying in the UI
-                chunk_content = chunk.content if hasattr(
-                    chunk, 'content') else str(chunk)
-                accumulated_response += chunk_content
-
-                # Check for tool calls using LangChain's standardized interface
-                if hasattr(chunk, 'tool_call_chunks') and chunk.tool_call_chunks:
-                    # Log all tool call chunks we find
-                    logging.info(
-                        f"Tool call chunks in chunk: {chunk.tool_call_chunks}")
-                    detected_tool_calls = chunk.tool_call_chunks
-
-                # For compatibility, also check the tool_calls property
-                if hasattr(chunk, 'tool_calls') and chunk.tool_calls:
-                    logging.info(f"Tool calls in chunk: {chunk.tool_calls}")
-                    # This is the fully assembled tool call
-                    detected_tool_calls = chunk.tool_calls
-
-                # Pass the FULL accumulated response to the callback
-                if callback:
-                    try:
-                        callback(accumulated_response)
-                    except Exception as e:
-                        logging.error(f"Error in callback: {e}")
-
-            # Store the final accumulated response
-            full_response = accumulated_response
-
-            logging.info(
-                f"Streaming completed. Final response length: {len(full_response)}")
-
-            # Once streaming is done, check if we've accumulated any tool calls
-            if accumulated_chunk and hasattr(accumulated_chunk, 'tool_calls') and accumulated_chunk.tool_calls:
                 logging.info(
-                    f"Final tool calls: {accumulated_chunk.tool_calls}")
+                    f"Starting LLM stream loop iteration. Current messages count: {len(state['messages'])}")
+                async for chunk in llm_instance.astream(state['messages']):
+                    # Accumulate the chunk object itself for tool call detection
+                    if accumulated_chunk is None:
+                        accumulated_chunk = chunk
+                    else:
+                        accumulated_chunk = accumulated_chunk + chunk
 
-                # Process each tool call from the standardized LangChain format
-                for tool_call in accumulated_chunk.tool_calls:
-                    # Extract the standard fields
+                    # Extract content for display/callback
+                    chunk_content = chunk.content if hasattr(
+                        chunk, 'content') else ""
+                    accumulated_response_this_turn += chunk_content
+                    # Keep track of the *complete* message object
+                    last_ai_message = accumulated_chunk
+
+                    # Check for tool calls (use the accumulated_chunk)
+                    # Standard LangChain `tool_calls` (list of dicts)
+                    if hasattr(accumulated_chunk, 'tool_calls') and accumulated_chunk.tool_calls:
+                        logging.info(
+                            f"Detected tool_calls: {accumulated_chunk.tool_calls}")
+                        detected_tool_calls = accumulated_chunk.tool_calls
+                        # Stop processing stream for this turn if tool call is detected
+                        break
+                    # Fallback for streaming `tool_call_chunks` (list of dicts)
+                    elif hasattr(accumulated_chunk, 'tool_call_chunks') and accumulated_chunk.tool_call_chunks:
+                        logging.info(
+                            f"Detected tool_call_chunks: {accumulated_chunk.tool_call_chunks}")
+                        # We need to assemble the full tool call info from chunks if possible,
+                        # but for simplicity now, just mark that a tool is requested.
+                        # The final `accumulated_chunk.tool_calls` should ideally contain the full info.
+                        # For now, let's assume the last chunk will have the full `tool_calls`.
+                        # If the very last chunk has `tool_calls`, the outer check will catch it.
+                        pass  # Continue streaming until tool_calls is populated or stream ends
+
+                    # Callback with the *cumulative* response so far
+                    if callback:
+                        try:
+                            # Combine the final response from previous turns with the current turn's progress
+                            callback(final_response_content +
+                                     accumulated_response_this_turn)
+                        except Exception as e:
+                            logging.error(f"Error in streaming callback: {e}")
+
+                # --- End of inner stream loop ---
+
+                # Add the text content generated in this turn *before* any potential tool call
+                final_response_content += accumulated_response_this_turn
+
+                # Now, check if tool calls were detected *in the complete message* for this turn
+                if last_ai_message and hasattr(last_ai_message, 'tool_calls') and last_ai_message.tool_calls:
+                    detected_tool_calls = last_ai_message.tool_calls
+                    logging.info(
+                        f"Processing detected tool calls after stream: {detected_tool_calls}")
+
+                    # Add the AI message *that requested the tool call* to history
+                    message_history.add_message(last_ai_message)
+
+                    # --- Process Tool Call ---
+                    # TODO: Handle multiple tool calls in parallel? For now, process the first one.
+                    tool_call = detected_tool_calls[0]
                     tool_name = tool_call.get('name')
                     tool_args = tool_call.get('args')
-                    tool_id = tool_call.get('id')
+                    tool_id = tool_call.get('id')  # CRUCIAL for ToolMessage
+
+                    if not tool_id:
+                        logging.error(
+                            f"Tool call detected for '{tool_name}' but missing 'id'. Cannot proceed.")
+                        final_response_content += f"\n\n[Error: Tool call for {tool_name} missing required ID.]"
+                        break  # Exit the while loop on error
 
                     if tool_name and tool_args is not None:
                         logging.info(
-                            f"Processing LangChain tool call: {tool_name} with ID: {tool_id}")
+                            f"Requesting confirmation for tool call: {tool_name} (ID: {tool_id})")
+
+                        # Store the LLM's tool_id before requesting confirmation
+                        self.handler.graph_nodes.pending_llm_tool_id = tool_id
 
                         try:
-                            # Request tool call confirmation from the user
+                            # Request confirmation and wait for result
                             self.handler.tool_call_handler.request_tool_call(
                                 tool_name, tool_args)
-
-                            # Use the tool call event from graph nodes
                             nodes.tool_call_event.clear()
 
-                            # Log the start of waiting period
-                            wait_start_time = time.monotonic()
-                            logging.info(
-                                f"Waiting for user to confirm tool call: {tool_name}")
-
-                            # Update the UI callback if available to show we're waiting
+                            # Update UI callback
                             if callback:
                                 callback(
-                                    accumulated_response + "\n\n[Waiting for your confirmation to use the tool...]")
+                                    final_response_content + f"\n\n[Waiting for your confirmation to use the '{tool_name}' tool...]")
 
-                            # Wait for user response with periodic progress updates
+                            # --- Wait for user response ---
                             logging.info(
-                                f"Waiting for user response for {tool_name} tool call")
+                                f"Waiting for user response for {tool_name} (ID: {tool_id})")
+                            # Simplified wait logic (reuse existing complex logic if needed)
+                            loop = asyncio.get_running_loop()
+                            tool_call_timeout = 120.0
                             try:
-                                # Run the blocking threading.Event.wait() in a separate thread
-                                # to avoid blocking the main asyncio event loop.
-                                loop = asyncio.get_running_loop()
-                                tool_call_timeout = 120.0
-
-                                if callback:
-                                    # If we have a callback, we need to periodically check
-                                    wait_start = time.monotonic()
-                                    while True:
-                                        # Wait for 1 second in executor
-                                        event_set = await loop.run_in_executor(
-                                            None, nodes.tool_call_event.wait, 1.0
-                                        )
-                                        if event_set:
-                                            break  # Event was set
-
-                                        # Check for timeout
-                                        wait_duration = time.monotonic() - wait_start
-                                        if wait_duration >= tool_call_timeout:
-                                            logging.warning(
-                                                f"Timeout waiting for tool call response for {tool_name}")
-                                            # Set result to timeout error
-                                            nodes.tool_call_result = {
-                                                'tool': tool_name,
-                                                'id': tool_id,
-                                                'result': {
-                                                    'status': 'error',
-                                                    'message': 'Timeout waiting for user confirmation'
-                                                }
-                                            }
-                                            break  # Exit loop on timeout
-
-                                        # Update dots for UI callback
-                                        dots = "." * (int(wait_duration) % 4)
-                                        waiting_message = f"{accumulated_response}\n\n[Waiting for your confirmation to use the tool{dots}]"
-                                        callback(waiting_message)
+                                event_set = await loop.run_in_executor(
+                                    None, nodes.tool_call_event.wait, tool_call_timeout
+                                )
+                                if not event_set:
+                                    logging.warning(
+                                        f"Timeout waiting for tool call response for {tool_name}")
+                                    nodes.tool_call_result = {'tool': tool_name, 'id': tool_id, 'result': {
+                                        'status': 'error', 'message': 'Timeout waiting for user confirmation'}}
                                 else:
-                                    # If no callback, just wait directly in executor
-                                    event_set = await loop.run_in_executor(
-                                        None, nodes.tool_call_event.wait, tool_call_timeout
-                                    )
-                                    if not event_set:
-                                        logging.warning(
-                                            f"Timeout waiting for tool call response for {tool_name}")
-                                        # Set result to timeout error
-                                        nodes.tool_call_result = {
-                                            'tool': tool_name,
-                                            'id': tool_id,
-                                            'result': {
-                                                'status': 'error',
-                                                'message': 'Timeout waiting for user confirmation'
-                                            }
-                                        }
-
-                                wait_end_time = time.monotonic()
-                                wait_duration = wait_end_time - wait_start_time
-                                logging.info(
-                                    f"Received user response for {tool_name} tool call after {wait_duration:.3f} seconds")
+                                    logging.info(
+                                        f"Received user response for {tool_name}")
 
                             except Exception as e:
                                 logging.error(
                                     f"Error during tool call wait: {e}", exc_info=True)
-                                # Set result to error
-                                nodes.tool_call_result = {
-                                    'tool': tool_name,
-                                    'id': tool_id,
-                                    'result': {
-                                        'status': 'error',
-                                        'message': f'Error waiting for response: {str(e)}'
-                                    }
-                                }
+                                nodes.tool_call_result = {'tool': tool_name, 'id': tool_id, 'result': {
+                                    'status': 'error', 'message': f'Error waiting for response: {str(e)}'}}
 
-                            # Clear the event for the next tool call
-                            nodes.tool_call_event.clear()
-
-                            # Get the result
+                            # --- Process result ---
                             result = nodes.tool_call_result
+                            nodes.tool_call_event.clear()  # Clear event after getting result
 
-                            # Add the tool_call_id to the result for proper association
-                            if result and isinstance(result, dict):
-                                if 'id' not in result:
-                                    result['id'] = tool_id
+                            # Ensure result dict has the tool_id for matching
+                            if result and isinstance(result, dict) and 'id' not in result:
+                                # Associate result with the call
+                                result['id'] = tool_id
 
-                            # If the result is not rejected
-                            if result and result.get('result') != 'rejected':
-                                # Create state with tool call result for a second round of processing
+                            if result and result.get('id') == tool_id and result.get('result') != 'rejected':
                                 logging.info(
-                                    "Processing tool results for follow-up response")
-
-                                # Instead of reprocessing through prepare_messages, let's build a more focused
-                                # conversation for the follow-up response
-                                focused_messages = []
-
-                                # Start with system message
-                                focused_messages.append(
-                                    SystemMessage(content=self.handler.system_prompt))
-
-                                # Add a specific instruction for tool result analysis
-                                analysis_instruction = f"""
-This is the result of the {tool_name} tool call you requested.
-Incorporate this information directly into your response to answer the user's question.
-Be direct and informative in your response.
-"""
-                                focused_messages.append(
-                                    SystemMessage(content=analysis_instruction))
-
-                                # Add original user query as a human message
-                                original_query = None
-                                for msg in state['messages']:
-                                    if isinstance(msg, HumanMessage):
-                                        original_query = msg
-                                        break
-
-                                if original_query:
-                                    focused_messages.append(HumanMessage(
-                                        content=f"My original question was: {original_query.content}"))
-
-                                # Convert tool result to a regular AI message instead of ToolMessage
-                                if result and isinstance(result, dict):
-                                    tool_content = None
-                                    if isinstance(result.get('result'), dict) and 'data' in result['result']:
-                                        tool_content = result['result']['data']
-                                    elif isinstance(result.get('result'), str):
-                                        tool_content = result['result']
-
-                                    if tool_content:
-                                        # Format the tool content for better readability
+                                    f"Tool call {tool_name} (ID: {tool_id}) approved and executed.")
+                                tool_content = "Tool execution failed or returned no data."
+                                if isinstance(result.get('result'), dict):
+                                    if result['result'].get('status') == 'error':
+                                        tool_content = f"Error executing tool: {result['result'].get('message', 'Unknown error')}"
+                                    else:
+                                        # Attempt to format data nicely
+                                        data = result['result'].get('data')
                                         try:
-                                            # If it's already a string, we're good
-                                            if isinstance(tool_content, str):
-                                                formatted_content = tool_content
-                                            # If it's a dict or list, format it nicely as JSON with indentation
-                                            elif isinstance(tool_content, (dict, list)):
-                                                import json
-                                                formatted_content = json.dumps(
-                                                    tool_content, indent=2)
+                                            if isinstance(data, (dict, list)):
+                                                tool_content = json.dumps(
+                                                    data, indent=2)
+                                            elif data is not None:
+                                                tool_content = str(data)
                                             else:
-                                                # For any other type, use string representation
-                                                formatted_content = str(
-                                                    tool_content)
-
-                                            # Add a title to help the LLM understand what this tool result is
-                                            final_tool_content = f"Tool result:\n\n{formatted_content}"
-
-                                            # Use AIMessage instead of ToolMessage
-                                            focused_messages.append(AIMessage(
-                                                content=f"I retrieved this information for you:\n\n{final_tool_content}"))
-
-                                        except Exception as e:
+                                                tool_content = "Tool executed successfully but returned no specific data."
+                                        except Exception as format_e:
                                             logging.warning(
-                                                f"Error formatting tool content: {e}")
-                                            focused_messages.append(AIMessage(
-                                                content=f"I retrieved this information for you: {str(tool_content)}"))
+                                                f"Could not format tool result: {format_e}")
+                                            tool_content = str(data)
+                                elif isinstance(result.get('result'), str):
+                                    # Handle simple string results
+                                    tool_content = result['result']
 
-                                # Add a final prompt to analyze as human message
-                                focused_messages.append(HumanMessage(
-                                    content="Please analyze this information and provide a helpful response to my original question."))
+                                # Create ToolMessage using the correct tool_call_id
+                                tool_message = ToolMessage(
+                                    content=tool_content, tool_call_id=tool_id)
 
-                                # Use the focused messages instead of the full conversation
-                                tool_state = state.copy()
-                                tool_state['messages'] = focused_messages
+                                state['messages'].append(tool_message)
+                                message_history.add_message(tool_message)
 
-                                # Log the messages being sent
+                                # ---> Rebuild messages from history for the next turn <--- START
                                 logging.info(
-                                    f"Prepared {len(focused_messages)} focused messages for follow-up LLM call")
-
-                                # Log all messages for debugging
-                                for i, msg in enumerate(focused_messages):
-                                    content_preview = ""
-                                    if hasattr(msg, 'content'):
-                                        if isinstance(msg.content, str):
-                                            content_preview = msg.content[:200] + (
-                                                "..." if len(msg.content) > 200 else "")
-                                        else:
-                                            content_preview = str(msg.content)[
-                                                :200] + ("..." if len(str(msg.content)) > 200 else "")
-                                    logging.info(
-                                        f"Focused message {i} ({type(msg).__name__}): {content_preview}")
-
-                                # Get a second response from the LLM with the tool results
-                                logging.info(
-                                    "Getting follow-up response with tool results")
-
-                                # Give the UI a moment to update with the tool result before continuing
-                                await asyncio.sleep(0.5)
-
-                                # Send initial empty chunk to signal continuation
-                                if callback:
-                                    callback(full_response + "\n\n")
-
-                                # Explicitly check if the LLM instance is available
-                                if not llm_instance:
-                                    logging.error(
-                                        "LLM instance not available for follow-up call")
-                                    return full_response
-
-                                # Log before the second LLM call
-                                logging.info("Starting follow-up LLM stream")
-                                start_time = time.monotonic()
-
-                                # Stream the follow-up response separately from the original
-                                follow_up_response = ""
-                                follow_up_chunk = None
-
-                                async for chunk in llm_instance.astream(tool_state['messages']):
-                                    # Accumulate chunks for the follow-up response
-                                    if follow_up_chunk is None:
-                                        follow_up_chunk = chunk
-                                    else:
-                                        follow_up_chunk = follow_up_chunk + chunk
-
-                                    # Extract content
-                                    chunk_content = chunk.content if hasattr(
-                                        chunk, 'content') else str(chunk)
-                                    follow_up_response += chunk_content
-
-                                    # Send the updated full text with each chunk
-                                    if callback:
-                                        try:
-                                            # For the UI, we combine the original and follow-up
-                                            combined_response = full_response + "\n\n" + follow_up_response
-                                            callback(combined_response)
-                                        except Exception as e:
-                                            logging.error(
-                                                f"Error in follow-up callback: {e}")
-
-                                # Log after the second LLM call completes
-                                end_time = time.monotonic()
-                                duration = end_time - start_time
-                                logging.info(
-                                    f"Follow-up LLM stream completed in {duration:.3f} seconds")
-
-                                # Check if the response is empty and log a warning
-                                if not follow_up_response.strip():
-                                    logging.warning(
-                                        "Follow-up response is empty. The LLM didn't generate a proper analysis.")
-
-                                    # Instead of a generic message, show the tool results directly
-                                    # Extract the tool result content to show to the user
-                                    tool_result_content = None
-                                    if isinstance(result.get('result'), dict) and 'data' in result.get('result'):
-                                        tool_result_content = result.get(
-                                            'result').get('data')
-                                    else:
-                                        tool_result_content = str(result.get('result', {}).get(
-                                            'data', 'Tool execution completed'))
-
-                                    # Format the result to be more readable
-                                    if isinstance(tool_result_content, dict) or isinstance(tool_result_content, list):
-                                        import json
-                                        formatted_result = json.dumps(
-                                            tool_result_content, indent=2)
-                                    else:
-                                        formatted_result = str(
-                                            tool_result_content)
-
-                                    # Create a more informative response that includes the actual data
-                                    follow_up_response = f"Here are the results from the {tool_name} tool:\n\n{formatted_result}\n\nTo get an analysis of this information, please ask a follow-up question."
-
-                                # Log a preview of the follow-up response content
-                                try:
-                                    preview_length = min(
-                                        200, len(follow_up_response))
-                                    logging.info(
-                                        f"Follow-up response content (first {preview_length} chars): {follow_up_response[:preview_length]}" +
-                                        ("..." if len(follow_up_response)
-                                         > preview_length else "")
-                                    )
-                                except Exception as e:
-                                    logging.error(
-                                        f"Error logging follow-up response: {e}")
-
-                                # Update full response with the follow-up
-                                # Combine original response with the follow-up response without visible separator
-                                if follow_up_response.strip():
-                                    # Use a simple newline break instead of the visible separator
-                                    full_response = full_response.rstrip() + "\n\n" + follow_up_response
-                                else:
-                                    # If somehow still empty, don't modify the original response
-                                    pass
-
-                                # Ensure the UI displays this combined response first before signaling completion
-                                if callback:
-                                    callback(full_response)
-
-                                # Signal that the tool call is complete and processing is done
-                                # This helps ensure the UI is ready to show the response
-                                try:
-                                    # Short delay to ensure UI has updated with the final response
-                                    QTimer.singleShot(
-                                        100, lambda: self.handler.tool_call_handler.tool_call_processing.emit(tool_name))
-
-                                    # Then after another delay, signal it's complete to transition UI
-                                    QTimer.singleShot(300, lambda: self.handler.tool_call_handler.tool_call_completed.emit({
-                                        "tool": tool_name,
-                                        "id": tool_id,
-                                        "result": "processed",  # Special flag to indicate UI should update
-                                    }))
-                                except Exception as e:
-                                    logging.error(
-                                        f"Error emitting tool_call_processing signal: {e}")
-
-                                # Save the entire conversation to history
-                                message_history = self.handler._get_message_history(
+                                    "Rebuilding message list from history for next LLM turn.")
+                                current_history = self.handler._get_message_history(
                                     session_id)
-                                message_history.add_message(
-                                    state['messages'][-1])  # User message
+                                rebuilt_messages = []
+                                # Start with system message(s)
+                                # Assuming the first message(s) in the initial state['messages'] were system messages
+                                system_msgs = [
+                                    m for m in state['messages'] if isinstance(m, SystemMessage)]
+                                rebuilt_messages.extend(system_msgs)
+                                # Add messages from DB history
+                                rebuilt_messages.extend(
+                                    current_history.messages)
+                                # Update the state for the next loop
+                                state['messages'] = rebuilt_messages
+                                logging.info(
+                                    f"Rebuilt messages list now has {len(state['messages'])} messages.")
+                                # ---> Rebuild messages from history for the next turn <--- END
 
-                                # Add tool message
-                                tool_content = None
-                                if isinstance(result.get('result'), dict) and 'data' in result.get('result'):
-                                    tool_content = result.get(
-                                        'result').get('data')
-                                else:
-                                    tool_content = str(result.get('result', {}).get(
-                                        'data', 'Tool execution completed'))
+                                # Update UI (optional)
+                                if callback:
+                                    callback(
+                                        final_response_content + f"\n\n[Processed '{tool_name}' tool result. Asking AI to continue...]")
+                                await asyncio.sleep(0.1)  # Small delay
 
-                                message_history.add_message(AIMessage(
-                                    content=f"I retrieved this information: {tool_content}"))
+                                # Reset for the next loop iteration
+                                nodes.tool_call_result = None
+                                continue  # Continue the while loop to call LLM again
 
-                                # Add final AI response
-                                message_history.add_message(
-                                    AIMessage(content=full_response))
-                                return full_response
                             else:
-                                # Just save the normal conversation if tool was rejected
-                                message_history = self.handler._get_message_history(
-                                    session_id)
-                                message_history.add_message(
-                                    state['messages'][-1])
-                                message_history.add_message(
-                                    AIMessage(content=full_response))
+                                # Tool rejected or failed execution matching ID
+                                rejection_reason = "rejected by user" if result and result.get(
+                                    'result') == 'rejected' else f"failed ({result.get('result', {}).get('message', 'unknown reason')})" if result else "failed (no result)"
+                                logging.warning(
+                                    f"Tool call {tool_name} (ID: {tool_id}) was {rejection_reason}.")
+                                final_response_content += f"\n\n[Tool call '{tool_name}' {rejection_reason}.]"
+                                # Add a ToolMessage indicating rejection/failure? Or just let the loop break?
+                                # Let's add a message for clarity in history.
+                                tool_message = ToolMessage(
+                                    content=f"Tool call {tool_name} {rejection_reason}.", tool_call_id=tool_id)
+                                # Keep state consistent
+                                state['messages'].append(tool_message)
+                                message_history.add_message(tool_message)
 
-                            # Reset the tool_call_result to avoid reuse
-                            nodes.tool_call_result = None
+                                break  # Exit the while loop
 
                         except Exception as e:
                             logging.error(
-                                f"Error processing tool call: {e}", exc_info=True)
-                            # Save normal conversation on error
-                            message_history = self.handler._get_message_history(
-                                session_id)
-                            message_history.add_message(state['messages'][-1])
-                            message_history.add_message(
-                                AIMessage(content=full_response))
+                                f"Error processing tool call {tool_name} (ID: {tool_id}): {e}", exc_info=True)
+                            final_response_content += f"\n\n[Error processing tool call '{tool_name}'.]"
+                            # Add error tool message
+                            tool_message = ToolMessage(
+                                content=f"Error processing tool call {tool_name}: {str(e)}", tool_call_id=tool_id)
+                            state['messages'].append(tool_message)
+                            message_history.add_message(tool_message)
+                            break  # Exit loop on error
+                    else:
+                        logging.error(
+                            f"Detected tool call missing name or args: {tool_call}. Cannot process.")
+                        final_response_content += "\n\n[Error: Invalid tool call detected.]"
+                        break  # Exit loop
+                else:
+                    # No tool call detected in the final message of this turn, this is the end
+                    logging.info(
+                        "No tool call detected in the final response chunk. Exiting loop.")
+                    # Add the final AI message (without tool call) to history
+                    if last_ai_message:
+                        message_history.add_message(last_ai_message)
+                    break  # Exit the while loop
 
-            # Store in chat history for normal responses (if we didn't already save it during tool call handling)
-            message_history = self.handler._get_message_history(session_id)
-            message_history.add_message(
-                state['messages'][-1])  # Add the user message
-            message_history.add_message(
-                AIMessage(content=full_response))  # Add the AI response
+            # --- End of while loop ---
+
+            logging.info(
+                f"LLM interaction loop finished. Final response length: {len(final_response_content)}")
 
             # Handle post-processing for compose mode
             if state['mode'] == 'compose':
                 processed_response, detected_language = self._extract_code_block(
-                    full_response)
+                    final_response_content)
                 self.detected_language = detected_language
                 return processed_response
 
-            return full_response
+            # Ensure the final callback updates the UI completely
+            if callback:
+                callback(final_response_content)
+
+            return final_response_content
 
         except RuntimeError as e:
             # Catch the specific loop error

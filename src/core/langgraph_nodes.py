@@ -61,6 +61,7 @@ class LangGraphNodes:
         # State for tool calling
         self.tool_call_event = threading.Event()
         self.tool_call_result = None
+        self.pending_llm_tool_id = None  # Add attribute to store the LLM's tool ID
 
         # Connect tool call completed signal
         self.tool_call_handler.tool_call_completed.connect(
@@ -809,30 +810,26 @@ class LangGraphNodes:
         return new_state
 
     def _on_tool_call_completed(self, result):
-        """
-        Callback for when a tool call is completed.
+        """Slot method called when ToolCallHandler emits tool_call_completed signal."""
+        logging.info(f"Tool call completed with internal result: {result}")
 
-        Args:
-            result: The result of the tool call, containing:
-                - tool: The name of the tool that was called
-                - result: The result of the tool call
-                - id: The ID of the tool call
-        """
-        logging.info(f"Tool call completed with result: {result}")
+        # Use the stored LLM tool ID if available, otherwise keep internal ID as fallback
+        if self.pending_llm_tool_id:
+            logging.info(
+                f"Replacing internal ID '{result.get('id')}' with stored LLM tool ID '{self.pending_llm_tool_id}'")
+            result['id'] = self.pending_llm_tool_id
+            self.pending_llm_tool_id = None  # Clear the stored ID
+        else:
+            logging.warning(
+                "No pending LLM tool ID found when tool completed. Using internal ID.")
 
-        # Store the result for the tool_call_node to use
+        # Store the (potentially updated) result
         self.tool_call_result = result
+        logging.info(f"Final tool_call_result set to: {self.tool_call_result}")
 
-        # Use threading.Event.set() instead of asyncio.Event.set()
+        # Set the event to signal that the result is ready
         try:
             self.tool_call_event.set()
             logging.info("Tool call event set successfully")
         except Exception as e:
-            logging.error(f"Error setting tool call event: {e}")
-            # Try to recreate the event if it's somehow invalid
-            try:
-                self.tool_call_event = threading.Event()
-                self.tool_call_event.set()
-                logging.info("Created new event and set it successfully")
-            except Exception as inner_e:
-                logging.error(f"Failed to recreate event: {inner_e}")
+            logging.error(f"Error setting tool call event: {e}", exc_info=True)
