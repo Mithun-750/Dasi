@@ -56,12 +56,22 @@ def setup_logging():
             filemode='a'
         )
 
-        # Add console handler for development
-        console = logging.StreamHandler()
-        console.setLevel(logging.DEBUG)
-        formatter = logging.Formatter('%(levelname)s - %(message)s')
-        console.setFormatter(formatter)
-        logging.getLogger('').addHandler(console)
+        # Check if a console handler is already added to avoid duplicates
+        root_logger = logging.getLogger('')
+        has_console_handler = False
+        for handler in root_logger.handlers:
+            if isinstance(handler, logging.StreamHandler) and handler.stream == sys.stderr:
+                has_console_handler = True
+                break
+
+        # Only add console handler if one doesn't already exist
+        if not has_console_handler:
+            # Add console handler for development
+            console = logging.StreamHandler()
+            console.setLevel(logging.DEBUG)
+            formatter = logging.Formatter('%(levelname)s - %(message)s')
+            console.setFormatter(formatter)
+            root_logger.addHandler(console)
 
         logging.info("Logging setup completed")
 
