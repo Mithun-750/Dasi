@@ -320,6 +320,9 @@ class ResponseGenerator:
                                 if isinstance(result.get('result'), dict):
                                     if result['result'].get('status') == 'error':
                                         tool_content = f"Error executing tool: {result['result'].get('message', 'Unknown error')}"
+                                    elif result['result'].get('status') == 'disabled':
+                                        # Handle disabled tools specially
+                                        tool_content = f"The requested tool '{tool_name}' is currently disabled. {result['result'].get('message', '')}"
                                     else:
                                         # Attempt to format data nicely
                                         data = result['result'].get('data')

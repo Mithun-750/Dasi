@@ -586,12 +586,33 @@ class WebSearchTab(QWidget):
         cancel_button = QPushButton("Cancel")
         cancel_button.clicked.connect(self._cancel_changes)
 
+        # Add Reset button
+        reset_button = QPushButton("Reset")
+        reset_button.clicked.connect(self._reset_changes)
+
         # Add Save button
-        save_all_button = QPushButton("Save & Apply")
+        save_all_button = QPushButton("Save")
         save_all_button.setProperty("class", "primary")
+        save_all_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e67e22;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #d35400;
+            }
+            QPushButton:pressed {
+                background-color: #a04000;
+            }
+        """)
         save_all_button.clicked.connect(self._save_all_changes)
 
         button_layout.addWidget(cancel_button)
+        button_layout.addWidget(reset_button)
         button_layout.addStretch()
         button_layout.addWidget(save_all_button)
 
@@ -604,99 +625,116 @@ class WebSearchTab(QWidget):
 
     def _on_any_change(self):
         """Handler for any change in the settings."""
-        self.check_for_changes()
+        try:
+            self.check_for_changes()
+        except Exception as e:
+            logging.error(
+                f"Error handling settings change: {e}", exc_info=True)
+            # Don't show error dialog here to avoid spamming the user
+            # Just log the error for debugging
 
     def _cancel_changes(self):
         """Cancel all changes and restore original values."""
-        # Restore default provider
-        index = self.default_provider.findData(
-            self.original_values['default_provider'])
-        if index >= 0:
-            self.default_provider.setCurrentIndex(index)
+        try:
+            # Restore default provider
+            index = self.default_provider.findData(
+                self.original_values['default_provider'])
+            if index >= 0:
+                self.default_provider.setCurrentIndex(index)
 
-        # Restore max results
-        self.max_results.setValue(self.original_values['max_results'])
+            # Restore max results
+            self.max_results.setValue(self.original_values['max_results'])
 
-        self.has_unsaved_changes = False
-        self.update_button_visibility()
+            self.has_unsaved_changes = False
+            self.update_button_visibility()
+        except Exception as e:
+            logging.error(f"Error canceling changes: {str(e)}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to cancel changes: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
 
     def _save_all_changes(self):
         """Save all changes to settings."""
-        current = self.get_current_values()
+        try:
+            logging.info("Saving web search settings")
+            current = self.get_current_values()
 
-        # Save default provider - Corrected argument order
-        self.settings.set('web_search', 'default_provider',
-                          current['default_provider'])
+            # Save default provider - Corrected argument order
+            self.settings.set('web_search', 'default_provider',
+                              current['default_provider'])
 
-        # Save max results
-        self.settings.set('web_search', 'max_results', current['max_results'])
+            # Save max results
+            self.settings.set('web_search', 'max_results',
+                              current['max_results'])
 
-        # Save enabled providers - all providers are always enabled
-        self.settings.set('web_search', 'enabled_providers',
-                          current['enabled_providers'])
+            # Save enabled providers - all providers are always enabled
+            self.settings.set('web_search', 'enabled_providers',
+                              current['enabled_providers'])
 
-        # Update original values
-        self.save_original_values()
+            # Update original values
+            self.save_original_values()
+            logging.info("Web search settings saved successfully")
 
-        # Emit signal that search settings changed
-        self.search_settings_changed.emit()
+            # Emit signal that search settings changed
+            self.search_settings_changed.emit()
 
-        # Create custom message box with restart button
-        msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("Settings Saved")
-        msg_box.setText("Web search settings have been saved successfully.")
-        msg_box.setInformativeText(
-            "For the changes to take full effect, would you like to restart the Dasi service now?"
-        )
-        msg_box.setStandardButtons(
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
-
-        # Style the buttons
-        for button in msg_box.buttons():
-            if msg_box.buttonRole(button) == QMessageBox.ButtonRole.YesRole:
-                button.setProperty("class", "primary")
-                button.style().unpolish(button)
-                button.style().polish(button)
-
-        response = msg_box.exec()
-
-        if response == QMessageBox.StandardButton.Yes:
-            self._restart_dasi_service()
-
-    def _restart_dasi_service(self):
-        """Helper method to restart Dasi service with a single message."""
-        main_window = self.window()
-        if main_window and hasattr(main_window, 'stop_dasi') and hasattr(main_window, 'start_dasi'):
-            # Stop Dasi without showing message
-            main_window.stop_dasi(show_message=False)
-
-            # Small delay to ensure proper shutdown
-            QTimer.singleShot(
-                500, lambda: self._start_dasi_after_stop(main_window))
-
-    def _start_dasi_after_stop(self, main_window):
-        """Helper method to start Dasi after stopping."""
-        # Start Dasi without showing message
-        main_window.start_dasi(show_message=False)
-
-        # Show a single success message
-        QMessageBox.information(
-            self,
-            "Success",
-            "Dasi service has been restarted successfully.",
-            QMessageBox.StandardButton.Ok
-        )
+            # Show simple success message instead of always prompting for restart
+            QMessageBox.information(
+                self,
+                "Settings Saved",
+                "Web search settings saved successfully."
+            )
+        except Exception as e:
+            logging.error(f"Error saving settings: {str(e)}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to save settings: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
 
     def _increment_max_results(self):
         """Increment max results value."""
-        current_value = self.max_results.value()
-        new_value = min(current_value + 1, 20)
-        self.max_results.setValue(new_value)
+        try:
+            current_value = self.max_results.value()
+            new_value = min(current_value + 1, 20)
+            self.max_results.setValue(new_value)
+        except Exception as e:
+            logging.error(
+                f"Error incrementing max results: {str(e)}", exc_info=True)
 
     def _decrement_max_results(self):
         """Decrement max results value."""
-        current_value = self.max_results.value()
-        new_value = max(current_value - 1, 1)
-        self.max_results.setValue(new_value)
+        try:
+            current_value = self.max_results.value()
+            new_value = max(current_value - 1, 1)
+            self.max_results.setValue(new_value)
+        except Exception as e:
+            logging.error(
+                f"Error decrementing max results: {str(e)}", exc_info=True)
+
+    def _reset_changes(self):
+        """Reset all changes and restore original values."""
+        try:
+            # Restore default provider
+            index = self.default_provider.findData(
+                self.original_values['default_provider'])
+            if index >= 0:
+                self.default_provider.setCurrentIndex(index)
+
+            # Restore max results
+            self.max_results.setValue(self.original_values['max_results'])
+
+            self.has_unsaved_changes = False
+            self.update_button_visibility()
+        except Exception as e:
+            logging.error(f"Error resetting changes: {str(e)}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to reset changes: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
