@@ -167,10 +167,28 @@ class LangGraphHandler:
         # Reload settings
         self.settings.load_settings()
         logging.info(
-            "Tool settings changed, updating tool handler configuration")
+            "Tool settings changed, reinitializing LLM with updated tool configurations")
 
-        # Update tool handler to respect new settings
-        # No action needed here as the tool handler checks settings directly before each execution
+        # Reinitialize the LLM with current model but updated tool settings
+        if self.llm and self.current_provider:
+            current_model_id = None
+            # Extract the current model ID from the LLM instance
+            if hasattr(self.llm, 'model_name'):
+                current_model_id = self.llm.model_name
+            elif hasattr(self.llm, 'model'):
+                current_model_id = self.llm.model
+
+            if current_model_id:
+                logging.info(
+                    f"Reinitializing LLM with current model: {current_model_id}")
+                self.initialize_llm(model_name=current_model_id)
+            else:
+                logging.info("Reinitializing LLM with default model")
+                self.initialize_llm()
+        else:
+            logging.info(
+                "No active LLM instance, initializing with default settings")
+            self.initialize_llm()
 
     def initialize_llm(self, model_name: str = None, model_info: dict = None) -> bool:
         """Initialize the LLM using the llm_factory."""
@@ -252,7 +270,7 @@ class LangGraphHandler:
                 'general', 'temperature', default=0.7)
 
             # Define the tools that will be available to the LLM
-            tools = [
+            all_tools = [
                 {
                     "name": "web_search",
                     "description": "Search the web for information",
@@ -322,6 +340,19 @@ class LangGraphHandler:
                     }
                 }
             ]
+
+            # Filter tools based on what's enabled in settings
+            tools = []
+            for tool in all_tools:
+                tool_name = tool["name"]
+                setting_key = f"{tool_name}_enabled"
+                if self.settings.get('tools', setting_key, default=True):
+                    tools.append(tool)
+                    logging.info(
+                        f"Including enabled tool in LLM configuration: {tool_name}")
+                else:
+                    logging.info(
+                        f"Excluding disabled tool from LLM configuration: {tool_name}")
 
             logging.info(
                 f"Attempting to create LLM instance via factory: provider={provider}, model={model_id}, temp={temperature}")
