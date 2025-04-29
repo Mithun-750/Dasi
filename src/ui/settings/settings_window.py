@@ -611,20 +611,22 @@ class SettingsWindow(QMainWindow):
                 self.update_start_button()
                 return
 
-            # Initialize Dasi instance if not already initialized
-            existing_instance = DasiInstanceManager.get_instance()
-            if not existing_instance:
-                from main import Dasi
-                self.dasi_instance = Dasi()
-                # Note: Dasi constructor now registers itself with DasiInstanceManager
-                self.hotkey_listener = self.dasi_instance.hotkey_listener
-            else:
-                self.dasi_instance = existing_instance
-                self.hotkey_listener = self.dasi_instance.hotkey_listener
+            # Always create a new Dasi instance for a complete restart
+            logging.info(
+                "Creating a completely new Dasi instance for full restart")
+            from main import Dasi
 
-            # Start the hotkey listener if it's not already running
-            if not self.hotkey_listener or not self.hotkey_listener.is_running():
+            # Create a new instance which initializes everything fresh
+            self.dasi_instance = Dasi()
+
+            # Set references to the new components
+            self.hotkey_listener = self.dasi_instance.hotkey_listener
+
+            # Start the hotkey listener
+            if self.hotkey_listener:
                 self.hotkey_listener.start()
+                logging.info("Started new hotkey listener")
+
                 if show_message:
                     QMessageBox.information(
                         self,
@@ -656,8 +658,17 @@ class SettingsWindow(QMainWindow):
                 except:
                     pass
                 self.start_dasi_btn.clicked.connect(self.stop_dasi)
+            else:
+                logging.error("Failed to create hotkey listener")
+                if show_message:
+                    QMessageBox.critical(
+                        self,
+                        "Error",
+                        "Failed to create hotkey listener"
+                    )
 
         except Exception as e:
+            logging.error(f"Failed to start Dasi: {str(e)}", exc_info=True)
             if show_message:
                 QMessageBox.critical(
                     self,
@@ -668,24 +679,32 @@ class SettingsWindow(QMainWindow):
     def stop_dasi(self, show_message=True):
         """Stop the Dasi hotkey listener and hide the system tray icon."""
         try:
+            logging.info("Stopping Dasi completely")
+
+            # Stop hotkey listener if it exists and is running
             if self.hotkey_listener and self.hotkey_listener.is_running():
                 self.hotkey_listener.stop()
+                logging.info("Hotkey listener stopped")
 
-                # Hide the system tray icon if it exists
-                if self.dasi_instance and hasattr(self.dasi_instance, 'tray') and self.dasi_instance.tray:
-                    self.dasi_instance.tray.hide()
+            # Hide the system tray icon if it exists
+            if self.dasi_instance and hasattr(self.dasi_instance, 'tray') and self.dasi_instance.tray:
+                self.dasi_instance.tray.hide()
+                logging.info("System tray hidden")
 
-                if show_message:
-                    QMessageBox.information(
-                        self,
-                        "Dasi Stopped",
-                        "Dasi has been stopped.",
-                        QMessageBox.StandardButton.Ok
-                    )
+            # Clear all references to ensure a clean restart
+            self.hotkey_listener = None
 
             # Clear the instance from manager
             DasiInstanceManager.clear_instance()
             self.dasi_instance = None
+
+            if show_message:
+                QMessageBox.information(
+                    self,
+                    "Dasi Stopped",
+                    "Dasi has been stopped.",
+                    QMessageBox.StandardButton.Ok
+                )
 
             # Update button to show Start Dasi
             has_models = bool(self.settings.get_selected_models())
@@ -720,6 +739,7 @@ class SettingsWindow(QMainWindow):
             self.start_dasi_btn.clicked.connect(self.start_dasi)
 
         except Exception as e:
+            logging.error(f"Failed to stop Dasi: {str(e)}", exc_info=True)
             if show_message:
                 QMessageBox.critical(
                     self,

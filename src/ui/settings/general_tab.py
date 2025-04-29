@@ -371,7 +371,7 @@ class GeneralTab(QWidget):
         self.has_unsaved_changes = (
             current['custom_instructions'] != self.original_values['custom_instructions'] or
             current['temperature'] != self.original_values['temperature'] or
-            self._hotkey_changed(current['hotkey'], self.original_values['hotkey']) or
+            current['hotkey'] != self.original_values['hotkey'] or
             current['start_on_boot'] != self.original_values['start_on_boot'] or
             current['export_path'] != self.original_values['export_path'] or
             current['use_cache'] != self.original_values['use_cache']
@@ -403,6 +403,42 @@ class GeneralTab(QWidget):
             checkmark_path = os.path.join(
                 app_dir, "ui", "assets", "icons", "checkmark.svg")
             logging.info(f"Using development checkmark at: {checkmark_path}")
+
+        # Define checkbox style here so it can be used throughout the form
+        checkbox_style = f"""
+            QCheckBox {{
+                color: #e0e0e0;
+                font-size: 12px;
+                spacing: 5px;
+                outline: none;
+                border: none;
+            }}
+            QCheckBox:focus, QCheckBox:hover {{
+                outline: none;
+                border: none;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1px solid #444444;
+                border-radius: 3px;
+                background-color: #2a2a2a;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: #2d2d2d;
+                border: 1px solid #e67e22;
+                image: url("{checkmark_path}");
+            }}
+            QCheckBox::indicator:hover {{
+                border-color: #e67e22;
+                background-color: #333333;
+            }}
+            QCheckBox:hover {{
+                color: #ffffff;
+                outline: none;
+                border: none;
+            }}
+        """
 
         # Create a scroll area
         scroll = QScrollArea()
@@ -479,6 +515,50 @@ class GeneralTab(QWidget):
 
         instructions_section.layout.addWidget(self.custom_instructions)
         layout.addWidget(instructions_section)
+
+        # Create a subsection for caching settings
+        cache_section = SectionFrame(
+            "Performance & Caching",
+            "Settings that affect application performance and response caching."
+        )
+
+        cache_container = QWidget()
+        cache_container.setProperty("class", "transparent-container")
+        cache_layout = QVBoxLayout(cache_container)
+        cache_layout.setContentsMargins(0, 0, 0, 0)
+        cache_layout.setSpacing(8)
+
+        # Add use cache checkbox
+        self.use_cache_checkbox = QCheckBox("Cache query responses")
+        self.use_cache_checkbox.setChecked(self.settings.get(
+            'general', 'use_cache', default=True))
+        self.use_cache_checkbox.setStyleSheet(checkbox_style)
+        self.use_cache_checkbox.toggled.connect(self._on_any_change)
+
+        # Add cache explanation
+        cache_description = QLabel(
+            "When enabled, responses to identical queries will be cached to improve performance. "
+            "This can significantly improve response time for repeated queries."
+        )
+        cache_description.setWordWrap(True)
+        cache_description.setProperty("class", "description-text")
+
+        # Add clear cache button
+        clear_cache_button = QPushButton("Clear Cache")
+        clear_cache_button.setProperty("class", "secondary")
+        clear_cache_button.clicked.connect(self._clear_cache)
+        clear_cache_button.setFixedWidth(150)
+
+        # Add to layout
+        cache_layout.addWidget(self.use_cache_checkbox)
+        cache_layout.addWidget(cache_description)
+        cache_layout.addWidget(clear_cache_button)
+
+        # Add to section
+        cache_section.layout.addWidget(cache_container)
+
+        # Add to main layout (before the prompt customization section)
+        layout.insertWidget(1, cache_section)
 
         # LLM Settings Section
         llm_section = SectionFrame(
@@ -652,42 +732,6 @@ class GeneralTab(QWidget):
         self.super_checkbox = QCheckBox("Super")
         self.fn_checkbox = QCheckBox("Fn")
 
-        # Apply consistent checkbox styling
-        checkbox_style = f"""
-            QCheckBox {{
-                color: #e0e0e0;
-                font-size: 12px;
-                spacing: 5px;
-                outline: none;
-                border: none;
-            }}
-            QCheckBox:focus, QCheckBox:hover {{
-                outline: none;
-                border: none;
-            }}
-            QCheckBox::indicator {{
-                width: 16px;
-                height: 16px;
-                border: 1px solid #444444;
-                border-radius: 3px;
-                background-color: #2a2a2a;
-            }}
-            QCheckBox::indicator:checked {{
-                background-color: #2d2d2d;
-                border: 1px solid #e67e22;
-                image: url("{checkmark_path}");
-            }}
-            QCheckBox::indicator:hover {{
-                border-color: #e67e22;
-                background-color: #333333;
-            }}
-            QCheckBox:hover {{
-                color: #ffffff;
-                outline: none;
-                border: none;
-            }}
-        """
-
         self.ctrl_checkbox.setStyleSheet(checkbox_style)
         self.alt_checkbox.setStyleSheet(checkbox_style)
         self.shift_checkbox.setStyleSheet(checkbox_style)
@@ -811,69 +855,6 @@ class GeneralTab(QWidget):
         export_section.layout.addWidget(path_container)
         layout.addWidget(export_section)
 
-        # Create a subsection for caching settings
-        cache_section = SectionFrame(
-            "Performance & Caching",
-            "Settings that affect application performance and response caching."
-        )
-
-        cache_container = QWidget()
-        cache_container.setProperty("class", "transparent-container")
-        cache_layout = QVBoxLayout(cache_container)
-        cache_layout.setContentsMargins(0, 0, 0, 0)
-        cache_layout.setSpacing(8)
-
-        # Add use cache checkbox
-        self.use_cache_checkbox = QCheckBox("Cache query responses")
-        self.use_cache_checkbox.setChecked(self.settings.get(
-            'general', 'use_cache', default=True))
-        self.use_cache_checkbox.setStyleSheet(checkbox_style)
-        self.use_cache_checkbox.toggled.connect(self._on_any_change)
-
-        # Add cache explanation
-        cache_description = QLabel(
-            "When enabled, responses to identical queries will be cached to improve performance. "
-            "This can significantly improve response time for repeated queries."
-        )
-        cache_description.setWordWrap(True)
-        cache_description.setProperty("class", "description-text")
-
-        # Add clear cache button
-        clear_cache_button = QPushButton("Clear Cache")
-        clear_cache_button.setProperty("class", "secondary")
-        clear_cache_button.clicked.connect(self._clear_cache)
-        clear_cache_button.setFixedWidth(150)
-
-        # Add to layout
-        cache_layout.addWidget(self.use_cache_checkbox)
-        cache_layout.addWidget(cache_description)
-        cache_layout.addWidget(clear_cache_button)
-
-        # Add to section
-        cache_section.layout.addWidget(cache_container)
-
-        # Add to main layout (before the prompt customization section)
-        layout.insertWidget(1, cache_section)
-
-        # Add Advanced Section between Cache and App Settings or at the end
-        advanced_section = SectionFrame(
-            "Advanced Settings",
-            "Advanced settings for Dasi's operation. Note: Changes to these settings require restarting Dasi."
-        )
-
-        # Add to advanced section
-        advanced_widget = QWidget()
-        advanced_widget.setProperty("class", "transparent-container")
-        advanced_layout = QVBoxLayout(advanced_widget)
-        advanced_layout.setContentsMargins(0, 0, 0, 0)
-        advanced_layout.setSpacing(16)
-
-        advanced_section.layout.addWidget(advanced_widget)
-
-        # Add to main layout after Cache section
-        # (The exact position depends on your layout - adjust the index as needed)
-        layout.addWidget(advanced_section)
-
         # Add spacing at the bottom
         layout.addStretch()
 
@@ -964,7 +945,13 @@ class GeneralTab(QWidget):
 
     def _on_any_change(self):
         """Handler for any change in the settings."""
-        self.check_for_changes()
+        try:
+            self.check_for_changes()
+        except Exception as e:
+            logging.error(
+                f"Error handling settings change: {e}", exc_info=True)
+            # Don't show error dialog here to avoid spamming the user
+            # Just log the error for debugging
 
     def _cancel_changes(self):
         """Cancel all changes and restore original values."""
@@ -1029,61 +1016,75 @@ class GeneralTab(QWidget):
     def _apply_all_settings(self):
         """Apply all settings at once."""
         try:
+            # Get current values before saving
+            current_values = self.get_current_values()
+            logging.info("Applying general settings changes")
+
+            # Save all settings first
             # Save temperature
             self.settings.set('general', 'temperature',
-                              self.temperature.value())
+                              current_values['temperature'])
 
             # Save custom instructions
             self.settings.set('general', 'custom_instructions',
-                              self.custom_instructions.toPlainText())
+                              current_values['custom_instructions'])
 
             # Save hotkey settings
-            hotkey = {
-                'ctrl': self.ctrl_checkbox.isChecked(),
-                'alt': self.alt_checkbox.isChecked(),
-                'shift': self.shift_checkbox.isChecked(),
-                'super': self.super_checkbox.isChecked(),
-                'fn': self.fn_checkbox.isChecked(),
-                'key': self.key_selector.currentText()
-            }
-            self.settings.set('general', 'hotkey', hotkey)
+            self.settings.set('general', 'hotkey', current_values['hotkey'])
 
             # Save startup setting
             self.settings.set('general', 'start_on_boot',
-                              self.startup_checkbox.isChecked())
+                              current_values['start_on_boot'])
 
             # Update startup file
-            self._update_startup_file(self.startup_checkbox.isChecked())
+            self._update_startup_file(current_values['start_on_boot'])
 
             # Save export path
-            path = self.export_path.text()
+            path = current_values['export_path']
             if '~' in path:
                 path = os.path.expanduser(path)
             self.settings.set('general', 'export_path', path)
 
             # Save cache settings
             self.settings.set('general', 'use_cache',
-                              self.use_cache_checkbox.isChecked())
+                              current_values['use_cache'])
 
             # Always set use_langgraph to True since we only support LangGraph now
             self.settings.set('general', 'use_langgraph', True)
 
-            # Update original values and hide buttons
-            self.save_original_values()
+            logging.info("All general settings saved successfully")
 
-            # Detect if restart is needed
+            # Check if restart is needed
             needs_restart = False
             restart_items = []
 
-            if self.original_values['temperature'] != self.temperature.value():
+            # Check temperature changes
+            if abs(self.original_values['temperature'] - current_values['temperature']) > 0.001:
                 needs_restart = True
                 restart_items.append("- Temperature")
+                logging.info(
+                    f"Temperature changed from {self.original_values['temperature']} to {current_values['temperature']}")
 
-            if self.original_values['custom_instructions'] != self.custom_instructions.toPlainText():
+            # Check custom instructions changes - do string comparison
+            orig_instructions = self.original_values['custom_instructions'].strip(
+            )
+            new_instructions = current_values['custom_instructions'].strip()
+            if orig_instructions != new_instructions:
                 needs_restart = True
                 restart_items.append("- Custom Instructions")
+                logging.info("Custom instructions changed")
+
+            # Only update the original values AFTER we've checked for changes
+            # that require a restart
+            orig_vals = dict(self.original_values)  # Save for logging
+            self.save_original_values()
 
             if needs_restart:
+                logging.info(
+                    f"Settings requiring restart: {', '.join(restart_items)}")
+                logging.debug(f"Original values: {orig_vals}")
+                logging.debug(f"New values: {current_values}")
+
                 # Create custom message box with restart button
                 msg_box = QMessageBox(self)
                 msg_box.setWindowTitle("Settings Applied")
@@ -1118,9 +1119,13 @@ class GeneralTab(QWidget):
                 response = msg_box.exec()
 
                 if response == QMessageBox.StandardButton.Yes:
+                    logging.info("User selected to restart Dasi service")
                     self._restart_dasi_service()
+                else:
+                    logging.info("User chose not to restart Dasi service")
             else:
                 # Just show a simple message for non-critical changes
+                logging.info("No changes detected that require a restart")
                 QMessageBox.information(
                     self,
                     "Settings Applied",
@@ -1130,30 +1135,57 @@ class GeneralTab(QWidget):
 
         except Exception as e:
             logging.error(f"Error applying settings: {str(e)}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to save settings: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
 
     def _restart_dasi_service(self):
-        """Helper method to restart Dasi service with a single message."""
+        """Helper method to restart Dasi service with a complete reset."""
         main_window = self.window()
         if main_window and hasattr(main_window, 'stop_dasi') and hasattr(main_window, 'start_dasi'):
+            logging.info(
+                "Performing full restart of Dasi service from General tab")
+
             # Stop Dasi without showing message
             main_window.stop_dasi(show_message=False)
 
-            # Small delay to ensure proper shutdown
+            # Small delay to ensure proper shutdown before restarting
             QTimer.singleShot(
                 500, lambda: self._start_dasi_after_stop(main_window))
+        else:
+            logging.error(
+                "Could not restart Dasi: main window lacks required methods")
+            QMessageBox.warning(
+                self,
+                "Restart Failed",
+                "Could not restart Dasi service. Please restart manually.",
+                QMessageBox.StandardButton.Ok
+            )
 
     def _start_dasi_after_stop(self, main_window):
-        """Helper method to start Dasi after stopping."""
-        # Start Dasi without showing message
-        main_window.start_dasi(show_message=False)
+        """Helper method to start Dasi after stopping with complete reinitialization."""
+        try:
+            # Start Dasi without showing message - this will create a new instance
+            main_window.start_dasi(show_message=False)
 
-        # Show a single success message
-        QMessageBox.information(
-            self,
-            "Success",
-            "Dasi service has been restarted successfully.",
-            QMessageBox.StandardButton.Ok
-        )
+            # Show a single success message
+            QMessageBox.information(
+                self,
+                "Success",
+                "Dasi service has been restarted successfully with all new settings applied.",
+                QMessageBox.StandardButton.Ok
+            )
+        except Exception as e:
+            logging.error(f"Error restarting Dasi: {str(e)}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Restart Error",
+                f"Failed to restart Dasi: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
 
     def _update_startup_file(self, enable: bool):
         """Update the startup file in the autostart directory."""
@@ -1229,15 +1261,25 @@ X-GNOME-Autostart-enabled=true
 
     def _browse_export_path(self):
         """Open a file dialog to select an export path."""
-        path = QFileDialog.getExistingDirectory(
-            self,
-            "Select Export Directory",
-            self.export_path.text() or os.path.expanduser("~/Documents"),
-            QFileDialog.Option.ShowDirsOnly
-        )
+        try:
+            path = QFileDialog.getExistingDirectory(
+                self,
+                "Select Export Directory",
+                self.export_path.text() or os.path.expanduser("~/Documents"),
+                QFileDialog.Option.ShowDirsOnly
+            )
 
-        if path:
-            self.export_path.setText(path)
+            if path:
+                self.export_path.setText(path)
+        except Exception as e:
+            logging.error(
+                f"Error browsing for export path: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to open directory browser: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
 
     def _clear_cache(self):
         """Clear the response cache."""
@@ -1255,28 +1297,44 @@ X-GNOME-Autostart-enabled=true
 
     def _sync_temp_from_slider(self, value):
         """Sync temperature spinbox from slider."""
-        # Prevent infinite loop by blocking signals
-        self.temperature.blockSignals(True)
-        self.temperature.setValue(value / 100.0)
-        self.temperature.blockSignals(False)
-        self._on_any_change()
+        try:
+            # Prevent infinite loop by blocking signals
+            self.temperature.blockSignals(True)
+            self.temperature.setValue(value / 100.0)
+            self.temperature.blockSignals(False)
+            self._on_any_change()
+        except Exception as e:
+            logging.error(
+                f"Error syncing temperature from slider: {e}", exc_info=True)
 
     def _sync_temp_from_spinbox(self, value):
         """Sync temperature value from spin box to slider."""
-        # Prevent infinite loop by blocking signals
-        self.temp_slider.blockSignals(True)
-        self.temp_slider.setValue(int(value * 100))
-        self.temp_slider.blockSignals(False)
-        self._on_any_change()
+        try:
+            # Prevent infinite loop by blocking signals
+            self.temp_slider.blockSignals(True)
+            self.temp_slider.setValue(int(value * 100))
+            self.temp_slider.blockSignals(False)
+            self._on_any_change()
+        except Exception as e:
+            logging.error(
+                f"Error syncing temperature from spinbox: {e}", exc_info=True)
 
     def _increment_temperature(self):
         """Increment temperature value."""
-        current_value = self.temperature.value()
-        new_value = min(current_value + 0.1, 1.0)
-        self.temperature.setValue(round(new_value, 1))
+        try:
+            current_value = self.temperature.value()
+            new_value = min(current_value + 0.1, 1.0)
+            self.temperature.setValue(round(new_value, 1))
+        except Exception as e:
+            logging.error(
+                f"Error incrementing temperature: {e}", exc_info=True)
 
     def _decrement_temperature(self):
         """Decrement temperature value."""
-        current_value = self.temperature.value()
-        new_value = max(current_value - 0.1, 0.0)
-        self.temperature.setValue(round(new_value, 1))
+        try:
+            current_value = self.temperature.value()
+            new_value = max(current_value - 0.1, 0.0)
+            self.temperature.setValue(round(new_value, 1))
+        except Exception as e:
+            logging.error(
+                f"Error decrementing temperature: {e}", exc_info=True)
