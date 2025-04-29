@@ -586,12 +586,33 @@ class WebSearchTab(QWidget):
         cancel_button = QPushButton("Cancel")
         cancel_button.clicked.connect(self._cancel_changes)
 
+        # Add Reset button
+        reset_button = QPushButton("Reset")
+        reset_button.clicked.connect(self._reset_changes)
+
         # Add Save button
-        save_all_button = QPushButton("Save & Apply")
+        save_all_button = QPushButton("Save")
         save_all_button.setProperty("class", "primary")
+        save_all_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e67e22;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #d35400;
+            }
+            QPushButton:pressed {
+                background-color: #a04000;
+            }
+        """)
         save_all_button.clicked.connect(self._save_all_changes)
 
         button_layout.addWidget(cancel_button)
+        button_layout.addWidget(reset_button)
         button_layout.addStretch()
         button_layout.addWidget(save_all_button)
 
@@ -660,93 +681,18 @@ class WebSearchTab(QWidget):
             # Emit signal that search settings changed
             self.search_settings_changed.emit()
 
-            # Create custom message box with restart button
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("Settings Saved")
-            msg_box.setText(
-                "Web search settings have been saved successfully.")
-            msg_box.setInformativeText(
-                "For the changes to take full effect, would you like to restart the Dasi service now?"
+            # Show simple success message instead of always prompting for restart
+            QMessageBox.information(
+                self,
+                "Settings Saved",
+                "Web search settings saved successfully."
             )
-            msg_box.setStandardButtons(
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
-
-            # Style the buttons
-            for button in msg_box.buttons():
-                if msg_box.buttonRole(button) == QMessageBox.ButtonRole.YesRole:
-                    button.setProperty("class", "primary")
-                    button.style().unpolish(button)
-                    button.style().polish(button)
-
-            response = msg_box.exec()
-
-            if response == QMessageBox.StandardButton.Yes:
-                logging.info("User selected to restart Dasi service")
-                self._restart_dasi_service()
-            else:
-                logging.info("User chose not to restart Dasi service")
         except Exception as e:
             logging.error(f"Error saving settings: {str(e)}", exc_info=True)
             QMessageBox.critical(
                 self,
                 "Error",
                 f"Failed to save settings: {str(e)}",
-                QMessageBox.StandardButton.Ok
-            )
-
-    def _restart_dasi_service(self):
-        """Helper method to restart Dasi service with a complete reset."""
-        try:
-            main_window = self.window()
-            if main_window and hasattr(main_window, 'stop_dasi') and hasattr(main_window, 'start_dasi'):
-                logging.info(
-                    "Performing full restart of Dasi service from Web Search tab")
-
-                # Stop Dasi without showing message
-                main_window.stop_dasi(show_message=False)
-
-                # Small delay to ensure proper shutdown before restarting
-                QTimer.singleShot(
-                    500, lambda: self._start_dasi_after_stop(main_window))
-            else:
-                logging.error(
-                    "Could not restart Dasi: main window lacks required methods")
-                QMessageBox.warning(
-                    self,
-                    "Restart Failed",
-                    "Could not restart Dasi service. Please restart manually.",
-                    QMessageBox.StandardButton.Ok
-                )
-        except Exception as e:
-            logging.error(f"Error during restart: {str(e)}", exc_info=True)
-            QMessageBox.critical(
-                self,
-                "Restart Error",
-                f"Failed to restart Dasi: {str(e)}",
-                QMessageBox.StandardButton.Ok
-            )
-
-    def _start_dasi_after_stop(self, main_window):
-        """Helper method to start Dasi after stopping with complete reinitialization."""
-        try:
-            # Start Dasi without showing message - this will create a new instance
-            main_window.start_dasi(show_message=False)
-
-            # Show a single success message
-            QMessageBox.information(
-                self,
-                "Success",
-                "Dasi service has been restarted successfully with all new settings applied.",
-                QMessageBox.StandardButton.Ok
-            )
-        except Exception as e:
-            logging.error(f"Error restarting Dasi: {str(e)}", exc_info=True)
-            QMessageBox.critical(
-                self,
-                "Restart Error",
-                f"Failed to restart Dasi: {str(e)}",
                 QMessageBox.StandardButton.Ok
             )
 
@@ -769,3 +715,26 @@ class WebSearchTab(QWidget):
         except Exception as e:
             logging.error(
                 f"Error decrementing max results: {str(e)}", exc_info=True)
+
+    def _reset_changes(self):
+        """Reset all changes and restore original values."""
+        try:
+            # Restore default provider
+            index = self.default_provider.findData(
+                self.original_values['default_provider'])
+            if index >= 0:
+                self.default_provider.setCurrentIndex(index)
+
+            # Restore max results
+            self.max_results.setValue(self.original_values['max_results'])
+
+            self.has_unsaved_changes = False
+            self.update_button_visibility()
+        except Exception as e:
+            logging.error(f"Error resetting changes: {str(e)}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to reset changes: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )

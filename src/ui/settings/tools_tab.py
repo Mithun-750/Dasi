@@ -108,14 +108,33 @@ class ToolsTab(QWidget):
         button_layout.setContentsMargins(0, 16, 0, 0)
         button_layout.setSpacing(8)
 
+        # Add Cancel button
         cancel_button = QPushButton("Cancel")
         cancel_button.clicked.connect(self._cancel_changes)
 
+        # Add Reset button
         reset_button = QPushButton("Reset")
         reset_button.clicked.connect(self._reset_changes)
 
-        save_button = QPushButton("Save Changes")
+        # Add Save button
+        save_button = QPushButton("Save")
         save_button.setProperty("class", "primary")
+        save_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e67e22;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #d35400;
+            }
+            QPushButton:pressed {
+                background-color: #a04000;
+            }
+        """)
         save_button.clicked.connect(self._apply_all_settings)
 
         button_layout.addWidget(cancel_button)
@@ -124,7 +143,7 @@ class ToolsTab(QWidget):
         button_layout.addWidget(save_button)
 
         main_layout.addWidget(self.button_container)
-        self.button_container.hide()
+        self.button_container.hide()  # Initially hide the buttons
 
         self.setLayout(main_layout)
 
@@ -376,7 +395,7 @@ class ToolsTab(QWidget):
                 msg_box.setWindowTitle("Settings Saved")
                 msg_box.setText("Tool settings have been saved successfully.")
                 msg_box.setInformativeText(
-                    "For the changes to take full effect, would you like to restart the Dasi service now?"
+                    "Changes to Tool settings require restarting the Dasi service to take full effect.\\n\\nWould you like to restart now?"
                 )
                 msg_box.setStandardButtons(
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
@@ -400,6 +419,9 @@ class ToolsTab(QWidget):
                                 background-color: #f39c12;
                             }
                         """)
+                        # Ensure style is applied correctly
+                        button.style().unpolish(button)
+                        button.style().polish(button)
 
                 response = msg_box.exec()
 

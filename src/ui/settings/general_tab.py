@@ -904,8 +904,8 @@ class GeneralTab(QWidget):
         """)
         reset_button.clicked.connect(self._reset_changes)
 
-        # Add Save & Apply button
-        save_all_button = QPushButton("Save & Apply")
+        # Add Save button
+        save_all_button = QPushButton("Save")
         save_all_button.setProperty("class", "primary")
         save_all_button.setStyleSheet("""
             QPushButton {
@@ -1094,9 +1094,11 @@ class GeneralTab(QWidget):
 
                 msg_box.setText("Settings have been saved successfully.")
                 msg_box.setInformativeText(
-                    f"{restart_message}\n\nWould you like to restart the Dasi service now?")
+                    f"{restart_message}\n\nWould you like to restart now?"
+                )
                 msg_box.setStandardButtons(
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
                 msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
 
                 # Style the buttons
@@ -1128,8 +1130,8 @@ class GeneralTab(QWidget):
                 logging.info("No changes detected that require a restart")
                 QMessageBox.information(
                     self,
-                    "Settings Applied",
-                    "All settings have been saved successfully.",
+                    "Settings Saved",
+                    "General settings saved successfully.",
                     QMessageBox.StandardButton.Ok
                 )
 
