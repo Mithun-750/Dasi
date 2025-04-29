@@ -504,6 +504,21 @@ class GeneralTab(QWidget):
         self.custom_instructions.setMinimumHeight(120)
         self.custom_instructions.setPlaceholderText(
             "Example:\n- Use British English spelling\n- Include code examples in Python\n- Prefer shorter responses")
+        self.custom_instructions.setStyleSheet("""
+            QTextEdit {
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                padding: 8px;
+                color: #e0e0e0;
+            }
+            QTextEdit:focus {
+                border: 1px solid #444444;
+            }
+            QTextEdit:hover {
+                border: 1px solid #444444;
+            }
+        """)
 
         # Load existing custom instructions
         custom_instructions = self.settings.get(
