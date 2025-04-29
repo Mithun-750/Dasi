@@ -23,6 +23,7 @@ from .models_tab import ModelsTab
 from .general_tab import GeneralTab
 from .prompt_chunks_tab import PromptChunksTab
 from .web_search_tab import WebSearchTab
+from .tools_tab import ToolsTab
 from core.instance_manager import DasiInstanceManager
 from ui.assets import apply_theme
 
@@ -309,12 +310,15 @@ class SettingsWindow(QMainWindow):
             "Prompt Chunks", os.path.join(ui_assets_dir, "icons/prompt.png"))
         self.web_search_btn = SidebarButton(
             "Web Search", os.path.join(ui_assets_dir, "icons/search.png"))
+        self.tools_btn = SidebarButton(
+            "Tools", os.path.join(ui_assets_dir, "icons/tools.png"))
 
         sidebar_layout.addWidget(self.general_btn)
         sidebar_layout.addWidget(self.api_keys_btn)
         sidebar_layout.addWidget(self.models_btn)
         sidebar_layout.addWidget(self.prompt_chunks_btn)
         sidebar_layout.addWidget(self.web_search_btn)
+        sidebar_layout.addWidget(self.tools_btn)
         sidebar_layout.addStretch()
 
         # Save icon paths for use in update_start_button method
@@ -370,12 +374,14 @@ class SettingsWindow(QMainWindow):
         self.models_tab = ModelsTab(self.settings)
         self.prompt_chunks_tab = PromptChunksTab(self.settings)
         self.web_search_tab = WebSearchTab(self.settings)
+        self.tools_tab = ToolsTab(self.settings)
 
         self.content.addWidget(self.general_tab)
         self.content.addWidget(self.api_keys_tab)
         self.content.addWidget(self.models_tab)
         self.content.addWidget(self.prompt_chunks_tab)
         self.content.addWidget(self.web_search_tab)
+        self.content.addWidget(self.tools_tab)
 
         # Connect button signals
         self.general_btn.clicked.connect(lambda: self.switch_tab(0))
@@ -383,6 +389,7 @@ class SettingsWindow(QMainWindow):
         self.models_btn.clicked.connect(lambda: self.switch_tab(2))
         self.prompt_chunks_btn.clicked.connect(lambda: self.switch_tab(3))
         self.web_search_btn.clicked.connect(lambda: self.switch_tab(4))
+        self.tools_btn.clicked.connect(lambda: self.switch_tab(5))
 
         # Connect API key cleared signal to remove models by provider
         self.api_keys_tab.api_key_cleared.connect(
@@ -405,7 +412,7 @@ class SettingsWindow(QMainWindow):
 
         # Update button states
         buttons = [self.general_btn, self.api_keys_btn,
-                   self.models_btn, self.prompt_chunks_btn, self.web_search_btn]
+                   self.models_btn, self.prompt_chunks_btn, self.web_search_btn, self.tools_btn]
         for i, btn in enumerate(buttons):
             btn.setChecked(i == index)
 

@@ -202,5 +202,5 @@ LLMs can invoke tools using the following formats:
 5. Document your tool's arguments and return values
 6. Add tests for your tool 
 7. Use async handlers in `LangGraphToolNode` for potentially long-running operations
-8. Return properly formatted JSON strings from tool handlers
+8. Return properly formatted JSON strings from tool handlers 
 9. For long-running operations, use background threads to prevent UI freezing

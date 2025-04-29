@@ -92,6 +92,8 @@ class LangGraphHandler:
         self.settings.custom_instructions_changed.connect(
             self.on_custom_instructions_changed)
         self.settings.temperature_changed.connect(self.on_temperature_changed)
+        self.settings.tools_settings_changed.connect(
+            self.on_tools_settings_changed)
 
         # Create the graph
         self.graph = self.graph_builder.build_graph()
@@ -159,6 +161,16 @@ class LangGraphHandler:
                 logging.info(f"Updated LLM temperature to {temperature}")
             except Exception as e:
                 logging.error(f"Error updating temperature: {str(e)}")
+
+    def on_tools_settings_changed(self):
+        """Handle changes to tool settings."""
+        # Reload settings
+        self.settings.load_settings()
+        logging.info(
+            "Tool settings changed, updating tool handler configuration")
+
+        # Update tool handler to respect new settings
+        # No action needed here as the tool handler checks settings directly before each execution
 
     def initialize_llm(self, model_name: str = None, model_info: dict = None) -> bool:
         """Initialize the LLM using the llm_factory."""

@@ -16,6 +16,7 @@ from .web_search_tool import WebSearchTool
 from .system_info_tool import SystemInfoTool
 from .terminal_command_tool import TerminalCommandTool
 from ..web_search_handler import WebSearchHandler
+from ui.settings import Settings
 
 
 class ToolCallWorker(QThread):
@@ -145,6 +146,7 @@ class ToolCallHandler(QObject):
         self.user_response = None
         self.user_response_event = threading.Event()
         self.current_worker = None  # Track the current tool call worker
+        self.settings = Settings()  # Access settings to check if tools are enabled
         logging.info("ToolCallHandler initialized")
 
     def setup_tools(self, web_search_handler: Optional[WebSearchHandler] = None):
@@ -180,6 +182,22 @@ class ToolCallHandler(QObject):
 
     def request_tool_call(self, tool_name, args):
         """Request a tool call and emit a signal for UI confirmation."""
+        # Check if the tool is enabled in settings
+        if not self._is_tool_enabled(tool_name):
+            tool_id = f"call_{uuid.uuid4().hex[:24]}"
+            logging.warning(
+                f"Tool call rejected - {tool_name} is disabled in settings")
+            # Emit completed signal with disabled status
+            self.tool_call_completed.emit({
+                "tool": tool_name,
+                "result": {
+                    "status": "error",
+                    "message": f"The {tool_name} tool is disabled in settings. Please enable it in Settings > Tools."
+                },
+                "id": tool_id
+            })
+            return
+
         # Generate an ID for the tool call immediately upon request
         tool_id = f"call_{uuid.uuid4().hex[:24]}"
         logging.info(
@@ -334,25 +352,54 @@ class ToolCallHandler(QObject):
             return False
 
     def process_tool_call_request(self, tool_name, args, tool_id=None):
-        """Process a tool call request from start to finish."""
-        # Request user confirmation
-        self.request_tool_call(tool_name, args)
+        """Process a tool call request before showing confirmation UI."""
+        # Check if the tool is enabled in settings
+        if not self._is_tool_enabled(tool_name):
+            # Generate an ID if none provided
+            if not tool_id:
+                tool_id = f"call_{uuid.uuid4().hex[:24]}"
 
-        # Wait for user response
-        approved = self.wait_for_user_response()
-
-        if approved:
-            # Execute the tool
-            return self.execute_tool_call(self.pending_tool_call)
-        else:
-            # User rejected the tool call
-            result = {
+            logging.warning(
+                f"Tool call rejected - {tool_name} is disabled in settings")
+            # Return error result
+            return {
                 "tool": tool_name,
-                "id": tool_id,
-                "result": "rejected"
+                "result": {
+                    "status": "error",
+                    "message": f"The {tool_name} tool is disabled in settings. Please enable it in Settings > Tools."
+                },
+                "id": tool_id
             }
-            self.tool_call_completed.emit(result)
-            return result
+
+        # Original implementation continues...
+        sanitized_args = {}
+        # Generate an ID if none provided
+        if not tool_id:
+            tool_id = f"call_{uuid.uuid4().hex[:24]}"
+
+        logging.info(
+            f"Processing direct tool call: {tool_name} with args: {args}")
+
+        # Regular processing
+        if tool_name == "web_search":
+            # Process web search, which will show UI for confirmation
+            self.request_tool_call(tool_name, args)
+            # Wait for user response
+            return self.wait_for_user_response()
+        elif tool_name == "system_info":
+            # No confirmation needed, execute directly
+            return self._system_info_tool(args)
+        elif tool_name == "terminal_command":
+            # Process terminal command, which will show UI for confirmation
+            self.request_tool_call(tool_name, args)
+            # Wait for user response
+            return self.wait_for_user_response()
+        else:
+            logging.warning(f"Unknown tool: {tool_name}")
+            return {
+                "status": "error",
+                "message": f"Unknown tool: {tool_name}"
+            }
 
     def _web_search_tool(self, args):
         """Web search tool implementation."""
@@ -462,3 +509,10 @@ class ToolCallHandler(QObject):
     def get_tools(self):
         """Get all available tools."""
         return self.tools
+
+    # Add a helper method to check if a tool is enabled
+    def _is_tool_enabled(self, tool_name: str) -> bool:
+        """Check if a tool is enabled in settings."""
+        # Reload settings to ensure we have the latest
+        self.settings.load_settings()
+        return self.settings.is_tool_enabled(tool_name)
