@@ -191,8 +191,8 @@ class ToolCallHandler(QObject):
             self.tool_call_completed.emit({
                 "tool": tool_name,
                 "result": {
-                    "status": "error",
-                    "message": f"The {tool_name} tool is disabled in settings. Please enable it in Settings > Tools."
+                    "status": "disabled",
+                    "message": f"Tool '{tool_name}' is disabled in settings. Please enable it if you wish to use it."
                 },
                 "id": tool_id
             })
@@ -365,8 +365,8 @@ class ToolCallHandler(QObject):
             return {
                 "tool": tool_name,
                 "result": {
-                    "status": "error",
-                    "message": f"The {tool_name} tool is disabled in settings. Please enable it in Settings > Tools."
+                    "status": "disabled",
+                    "message": f"Tool '{tool_name}' is disabled in settings. Please enable it if you wish to use it."
                 },
                 "id": tool_id
             }

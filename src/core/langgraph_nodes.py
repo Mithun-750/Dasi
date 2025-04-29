@@ -291,6 +291,15 @@ class LangGraphNodes:
                     tool_call_id=tool_call_id
                 ))
                 logging.info("Added tool rejection message")
+            # Add condition for disabled tools
+            elif isinstance(result, dict) and result.get('status') == 'disabled':
+                disabled_message = result.get(
+                    'message', f"Tool '{tool_name}' is currently disabled.")
+                messages.append(ToolMessage(
+                    content=f"The requested tool '{tool_name}' could not be executed because it is currently disabled. Reason: {disabled_message}",
+                    tool_call_id=tool_call_id
+                ))
+                logging.info(f"Added tool disabled message for {tool_name}")
             else:
                 # For successful tool calls:
                 if tool_name == 'web_search' and isinstance(result, dict) and result.get('status') == 'success':
