@@ -1,0 +1,70 @@
+[
+  {
+    "name": "web_search",
+    "description": "Search the web for information",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "The text to search for"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["web_search", "link_scrape"],
+          "description": "Either 'web_search' (default) or 'link_scrape'"
+        },
+        "url": {
+          "type": "string",
+          "description": "URL to scrape content from (required for link_scrape mode)"
+        },
+        "selected_text": {
+          "type": "string",
+          "description": "Additional context from user's selected text"
+        }
+      },
+      "required": ["query"]
+    }
+  },
+  {
+    "name": "system_info",
+    "description": "Retrieve information about the user's system",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "info_type": {
+          "type": "string",
+          "enum": ["basic", "memory", "cpu", "all"],
+          "description": "Type of information to retrieve (basic, memory, cpu, or all)"
+        }
+      }
+    }
+  },
+  {
+    "name": "terminal_command",
+    "description": "Execute terminal commands safely",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "The terminal command to execute"
+        },
+        "working_dir": {
+          "type": "string",
+          "description": "Optional working directory for the command (use ~ for home directory)"
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Maximum execution time in seconds (default: 30)"
+        },
+        "shell_type": {
+          "type": "string",
+          "enum": ["bash", "sh", "fish", "zsh"],
+          "description": "Specific shell to use (default is user's shell)"
+        }
+      },
+      "required": ["command"]
+    }
+  }
+]

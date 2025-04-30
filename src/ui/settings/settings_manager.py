@@ -285,7 +285,33 @@ class Settings(QObject):
         Returns:
             True if the tool is enabled, False otherwise.
         """
+        # Try different possible key formats
         setting_key = f'{tool_name}_enabled'
-        # Default to enabled
-        default = self.get('tools', setting_key, default=True)
-        return self.get('tools', setting_key, default=default)
+        setting_key_alt1 = f'enable_{tool_name}'
+        setting_key_alt2 = f'enable_{tool_name}_enabled'
+        setting_key_alt3 = f'Enable {tool_name.replace("_", " ").title()}'
+        setting_key_alt4 = f'Enable {tool_name.replace("_", " ").title()} Execution'
+
+        # Check all possible setting keys
+        setting_value = self.get('tools', setting_key, default=None)
+        if setting_value is not None:
+            return setting_value
+
+        setting_value = self.get('tools', setting_key_alt1, default=None)
+        if setting_value is not None:
+            return setting_value
+
+        setting_value = self.get('tools', setting_key_alt2, default=None)
+        if setting_value is not None:
+            return setting_value
+
+        setting_value = self.get('tools', setting_key_alt3, default=None)
+        if setting_value is not None:
+            return setting_value
+
+        setting_value = self.get('tools', setting_key_alt4, default=None)
+        if setting_value is not None:
+            return setting_value
+
+        # Default to True if no setting found
+        return True

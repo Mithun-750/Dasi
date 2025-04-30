@@ -269,84 +269,39 @@ class LangGraphHandler:
             temperature = self.settings.get(
                 'general', 'temperature', default=0.7)
 
-            # Define the tools that will be available to the LLM
-            all_tools = [
-                {
-                    "name": "web_search",
-                    "description": "Search the web for information",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "The text to search for"
-                            },
-                            "mode": {
-                                "type": "string",
-                                "enum": ["web_search", "link_scrape"],
-                                "description": "Either 'web_search' (default) or 'link_scrape'"
-                            },
-                            "url": {
-                                "type": "string",
-                                "description": "URL to scrape content from (required for link_scrape mode)"
-                            },
-                            "selected_text": {
-                                "type": "string",
-                                "description": "Additional context from user's selected text"
-                            }
-                        },
-                        "required": ["query"]
-                    }
-                },
-                {
-                    "name": "system_info",
-                    "description": "Retrieve information about the user's system",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "info_type": {
-                                "type": "string",
-                                "enum": ["basic", "memory", "cpu", "all"],
-                                "description": "Type of information to retrieve (basic, memory, cpu, or all)"
-                            }
-                        }
-                    }
-                },
-                {
-                    "name": "terminal_command",
-                    "description": "Execute terminal commands safely",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "command": {
-                                "type": "string",
-                                "description": "The terminal command to execute"
-                            },
-                            "working_dir": {
-                                "type": "string",
-                                "description": "Optional working directory for the command (use ~ for home directory)"
-                            },
-                            "timeout": {
-                                "type": "integer",
-                                "description": "Maximum execution time in seconds (default: 30)"
-                            },
-                            "shell_type": {
-                                "type": "string",
-                                "enum": ["bash", "sh", "fish", "zsh"],
-                                "description": "Specific shell to use (default is user's shell)"
-                            }
-                        },
-                        "required": ["command"]
-                    }
-                }
-            ]
+            # Load tool definitions from JSON file
+            tool_definitions_path = os.path.join(os.path.dirname(
+                __file__), 'tools', 'tool_definitions.json')
+            try:
+                with open(tool_definitions_path, 'r') as f:
+                    all_tools = json.load(f)
+                logging.info(
+                    f"Successfully loaded tool definitions from {tool_definitions_path}")
+            except Exception as e:
+                logging.error(
+                    f"Error loading tool definitions from {tool_definitions_path}: {str(e)}")
+                # Fallback to default tools if file loading fails
+                all_tools = []
+                logging.warning("Using empty tools list due to loading error")
 
             # Filter tools based on what's enabled in settings
             tools = []
+
+            # Log all available tool settings keys for debugging
+            tools_settings = self.settings.get('tools', default={})
+            logging.info(f"All tool settings in config: {tools_settings}")
+
             for tool in all_tools:
                 tool_name = tool["name"]
-                setting_key = f"{tool_name}_enabled"
-                if self.settings.get('tools', setting_key, default=True):
+
+                # Use the improved is_tool_enabled method which checks multiple keys
+                setting_value = self.settings.is_tool_enabled(tool_name)
+
+                # Log what was found
+                logging.info(
+                    f"Tool setting check for {tool_name}: is_enabled = {setting_value}")
+
+                if setting_value:
                     tools.append(tool)
                     logging.info(
                         f"Including enabled tool in LLM configuration: {tool_name}")
@@ -354,9 +309,18 @@ class LangGraphHandler:
                     logging.info(
                         f"Excluding disabled tool from LLM configuration: {tool_name}")
 
+            # Log the final filtered tools list
+            logging.info(
+                f"Final filtered tools count: {len(tools)} of {len(all_tools)}")
+            logging.info(
+                f"Tools being passed to LLM factory: {[t['name'] for t in tools]}")
+
             logging.info(
                 f"Attempting to create LLM instance via factory: provider={provider}, model={model_id}, temp={temperature}")
 
+            # Add one more log right before the call
+            logging.info(
+                f"*** Final tools list being passed to create_llm_instance: {[t['name'] for t in tools]} ***")
             # Call the factory function with tools
             llm_instance = create_llm_instance(
                 provider=provider,
