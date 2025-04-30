@@ -10,6 +10,7 @@ authors = [
 license = {text = "MIT"}
 dependencies = [
     "beautifulsoup4>=4.12.3",
+    "cairosvg>=2.7.1",
     "duckduckgo-search>=7.5.0",
     "exa-py>=1.0.6",
     "invoke>=2.2.0",
@@ -29,6 +30,7 @@ dependencies = [
     "langchain-xai>=0.1.0",
     "langgraph>=0.3.27",
     "nest-asyncio>=1.6.0",
+    "psutil>=7.0.0",
     "pyautogui>=0.9.54",
     "pyinstaller>=6.12.0",
     "pynput>=1.7.6",

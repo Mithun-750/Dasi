@@ -24,6 +24,9 @@ from core.instance_manager import DasiInstanceManager  # Import DasiInstanceMana
 from .components.input_panel import InputPanel
 from .components.web_search import WebSearchPanel
 from .components.preview_panel import PreviewPanel
+from .components.confirmation_panel import ConfirmationPanel
+from .components.loading_panel import LoadingPanel
+from core.tools.tool_call_handler import ToolCallHandler
 
 
 class DasiWindow(QWidget):
@@ -54,6 +57,11 @@ class DasiWindow(QWidget):
         self.chunks_dir = Path(self.settings.config_dir) / 'prompt_chunks'
         self.is_web_search = False  # Flag to track if current query is a web search
 
+        # Use shared tool call handler from instance manager
+        self.tool_call_handler = DasiInstanceManager.get_tool_call_handler()
+        self.confirmation_panel = None
+        self.current_loading_panel = None  # Add this to track the active loading panel
+
         # Window flags
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint |
                             Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
@@ -61,6 +69,7 @@ class DasiWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
 
         self.setup_ui()
+        self._setup_tool_call_signals()
 
     def setup_ui(self):
         """Set up the UI components."""
@@ -575,11 +584,7 @@ class DasiWindow(QWidget):
         self.preview_panel.set_response(f"Error: {error_msg}")
         self.preview_panel.show_preview(True)
         self.preview_panel.show_actions(True)
-        self.preview_panel.accept_button.hide()  # Hide accept button for errors
         self.right_panel.show()
-
-        # Adjust window size
-        self.setFixedHeight(250)
 
     def _handle_response(self, response: str):
         """Handle query response (runs in main thread)."""
@@ -762,3 +767,112 @@ class DasiWindow(QWidget):
         self.web_search_panel.stop()
 
         super().hideEvent(event)
+
+    def _setup_tool_call_signals(self):
+        """Connect tool call handler signals to UI slots."""
+        self.tool_call_handler.tool_call_requested.connect(
+            self._show_confirmation_panel)
+        self.tool_call_handler.tool_call_accepted.connect(
+            self._show_loading_panel)
+        self.tool_call_handler.tool_call_completed.connect(
+            self._handle_tool_call_completed)
+        self.tool_call_handler.tool_call_processing.connect(
+            self._handle_tool_call_processing)
+
+    def _show_confirmation_panel(self, tool_call_info):
+        """Show the confirmation panel for a tool call."""
+        # Hide other panels
+        self.preview_panel.hide()
+        self.web_search_panel.hide()
+        self.stop_button.hide()
+        # Remove old confirmation panel if present
+        if self.confirmation_panel:
+            self.right_layout.removeWidget(self.confirmation_panel)
+            self.confirmation_panel.deleteLater()
+            self.confirmation_panel = None
+        # Create and show new confirmation panel
+        self.confirmation_panel = ConfirmationPanel(
+            tool_call_info["tool"], tool_call_info["args"])
+        self.confirmation_panel.accepted.connect(
+            lambda: self.tool_call_handler.handle_user_response(True))
+        self.confirmation_panel.rejected.connect(
+            lambda: self.tool_call_handler.handle_user_response(False))
+        self.right_layout.insertWidget(0, self.confirmation_panel)
+        self.confirmation_panel.show()
+        self.right_panel.show()
+        # Use wider width like web search panel for better display
+        self.setFixedWidth(680)
+
+    def _show_loading_panel(self, tool_call_info):
+        """Show the loading panel immediately after tool call acceptance."""
+        tool = tool_call_info.get("tool", "unknown")
+
+        # Remove confirmation panel if it exists
+        if self.confirmation_panel:
+            self.right_layout.removeWidget(self.confirmation_panel)
+            self.confirmation_panel.deleteLater()
+            self.confirmation_panel = None
+
+        # Remove any previous loading panel just in case
+        if self.current_loading_panel:
+            self._remove_loading_panel(self.current_loading_panel)
+
+        # Create and show the new loading panel
+        loading_panel = LoadingPanel(tool)
+        self.current_loading_panel = loading_panel  # Store reference
+        self.right_layout.insertWidget(0, loading_panel)
+        loading_panel.show()
+        self.right_panel.show()
+
+        # Connect loading panel's finished signal to remove it when done
+        loading_panel.finished.connect(
+            lambda lp=loading_panel: self._remove_loading_panel(lp))
+
+        # Set fixed width
+        self.setFixedWidth(680)
+
+    def _handle_tool_call_completed(self, result_info):
+        """Handle completion of a tool call (update the loading panel)."""
+        # If a loading panel exists, update its state
+        if self.current_loading_panel:
+            # Mark loading as complete
+            self.current_loading_panel.show_complete()
+        else:
+            # This case shouldn't happen with the new flow, but log if it does
+            logging.warning("Tool call completed but no loading panel found.")
+            # Fallback: Ensure preview panel is visible for the response
+            self.preview_panel.show_preview(True)
+            self.preview_panel.show()
+            self.right_panel.show()
+            self.setFixedWidth(680)
+
+    def _remove_loading_panel(self, loading_panel):
+        """Remove the loading panel from the layout."""
+        if loading_panel:
+            self.right_layout.removeWidget(loading_panel)
+            loading_panel.deleteLater()
+            if self.current_loading_panel == loading_panel:
+                self.current_loading_panel = None
+
+        # After removing the loading panel, ensure the preview panel is visible
+        # This allows the next streamed LLM response (that interprets the tool results) to be seen
+        self.preview_panel.show_preview(True)
+        self.preview_panel.show()
+        self.right_panel.show()  # Ensure right panel is shown
+        self.setFixedWidth(680)  # Ensure correct width
+
+    def _handle_tool_call_processing(self, tool_name):
+        """Handle the signal that the LLM is processing tool results."""
+        logging.info(f"LLM is processing {tool_name} results")
+
+        # Ensure the preview panel is visible and ready to receive the LLM's follow-up response
+        self.preview_panel.set_response(
+            "Processing tool results...\nGenerating response...")
+        self.preview_panel.show()
+        self.preview_panel.show_preview(True)
+
+        # Make right panel visible if not already
+        self.right_panel.show()
+
+        # Adjust window width consistently with other tool operations
+        self.setFixedWidth(680)

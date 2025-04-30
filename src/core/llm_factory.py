@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 # LangChain imports
 from langchain_openai import ChatOpenAI
@@ -21,7 +21,8 @@ def create_llm_instance(
     model_id: str,
     settings: Settings,
     temperature: float,
-    model_info: Optional[Dict[str, Any]] = None
+    model_info: Optional[Dict[str, Any]] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Any]:
     """
     Factory function to create and return an LLM instance based on the provider.
@@ -32,6 +33,7 @@ def create_llm_instance(
         settings: The application settings object.
         temperature: The temperature setting for the LLM.
         model_info: Optional dictionary containing model information (e.g., base_url).
+        tools: Optional list of tools to bind to the LLM.
 
     Returns:
         An initialized LangChain LLM instance or None if initialization fails.
@@ -39,16 +41,24 @@ def create_llm_instance(
     try:
         api_key = settings.get_api_key(provider)
 
+        # Define available tools
+        available_tools = []
+        if tools:
+            available_tools = tools
+            logging.info(f"Binding {len(available_tools)} tools to the LLM")
+
+        llm_instance = None
+
         if provider == 'google':
             logging.info(f"Creating Google Gemini model: {model_id}")
-            return ChatGoogleGenerativeAI(
+            llm_instance = ChatGoogleGenerativeAI(
                 model=model_id,
                 google_api_key=api_key,
                 temperature=temperature,
             )
         elif provider == 'openai':
             if 'gpt-4o' in model_id.lower() or 'vision' in model_id.lower():
-                return ChatOpenAI(
+                llm_instance = ChatOpenAI(
                     model=model_id,
                     temperature=temperature,
                     streaming=True,
@@ -56,28 +66,29 @@ def create_llm_instance(
                     max_tokens=4096,
                 )
             else:
-                return ChatOpenAI(
+                llm_instance = ChatOpenAI(
                     model=model_id,
                     temperature=temperature,
                     streaming=True,
                     openai_api_key=api_key,
                 )
         elif provider == 'ollama':
-            return ChatOllama(
+            llm_instance = ChatOllama(
                 model=model_id,
                 temperature=temperature,
                 base_url="http://localhost:11434",  # TODO: Make base_url configurable
             )
         elif provider == 'groq':
             logging.info(f"Creating Groq model: {model_id}")
-            return ChatGroq(
+            llm_instance = ChatGroq(
                 model=model_id,
                 groq_api_key=api_key,
                 temperature=temperature,
+                streaming=True,
             )
         elif provider == 'anthropic':
             if 'claude-3' in model_id.lower():
-                return ChatAnthropic(
+                llm_instance = ChatAnthropic(
                     model=model_id,
                     anthropic_api_key=api_key,
                     temperature=temperature,
@@ -85,7 +96,7 @@ def create_llm_instance(
                     max_tokens=4096,
                 )
             else:
-                return ChatAnthropic(
+                llm_instance = ChatAnthropic(
                     model=model_id,
                     anthropic_api_key=api_key,
                     temperature=temperature,
@@ -94,23 +105,25 @@ def create_llm_instance(
         elif provider == 'deepseek':
             # DeepSeek SDK might read directly from env var
             os.environ["DEEPSEEK_API_KEY"] = api_key if api_key else ""
-            return ChatDeepSeek(
+            llm_instance = ChatDeepSeek(
                 model=model_id,
                 temperature=temperature,
                 streaming=True,
                 api_key=api_key  # Pass explicitly too if needed by specific versions
             )
         elif provider == 'together':
-            return ChatTogether(
+            llm_instance = ChatTogether(
                 model=model_id,
                 together_api_key=api_key,
                 temperature=temperature,
+                streaming=True,
             )
         elif provider == 'xai':
-            return ChatXAI(
+            llm_instance = ChatXAI(
                 model=model_id,
                 xai_api_key=api_key,
                 temperature=temperature,
+                streaming=True,
             )
         elif provider.startswith('custom_openai'):
             # Custom OpenAI provider logic
@@ -119,7 +132,7 @@ def create_llm_instance(
                 logging.error(
                     f"Missing configuration for custom OpenAI provider: {provider}")
                 return None
-            return ChatOpenAI(
+            llm_instance = ChatOpenAI(
                 model=model_id,
                 temperature=temperature,
                 streaming=True,
@@ -132,7 +145,7 @@ def create_llm_instance(
                 'X-Title': 'Dasi',
                 'Content-Type': 'application/json'
             }
-            return ChatOpenAI(
+            llm_instance = ChatOpenAI(
                 model=model_id,
                 temperature=temperature,
                 streaming=True,
@@ -143,6 +156,18 @@ def create_llm_instance(
         else:
             logging.error(f"Unsupported LLM provider: {provider}")
             return None
+
+        # Bind tools to the LLM instance if tools are provided
+        if llm_instance and available_tools:
+            try:
+                logging.info(
+                    f"Binding {len(available_tools)} tools to {provider} LLM")
+                llm_instance = llm_instance.bind_tools(available_tools)
+            except Exception as e:
+                logging.error(
+                    f"Error binding tools to LLM: {str(e)}", exc_info=True)
+
+        return llm_instance
 
     except Exception as e:
         logging.error(

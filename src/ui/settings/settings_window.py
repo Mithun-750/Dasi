@@ -23,6 +23,7 @@ from .models_tab import ModelsTab
 from .general_tab import GeneralTab
 from .prompt_chunks_tab import PromptChunksTab
 from .web_search_tab import WebSearchTab
+from .tools_tab import ToolsTab
 from core.instance_manager import DasiInstanceManager
 from ui.assets import apply_theme
 
@@ -309,12 +310,15 @@ class SettingsWindow(QMainWindow):
             "Prompt Chunks", os.path.join(ui_assets_dir, "icons/prompt.png"))
         self.web_search_btn = SidebarButton(
             "Web Search", os.path.join(ui_assets_dir, "icons/search.png"))
+        self.tools_btn = SidebarButton(
+            "Tools", os.path.join(ui_assets_dir, "icons/tools.png"))
 
         sidebar_layout.addWidget(self.general_btn)
         sidebar_layout.addWidget(self.api_keys_btn)
         sidebar_layout.addWidget(self.models_btn)
         sidebar_layout.addWidget(self.prompt_chunks_btn)
         sidebar_layout.addWidget(self.web_search_btn)
+        sidebar_layout.addWidget(self.tools_btn)
         sidebar_layout.addStretch()
 
         # Save icon paths for use in update_start_button method
@@ -370,12 +374,14 @@ class SettingsWindow(QMainWindow):
         self.models_tab = ModelsTab(self.settings)
         self.prompt_chunks_tab = PromptChunksTab(self.settings)
         self.web_search_tab = WebSearchTab(self.settings)
+        self.tools_tab = ToolsTab(self.settings)
 
         self.content.addWidget(self.general_tab)
         self.content.addWidget(self.api_keys_tab)
         self.content.addWidget(self.models_tab)
         self.content.addWidget(self.prompt_chunks_tab)
         self.content.addWidget(self.web_search_tab)
+        self.content.addWidget(self.tools_tab)
 
         # Connect button signals
         self.general_btn.clicked.connect(lambda: self.switch_tab(0))
@@ -383,6 +389,7 @@ class SettingsWindow(QMainWindow):
         self.models_btn.clicked.connect(lambda: self.switch_tab(2))
         self.prompt_chunks_btn.clicked.connect(lambda: self.switch_tab(3))
         self.web_search_btn.clicked.connect(lambda: self.switch_tab(4))
+        self.tools_btn.clicked.connect(lambda: self.switch_tab(5))
 
         # Connect API key cleared signal to remove models by provider
         self.api_keys_tab.api_key_cleared.connect(
@@ -405,7 +412,7 @@ class SettingsWindow(QMainWindow):
 
         # Update button states
         buttons = [self.general_btn, self.api_keys_btn,
-                   self.models_btn, self.prompt_chunks_btn, self.web_search_btn]
+                   self.models_btn, self.prompt_chunks_btn, self.web_search_btn, self.tools_btn]
         for i, btn in enumerate(buttons):
             btn.setChecked(i == index)
 
@@ -604,20 +611,22 @@ class SettingsWindow(QMainWindow):
                 self.update_start_button()
                 return
 
-            # Initialize Dasi instance if not already initialized
-            existing_instance = DasiInstanceManager.get_instance()
-            if not existing_instance:
-                from main import Dasi
-                self.dasi_instance = Dasi()
-                # Note: Dasi constructor now registers itself with DasiInstanceManager
-                self.hotkey_listener = self.dasi_instance.hotkey_listener
-            else:
-                self.dasi_instance = existing_instance
-                self.hotkey_listener = self.dasi_instance.hotkey_listener
+            # Always create a new Dasi instance for a complete restart
+            logging.info(
+                "Creating a completely new Dasi instance for full restart")
+            from main import Dasi
 
-            # Start the hotkey listener if it's not already running
-            if not self.hotkey_listener or not self.hotkey_listener.is_running():
+            # Create a new instance which initializes everything fresh
+            self.dasi_instance = Dasi()
+
+            # Set references to the new components
+            self.hotkey_listener = self.dasi_instance.hotkey_listener
+
+            # Start the hotkey listener
+            if self.hotkey_listener:
                 self.hotkey_listener.start()
+                logging.info("Started new hotkey listener")
+
                 if show_message:
                     QMessageBox.information(
                         self,
@@ -649,8 +658,17 @@ class SettingsWindow(QMainWindow):
                 except:
                     pass
                 self.start_dasi_btn.clicked.connect(self.stop_dasi)
+            else:
+                logging.error("Failed to create hotkey listener")
+                if show_message:
+                    QMessageBox.critical(
+                        self,
+                        "Error",
+                        "Failed to create hotkey listener"
+                    )
 
         except Exception as e:
+            logging.error(f"Failed to start Dasi: {str(e)}", exc_info=True)
             if show_message:
                 QMessageBox.critical(
                     self,
@@ -661,24 +679,32 @@ class SettingsWindow(QMainWindow):
     def stop_dasi(self, show_message=True):
         """Stop the Dasi hotkey listener and hide the system tray icon."""
         try:
+            logging.info("Stopping Dasi completely")
+
+            # Stop hotkey listener if it exists and is running
             if self.hotkey_listener and self.hotkey_listener.is_running():
                 self.hotkey_listener.stop()
+                logging.info("Hotkey listener stopped")
 
-                # Hide the system tray icon if it exists
-                if self.dasi_instance and hasattr(self.dasi_instance, 'tray') and self.dasi_instance.tray:
-                    self.dasi_instance.tray.hide()
+            # Hide the system tray icon if it exists
+            if self.dasi_instance and hasattr(self.dasi_instance, 'tray') and self.dasi_instance.tray:
+                self.dasi_instance.tray.hide()
+                logging.info("System tray hidden")
 
-                if show_message:
-                    QMessageBox.information(
-                        self,
-                        "Dasi Stopped",
-                        "Dasi has been stopped.",
-                        QMessageBox.StandardButton.Ok
-                    )
+            # Clear all references to ensure a clean restart
+            self.hotkey_listener = None
 
             # Clear the instance from manager
             DasiInstanceManager.clear_instance()
             self.dasi_instance = None
+
+            if show_message:
+                QMessageBox.information(
+                    self,
+                    "Dasi Stopped",
+                    "Dasi has been stopped.",
+                    QMessageBox.StandardButton.Ok
+                )
 
             # Update button to show Start Dasi
             has_models = bool(self.settings.get_selected_models())
@@ -713,6 +739,7 @@ class SettingsWindow(QMainWindow):
             self.start_dasi_btn.clicked.connect(self.start_dasi)
 
         except Exception as e:
+            logging.error(f"Failed to stop Dasi: {str(e)}", exc_info=True)
             if show_message:
                 QMessageBox.critical(
                     self,

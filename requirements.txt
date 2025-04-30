@@ -1,6 +1,11 @@
-# Core dependencies
+# Core LangChain dependencies
+langchain>=0.3.19  # Main LangChain package
 langchain-core>=0.3.40  # Core LangChain functionality
 langchain-community>=0.3.18  # Community integrations including message history
+langchain-cli>=0.0.36  # LangChain CLI tools
+langgraph>=0.3.27  # LangChain graph functionality
+
+# LLM Provider Integrations
 langchain-google-genai>=2.0.11  # LLM integration with Gemini API
 langchain-openai>=0.3.7  # OpenAI/OpenRouter integration
 langchain-anthropic>=0.3.8  # Anthropic integration
@@ -9,7 +14,6 @@ langchain-groq>=0.2.4  # Groq integration
 langchain-deepseek>=0.1.2  # Deepseek integration
 langchain-together>=0.3.0  # Together AI integration
 langchain-xai>=0.1.0  # xAI (Grok) integration
-langchain>=0.3.19  # Main LangChain package
 langchain-text-splitters>=0.3.6  # Text splitting utilities
 
 # Web Search dependencies
@@ -18,15 +22,19 @@ requests>=2.31.0  # HTTP requests
 duckduckgo-search>=7.5.0  # DuckDuckGo search API
 tavily-python>=0.3.1  # Tavily search API
 exa-py>=1.0.6  # Exa search API
+langchain-exa>=0.2.1  # Exa LangChain integration
 
 # UI and System dependencies
-pynput>=1.7.6 # Global hotkey support
+pynput>=1.7.6  # Global hotkey support
 pyautogui>=0.9.54  # Cursor position and typing simulation
 PyQt6>=6.8.1  # Modern UI framework
 PyQt6-WebEngine>=6.8.0  # Web rendering for markdown display
 python-dotenv>=1.0.1  # Environment variable management
 pyqtdarktheme>=2.1.0  # Modern dark theme for PyQt6
 pyperclip>=1.9.0  # Clipboard management
+psutil>=7.0.0  # System information for tools
+cairosvg>=2.7.1  # SVG handling
+nest-asyncio>=1.6.0  # Async event loop support
 
 # Development tools
 invoke>=2.2.0  # Task execution for development workflow

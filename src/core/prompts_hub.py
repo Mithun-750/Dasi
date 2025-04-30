@@ -124,6 +124,7 @@ When using this information:
 4. If the content has been truncated, note that your analysis is based on partial information
 5. IMPORTANT: DO NOT include any citations or reference numbers (like [1], [2]) in your response
 ======================="""
+
 # LangGraphHandler filename suggestion prompt
 FILENAME_SUGGESTION_TEMPLATE = """Generate a concise, professional filename for this content. Follow these rules strictly:
 1. Use letters, numbers, and underscores only (no spaces)
@@ -144,3 +145,32 @@ User Query:
 
 Content:
 {content}..."""
+
+# Tool calling instruction for LangGraph
+TOOL_CALLING_INSTRUCTION = """=====TOOL_CALLING=====<tool calling instructions>
+You have access to external tools that can be called when needed.
+These tools allow you to enhance your capabilities with external data and functions.
+
+Available tools:
+
+1. web_search - Search the web for information
+   Parameters:
+   - query (required): The text to search for
+   - mode (optional): Either "web_search" (default) or "link_scrape"
+   - url (required for link_scrape mode): URL to scrape content from
+   - selected_text (optional): Additional context from user's selected text
+
+2. system_info - Retrieve information about the user's system
+   Parameters:
+   - info_type (optional): Type of information to retrieve
+     - "basic" (default): Operating system, version, architecture
+     - "memory": System memory usage
+     - "cpu": CPU information
+     - "all": All available system information
+
+Please use your built-in function calling capability to invoke these tools when they would be helpful. Do not try to format tool calls using custom syntax like "<<TOOL:...>>". Instead, use your native function calling mechanism.
+
+When a tool might be helpful, explain why you think it would be useful and what information it could provide. Then initiate the appropriate function call.
+
+After calling a tool, wait for the result before proceeding.
+======================="""

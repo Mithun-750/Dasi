@@ -1,24 +1,19 @@
 import os
 import logging
+import json
+import uuid
 from typing import Dict, List, Optional, Any, TypedDict, Annotated, Callable
-import operator
 from pathlib import Path
 import asyncio
 import nest_asyncio
-import re  # Import re for _extract_code_block
+import re
+import time
+import threading
+from PyQt6.QtCore import QTimer
 
 # LangChain imports
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.output_parsers import StrOutputParser
-from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_ollama import ChatOllama
-from langchain_groq import ChatGroq
-from langchain_anthropic import ChatAnthropic
-from langchain_deepseek import ChatDeepSeek
-from langchain_together import ChatTogether
-from langchain_xai import ChatXAI
 from langchain_community.chat_message_histories import SQLChatMessageHistory
 
 # LangGraph imports
@@ -30,37 +25,20 @@ from ui.settings import Settings
 from .web_search_handler import WebSearchHandler
 from .vision_handler import VisionHandler
 from .llm_factory import create_llm_instance
+from .filename_suggester import FilenameSuggester
 from .prompts_hub import (
     LANGGRAPH_BASE_SYSTEM_PROMPT,
     COMPOSE_MODE_INSTRUCTION,
     CHAT_MODE_INSTRUCTION,
-    FILENAME_SUGGESTION_TEMPLATE
+    TOOL_CALLING_INSTRUCTION
 )
+from core.tools.tool_call_handler import ToolCallHandler
+from core.instance_manager import DasiInstanceManager
 
-
-# Define the state structure for our graph
-class GraphState(TypedDict):
-    """State for the LLM processing graph."""
-    # Input fields
-    query: str
-    session_id: str
-    selected_text: Optional[str]
-    mode: str
-    image_data: Optional[str]
-    model_name: Optional[str]
-
-    # Processing fields
-    messages: List[Any]
-    use_web_search: bool
-    web_search_query: Optional[str]  # Query used for web search
-    web_search_results: Optional[Dict]  # Results from web search node
-    use_vision: bool
-    vision_description: Optional[str]
-    llm_instance: Optional[Any]  # Add field for the specific LLM instance
-
-    # Output fields
-    response: str
-    detected_language: Optional[str]
+# Import our new modules
+from .langgraph_nodes import LangGraphNodes, GraphState
+from .graph_builder import LangGraphBuilder
+from .response_generation import ResponseGenerator
 
 
 class LangGraphHandler:
@@ -90,14 +68,35 @@ class LangGraphHandler:
         # Build system prompt
         self._initialize_system_prompt()
 
+        # Initialize filename suggester
+        self.filename_suggester = FilenameSuggester(
+            self.llm, self.system_prompt)
+
+        # Use shared tool call handler from instance manager
+        self.tool_call_handler = DasiInstanceManager.get_tool_call_handler()
+        # Set up all tools - both web_search and system_info
+        self.tool_call_handler.setup_tools(
+            web_search_handler=self.web_search_handler)
+
+        # Initialize the graph nodes
+        self.graph_nodes = LangGraphNodes(self)
+
+        # Initialize graph builder
+        self.graph_builder = LangGraphBuilder(self)
+
+        # Initialize the response generator
+        self.response_generator = ResponseGenerator(self)
+
         # Connect to settings changes
         self.settings.models_changed.connect(self.on_models_changed)
         self.settings.custom_instructions_changed.connect(
             self.on_custom_instructions_changed)
         self.settings.temperature_changed.connect(self.on_temperature_changed)
+        self.settings.tools_settings_changed.connect(
+            self.on_tools_settings_changed)
 
         # Create the graph
-        self.graph = self._build_graph()
+        self.graph = self.graph_builder.build_graph()
         self.app = self.graph.compile()
 
         # Initialize LLM
@@ -119,6 +118,9 @@ class LangGraphHandler:
         self.system_prompt = self.base_system_prompt
         if custom_instructions:
             self.system_prompt = f"{self.base_system_prompt}\n\n=====CUSTOM_INSTRUCTIONS=====<user-defined instructions>\n{custom_instructions}\n======================="
+
+        # Add tool calling instructions
+        self.system_prompt = f"{self.system_prompt}\n\n{TOOL_CALLING_INSTRUCTION}"
 
         # Create base prompt template with memory
         self.prompt = ChatPromptTemplate.from_messages([
@@ -159,6 +161,34 @@ class LangGraphHandler:
                 logging.info(f"Updated LLM temperature to {temperature}")
             except Exception as e:
                 logging.error(f"Error updating temperature: {str(e)}")
+
+    def on_tools_settings_changed(self):
+        """Handle changes to tool settings."""
+        # Reload settings
+        self.settings.load_settings()
+        logging.info(
+            "Tool settings changed, reinitializing LLM with updated tool configurations")
+
+        # Reinitialize the LLM with current model but updated tool settings
+        if self.llm and self.current_provider:
+            current_model_id = None
+            # Extract the current model ID from the LLM instance
+            if hasattr(self.llm, 'model_name'):
+                current_model_id = self.llm.model_name
+            elif hasattr(self.llm, 'model'):
+                current_model_id = self.llm.model
+
+            if current_model_id:
+                logging.info(
+                    f"Reinitializing LLM with current model: {current_model_id}")
+                self.initialize_llm(model_name=current_model_id)
+            else:
+                logging.info("Reinitializing LLM with default model")
+                self.initialize_llm()
+        else:
+            logging.info(
+                "No active LLM instance, initializing with default settings")
+            self.initialize_llm()
 
     def initialize_llm(self, model_name: str = None, model_info: dict = None) -> bool:
         """Initialize the LLM using the llm_factory."""
@@ -239,22 +269,110 @@ class LangGraphHandler:
             temperature = self.settings.get(
                 'general', 'temperature', default=0.7)
 
+            # Define the tools that will be available to the LLM
+            all_tools = [
+                {
+                    "name": "web_search",
+                    "description": "Search the web for information",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "The text to search for"
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["web_search", "link_scrape"],
+                                "description": "Either 'web_search' (default) or 'link_scrape'"
+                            },
+                            "url": {
+                                "type": "string",
+                                "description": "URL to scrape content from (required for link_scrape mode)"
+                            },
+                            "selected_text": {
+                                "type": "string",
+                                "description": "Additional context from user's selected text"
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                },
+                {
+                    "name": "system_info",
+                    "description": "Retrieve information about the user's system",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "info_type": {
+                                "type": "string",
+                                "enum": ["basic", "memory", "cpu", "all"],
+                                "description": "Type of information to retrieve (basic, memory, cpu, or all)"
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "terminal_command",
+                    "description": "Execute terminal commands safely",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "The terminal command to execute"
+                            },
+                            "working_dir": {
+                                "type": "string",
+                                "description": "Optional working directory for the command (use ~ for home directory)"
+                            },
+                            "timeout": {
+                                "type": "integer",
+                                "description": "Maximum execution time in seconds (default: 30)"
+                            },
+                            "shell_type": {
+                                "type": "string",
+                                "enum": ["bash", "sh", "fish", "zsh"],
+                                "description": "Specific shell to use (default is user's shell)"
+                            }
+                        },
+                        "required": ["command"]
+                    }
+                }
+            ]
+
+            # Filter tools based on what's enabled in settings
+            tools = []
+            for tool in all_tools:
+                tool_name = tool["name"]
+                setting_key = f"{tool_name}_enabled"
+                if self.settings.get('tools', setting_key, default=True):
+                    tools.append(tool)
+                    logging.info(
+                        f"Including enabled tool in LLM configuration: {tool_name}")
+                else:
+                    logging.info(
+                        f"Excluding disabled tool from LLM configuration: {tool_name}")
+
             logging.info(
                 f"Attempting to create LLM instance via factory: provider={provider}, model={model_id}, temp={temperature}")
 
-            # Call the factory function
+            # Call the factory function with tools
             llm_instance = create_llm_instance(
                 provider=provider,
                 model_id=model_id,
                 settings=self.settings,
                 temperature=temperature,
                 # Pass resolved info which might contain base_url etc.
-                model_info=resolved_model_info
+                model_info=resolved_model_info,
+                tools=tools
             )
 
             if llm_instance:
                 self.llm = llm_instance
                 self.current_provider = provider
+                # Update the filename suggester's LLM instance
+                self.filename_suggester.llm = llm_instance
                 logging.info(
                     f"Successfully initialized {provider} model: {model_id} via factory")
                 return True
@@ -288,884 +406,43 @@ class LangGraphHandler:
         if session_id in self.message_histories:
             del self.message_histories[session_id]
 
-    # Node functions for LangGraph
-
-    def initialize_state(self, state: GraphState) -> GraphState:
-        """Initialize the state with defaults for any missing values."""
-        # Ensure all required fields are present
-        if 'session_id' not in state:
-            state['session_id'] = 'default'
-        if 'mode' not in state:
-            state['mode'] = 'chat'
-        if 'messages' not in state:
-            state['messages'] = []
-        if 'use_web_search' not in state:
-            state['use_web_search'] = False
-        if 'use_vision' not in state:
-            state['use_vision'] = False
-
-        return state
-
-    def parse_query(self, state: GraphState) -> GraphState:
-        """Parse query for mode, image, web search triggers, and selected text."""
-        logging.info("Entering parse_query node")
-        updated_state = state.copy()
-        query = updated_state['query']
-        image_data = updated_state.get('image_data')
-        selected_text = updated_state.get('selected_text')
-        logging.debug(
-            f"Inside parse_query: query='{query[:50]}...', has_image_data={image_data is not None}")
-
-        # Default flags
-        updated_state['use_vision'] = bool(image_data)
-        updated_state['use_web_search'] = False
-        updated_state['web_search_query'] = None  # Initialize web search query
-
-        # Let the WebSearchHandler process the query context.
-        # It will determine if web search is applicable based on triggers (e.g., /web, URL)
-        # and its own internal checks against settings (API keys, enabled providers).
-        process_result = self.web_search_handler.process_query_context(
-            query,
-            {'selected_text': selected_text}
+    # Delegate to ResponseGenerator
+    def get_response_async(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None,
+                           session_id: str = "default", selected_text: str = None,
+                           mode: str = "chat", image_data: Optional[str] = None) -> str:
+        """Process a query asynchronously using the LangGraph application and stream the response."""
+        return self.response_generator.get_response_async(
+            query=query,
+            callback=callback,
+            model=model,
+            session_id=session_id,
+            selected_text=selected_text,
+            mode=mode,
+            image_data=image_data
         )
 
-        # Store the potentially processed query for the web search node
-        # This might be the original query or one modified by the context processor
-        updated_state['web_search_query'] = process_result['query']
-
-        # Set the flag if the handler determined web search/scrape is needed
-        if process_result['mode'] in ['web_search', 'link_scrape']:
-            logging.info(
-                f"Web search/scrape triggered by handler. Mode: {process_result['mode']}")
-            updated_state['use_web_search'] = True
-            # The actual search happens in the web_search node
-            # Keep the original query in updated_state['query'] for context in later steps
-            # The web_search node will use updated_state['web_search_query']
-        else:
-            # If web search wasn't triggered by the handler, update the main query
-            # with the result from the context processor (which might have just extracted context)
-            updated_state['query'] = process_result['query']
-
-        logging.debug(
-            f"Parsed query. State: use_vision={updated_state['use_vision']}, use_web_search={updated_state['use_web_search']}, web_search_query={updated_state['web_search_query']}")
-        return updated_state
-
-    def web_search(self, state: GraphState) -> GraphState:
-        """Perform web search or link scraping if triggered."""
-        updated_state = state.copy()
-        logging.info("Entering web_search node")
-
-        if not updated_state.get('use_web_search', False):
-            logging.debug("Skipping web search - use_web_search is false.")
-            # Ensure flag is false if somehow reached here erroneously
-            updated_state['use_web_search'] = False
-            return updated_state
-
-        selected_text = updated_state.get('selected_text')
-
-        # Re-run context processing using the *original* query from the state
-        # to ensure we correctly identify the mode (web_search vs link_scrape)
-        # and extract the URL if it's a scrape.
-        process_result = self.web_search_handler.process_query_context(
-            updated_state['query'],  # Use original query for context detection
-            {'selected_text': selected_text}
-        )
-
-        search_mode = process_result.get('mode')
-        if search_mode not in ['web_search', 'link_scrape']:
-            logging.warning(
-                f"Web search node entered, but mode is '{search_mode}' based on original query. Skipping search.")
-            # Turn off flag if mode is wrong
-            updated_state['use_web_search'] = False
-            return updated_state
-
-        logging.info(f"Executing {search_mode}...")
-
-        # --- CORRECTED CALL ---
-        # Pass the full process_result dictionary obtained above directly
-        search_result = self.web_search_handler.execute_search_or_scrape(
-            process_result,  # Pass the dictionary directly
-            selected_text
-        )
-        # --- END CORRECTION ---
-
-        # Store results in the state
-        updated_state['web_search_results'] = search_result
-        logging.debug(f"Web search/scrape execution results: {search_result}")
-
-        return updated_state
-
-    def vision_processing(self, state: GraphState) -> GraphState:
-        """Process image data using the VisionHandler if needed."""
-        updated_state = state.copy()
-        logging.info("Entering vision_processing node")
-        use_vis = updated_state.get('use_vision')
-        has_img = updated_state.get('image_data') is not None
-        logging.debug(
-            f"Inside vision_processing: use_vision={use_vis}, has_image={has_img}")
-
-        if not use_vis or not has_img:
-            logging.debug(
-                "Skipping vision processing - use_vision is false or no image data.")
-            # Ensure flag is false if state is inconsistent
-            updated_state['use_vision'] = False
-            return updated_state
-
-        try:
-            logging.info("Calling VisionHandler to get visual description.")
-            description = self.vision_handler.get_visual_description(
-                image_data_base64=updated_state['image_data'],
-                # Use original query as hint
-                prompt_hint=updated_state['query']
-            )
-
-            if description:
-                # Vision model processed the image and returned a description
-                updated_state['vision_description'] = description
-                logging.info("Vision description generated successfully.")
-                # If we have a description, then the main model shouldn't get the image
-                updated_state['use_vision'] = True
-            else:
-                # Check if vision model is not configured
-                if not self.vision_handler.has_vision_model_configured():
-                    logging.info(
-                        "No vision model configured - passing image to main model")
-                    # Keep use_vision=True so the image is passed to the main model
-                    updated_state['vision_description'] = None
-                else:
-                    # Vision model failed to generate a description
-                    logging.warning("VisionHandler returned no description.")
-                    # Add a system note later in prepare_messages if description failed
-                    updated_state['vision_description'] = None
-        except Exception as e:
-            logging.error(
-                f"Error during vision processing: {str(e)}", exc_info=True)
-            # Add a system note later in prepare_messages
-            # Explicitly set to None
-            updated_state['vision_description'] = None
-
-        return updated_state
-
-    def prepare_messages(self, state: GraphState) -> GraphState:
-        """Prepare the messages list for the LLM, incorporating web results and vision description."""
-        updated_state = state.copy()
-        logging.info("Entering prepare_messages node")
-
-        # Start with system message
-        messages = [SystemMessage(content=self.system_prompt)]
-
-        # Add mode-specific instruction
-        if state['mode'] == 'compose':
-            mode_instruction = COMPOSE_MODE_INSTRUCTION
-        else:
-            mode_instruction = CHAT_MODE_INSTRUCTION
-
-        messages.append(SystemMessage(content=mode_instruction))
-
-        # <<< MODIFIED SECTION: Incorporate Web Search/Scrape Results >>>
-        web_search_results = state.get('web_search_results')
-        final_query_text = updated_state['query']  # Start with original query
-
-        if web_search_results:
-            logging.info(
-                "Incorporating web search/scrape results into messages.")
-            if web_search_results.get('status') == 'error':
-                logging.error(
-                    f"Web search/scrape failed: {web_search_results.get('error')}")
-                # Modify query to inform LLM about the error
-                search_mode_desc = web_search_results.get(
-                    'mode', 'web task').replace('_', ' ')  # Use a generic term
-                error_info = web_search_results.get('error', 'Unknown error')
-                # The query before web node modified it
-                original_query = updated_state['query']
-                final_query_text = f"I tried to perform a {search_mode_desc} based on the query '{original_query}' but encountered an error: {error_info}. Please answer the original query '{original_query}' without the web results."
-            elif web_search_results.get('status') == 'success':
-                # Use the fully formatted query from the web_search_handler
-                if 'query' in web_search_results:
-                    final_query_text = web_search_results['query']
-                    logging.debug(
-                        "Using pre-formatted query from web_search_handler.")
-                else:
-                    logging.warning(
-                        "Web search results status is success, but 'query' key is missing. Using original query.")
-
-                # Add system instruction from web_search_handler if it exists
-                if web_search_results.get('system_instruction'):
-                    messages.append(SystemMessage(
-                        content=web_search_results['system_instruction']))
-                    logging.debug(
-                        "Added system instruction from web_search_handler.")
-            else:
-                logging.warning(
-                    f"Web search results present but status is not 'success' or 'error': {web_search_results.get('status')}")
-                # Fallback to original query if status is unexpected
-
-        # <<< END MODIFIED SECTION >>>
-
-        # Add chat history
-        session_id = state['session_id']
-        message_history = self._get_message_history(session_id)
-        history_messages = message_history.messages[-self.history_limit:
-                                                    ] if message_history.messages else []
-
-        # Convert to appropriate message types
-        typed_history = []
-        for msg in history_messages:
-            if isinstance(msg, HumanMessage):
-                typed_history.append(msg)
-            elif isinstance(msg, AIMessage):
-                typed_history.append(msg)
-            elif isinstance(msg, SystemMessage):
-                typed_history.append(msg)
-            elif hasattr(msg, 'type') and hasattr(msg, 'content'):
-                if msg.type == 'human':
-                    typed_history.append(HumanMessage(content=msg.content))
-                elif msg.type == 'ai':
-                    typed_history.append(AIMessage(content=msg.content))
-
-        messages.extend(typed_history)
-
-        # Start constructing the final query content
-        # Already contains web results if applicable
-        final_query_content = final_query_text
-
-        # Append selected text if present AND not already added via web blocks
-        if state.get('selected_text') and "=====SELECTED_TEXT=====" not in final_query_content:
-            final_query_content += f"\\n\\n=====SELECTED_TEXT=====<text selected by the user>\\n{state['selected_text']}\\n======================="
-
-        # Determine final message type based on image and vision description
-        image_data = state.get('image_data')
-        vision_description = state.get('vision_description')
-        is_vision_model_configured = self.vision_handler.has_vision_model_configured()
-
-        if vision_description:
-            # Case 1: Vision model success - Append description, send text-only
-            logging.info(
-                "Vision description present. Appending to text query.")
-            final_query_content += f"\\n\\n=====VISUAL_DESCRIPTION=====<description generated by vision model>\\n{vision_description}\\n======================="
-            query_message = HumanMessage(content=final_query_content)
-
-        elif image_data:
-            # Image present, but no description generated
-            if is_vision_model_configured:
-                # Case 3: Vision model configured but failed - Send text-only with error note
-                logging.warning(
-                    "Image present, vision model configured but failed. Adding system note.")
-                final_query_content += "\\n\\n=====SYSTEM_NOTE=====\\n(Failed to process the provided visual input using the configured vision model.)\\n====================="
-                query_message = HumanMessage(content=final_query_content)
-            else:
-                # Case 2: No vision model configured - Send multimodal message
-                logging.info(
-                    "Image present, no vision model configured. Constructing multimodal message.")
-                # Clean base64 data
-                if image_data.startswith('data:'):
-                    image_data = image_data.split(',', 1)[-1]
-                content_blocks = [
-                    {"type": "text", "text": final_query_content},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{image_data}"}
-                    }
-                ]
-                query_message = HumanMessage(content=content_blocks)
-        else:
-            # Case 4: No image data - Send text-only
-            logging.info("No image data. Constructing text-only message.")
-            query_message = HumanMessage(content=final_query_content)
-
-        # Add the final prepared query message to the list
-        messages.append(query_message)
-
-        # Save the prepared messages
-        updated_state['messages'] = messages
-        logging.debug(f"Prepared messages: {messages}")
-
-        return updated_state
-
-    def generate_response(self, state: GraphState) -> GraphState:
-        """Generate a response using the LLM."""
-        updated_state = state.copy()
-        llm_instance = state.get('llm_instance')
-
-        try:
-            # Ensure LLM instance is available from the state
-            if not llm_instance:
-                # Fallback: try to use self.llm or initialize if absolutely necessary
-                logging.warning(
-                    "LLM instance not found in state, attempting fallback...")
-                if not self.llm:
-                    if not self.initialize_llm(model_name=state.get('model_name')):
-                        updated_state['response'] = "⚠️ LLM could not be initialized from state or fallback."
-                        return updated_state
-                    llm_instance = self.llm  # Use the newly initialized one
-                else:
-                    llm_instance = self.llm  # Use the existing self.llm as fallback
-
-            # Get response from the specific LLM instance
-            response = llm_instance.invoke(state['messages'])
-            final_response = response.content.strip()
-
-            # Process response based on mode
-            is_compose_mode = (state['mode'] == 'compose')
-            if is_compose_mode:
-                final_response, detected_language = self._extract_code_block(
-                    final_response)
-                updated_state['detected_language'] = detected_language
-
-            # Add to chat history
-            session_id = state['session_id']
-            message_history = self._get_message_history(session_id)
-            message_history.add_message(state['messages'][-1])  # Add the query
-            message_history.add_message(AIMessage(content=final_response))
-
-            # Update state with response
-            updated_state['response'] = final_response
-
-            return updated_state
-
-        except Exception as e:
-            logging.error(
-                f"Error getting LLM response in generate_response node: {str(e)}", exc_info=True)
-            error_msg = str(e)
-
-            if "NotFoundError" in error_msg:
-                if "Model" in error_msg and "does not exist" in error_msg:
-                    updated_state['response'] = "⚠️ Error: The selected model is not available. Please check the model ID in settings."
-            elif "AuthenticationError" in error_msg or "api_key" in error_msg.lower():
-                updated_state['response'] = "⚠️ Error: Invalid API key. Please check your API key in settings."
-            elif "RateLimitError" in error_msg:
-                updated_state['response'] = "⚠️ Error: Rate limit exceeded. Please try again in a moment."
-            elif "InvalidRequestError" in error_msg:
-                updated_state['response'] = "⚠️ Error: Invalid request. Please try again with different input."
-            elif "ServiceUnavailableError" in error_msg:
-                updated_state['response'] = "⚠️ Error: Service is currently unavailable. Please try again later."
-            elif "ConnectionError" in error_msg or "Connection refused" in error_msg:
-                updated_state['response'] = "⚠️ Error: Could not connect to the API server. Please check your internet connection and the base URL in settings."
-            else:
-                updated_state['response'] = f"⚠️ Error in generate_response: {error_msg}"
-
-            return updated_state
-
-    def _extract_code_block(self, response: str):
-        """Extract code blocks from response text."""
-        # Strip whitespace for more reliable pattern matching
-        stripped_response = response.strip()
-
-        # Check if response starts with triple backticks and ends with triple backticks
-        if stripped_response.startswith("```") and stripped_response.endswith("```"):
-            # Find the first newline to extract language
-            first_line_end = stripped_response.find("\n")
-            if first_line_end > 3:  # We have a language identifier
-                language = stripped_response[3:first_line_end].strip().lower()
-                # Remove the starting line with backticks and language
-                content = stripped_response[first_line_end+1:-3].strip()
-                return content, language
-            else:
-                # No language specified
-                content = stripped_response[4:-3].strip()
-                return content, None
-
-        # Fallback to regex for more complex patterns
-        code_block_pattern = r'^\s*```(\w*)\s*\n([\s\S]*?)\n\s*```\s*$'
-        match = re.match(code_block_pattern, stripped_response)
-
-        if match:
-            language = match.group(1).strip().lower() or None
-            code_content = match.group(2)
-            return code_content, language
-
-        # If we get here, it wasn't a code block or the pattern didn't match
-        return response, None
-
-    def _build_graph(self):
-        """Build the LangGraph processing graph with conditional web search and vision processing."""
-        # Create the state graph
-        graph = StateGraph(GraphState)
-
-        # Add nodes
-        graph.add_node("initialize", self.initialize_state)
-        graph.add_node("parse_query", self.parse_query)
-        graph.add_node("web_search", self.web_search)
-        graph.add_node("vision_processing",
-                       self.vision_processing)  # Added node
-        graph.add_node("prepare_messages", self.prepare_messages)
-        graph.add_node("generate_response", self.generate_response)
-
-        # Add edges
-        graph.add_edge(START, "initialize")
-        graph.add_edge("initialize", "parse_query")
-
-        # --- Conditional Routing ---
-
-        # Decision function after parse_query
-        def route_after_parse(state: GraphState):
-            use_web = state.get("use_web_search", False)
-            use_vis = state.get("use_vision", False)
-            has_img = state.get("image_data") is not None
-            logging.debug(
-                f"Routing decision (after parse): use_web={use_web}, use_vision={use_vis}, has_image={has_img}")
-
-            # First check if web search is needed
-            if use_web:
-                logging.debug("Routing from parse_query to web_search")
-                return "web_search"
-            # Then check if vision processing is needed AND a vision model is configured
-            elif use_vis and has_img and self.vision_handler.has_vision_model_configured():
-                logging.debug(
-                    "Routing from parse_query to vision_processing (vision model configured)")
-                return "vision_processing"
-            # If no vision model is configured but we have an image, route directly to prepare_messages
-            # The image will be passed directly to the main model
-            elif use_vis and has_img:
-                logging.debug(
-                    "Routing from parse_query directly to prepare_messages (no vision model configured)")
-                return "prepare_messages"
-            else:
-                logging.debug("Routing from parse_query to prepare_messages")
-                return "prepare_messages"
-
-        graph.add_conditional_edges(
-            "parse_query",
-            route_after_parse,
-            {
-                "web_search": "web_search",
-                "vision_processing": "vision_processing",
-                "prepare_messages": "prepare_messages"
-            }
-        )
-
-        # Decision function after web_search
-        def route_after_web_search(state: GraphState):
-            # Check if vision processing is still needed after web search
-            use_vis = state.get("use_vision", False)
-            has_img = state.get("image_data") is not None
-            logging.debug(
-                f"Routing decision (after web_search): use_vision={use_vis}, has_image={has_img}")
-
-            # Only route to vision_processing if we have an image AND a vision model is configured
-            if use_vis and has_img and self.vision_handler.has_vision_model_configured():
-                logging.debug(
-                    "Routing from web_search to vision_processing (vision model configured)")
-                return "vision_processing"
-            else:
-                # If no vision model configured but we have an image, route directly to prepare_messages
-                # The image will be passed directly to the main model (if the model supports it)
-                logging.debug("Routing from web_search to prepare_messages")
-                return "prepare_messages"
-
-        graph.add_conditional_edges(
-            "web_search",
-            route_after_web_search,
-            {
-                "vision_processing": "vision_processing",
-                "prepare_messages": "prepare_messages"
-            }
-        )
-
-        # Edge from vision_processing (if taken) to prepare_messages
-        graph.add_edge("vision_processing", "prepare_messages")
-
-        # Remaining edges
-        graph.add_edge("prepare_messages", "generate_response")
-        graph.add_edge("generate_response", END)
-
-        # Return the uncompiled graph definition
-        logging.info(
-            "LangGraph graph definition built successfully with conditional web search and vision processing.")
-        return graph
-
-    async def get_response_async(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default", selected_text: str = None, mode: str = "chat", image_data: Optional[str] = None) -> str:
-        """
-        Process a query asynchronously using the LangGraph application and stream the response.
-
-        Args:
-            query: The user's query.
-            callback: Optional callback function to receive streamed chunks.
-            model: Optional specific model ID to use.
-            session_id: The session ID for maintaining chat history.
-            selected_text: Optional selected text from the user's environment.
-            mode: The interaction mode ("chat" or "compose").
-            image_data: Optional base64 encoded image data for vision models.
-
-        Returns:
-            The complete response string.
-        """
-        try:
-            logging.info(
-                f"get_response_async called: model={model}, session_id={session_id}, mode={mode}, has_image_data={image_data is not None}")
-            if image_data:
-                logging.debug(
-                    f"Image data received (first 50 chars): {image_data[:50]}...")
-
-            loop = asyncio.get_event_loop()  # Get the current event loop
-            logging.info(
-                f"get_response_async called with model: {model}, session_id: {session_id}, mode: {mode}")
-
-            # --- Initialize LLM based on model (or default) ---
-            if model:
-                selected_models = self.settings.get_selected_models()
-                model_info = next(
-                    (m for m in selected_models if m.get('id') == model), None)
-                if not model_info:
-                    logging.error(
-                        f"Model '{model}' not found. Falling back to default.")
-                    # Fallback to default if specific model not found/initialized
-                    if not self.initialize_llm():
-                        raise ValueError("Failed to initialize default LLM.")
-                else:
-                    if not self.initialize_llm(model_name=model, model_info=model_info):
-                        raise ValueError(
-                            f"Failed to initialize LLM for model: {model}")
-            elif not self.llm:  # Initialize default if no LLM exists
-                if not self.initialize_llm():
-                    raise ValueError(
-                        "LLM is not initialized and default failed.")
-            # --- LLM Initialization END ---
-
-            # Prepare initial state
-            initial_state = GraphState(
-                query=query,
-                session_id=session_id,
-                selected_text=selected_text,
-                mode=mode,
-                image_data=image_data,
-                model_name=model if model else getattr(self.llm, 'model_name', None) or getattr(
-                    self.llm, 'model', 'unknown'),  # Use actual model name
-                messages=[],
-                use_web_search=False,
-                web_search_query=None,
-                web_search_results=None,
-                use_vision=bool(image_data),
-                vision_description=None,
-                llm_instance=self.llm,  # Pass the initialized LLM instance
-                response="",
-                detected_language=None
-            )
-
-            # Prepare configuration for the specific session
-            config = {"configurable": {"session_id": session_id}}
-
-            full_response = ""
-            stream = self.app.astream(initial_state, config=config)
-
-            # --- Stream Processing ---
-            # Run the streaming part explicitly in the current loop
-            stream_task = loop.create_task(
-                self._process_stream(stream, callback))
-            await stream_task  # Wait for the streaming task to complete
-
-            # The final state should contain the complete response after streaming
-            # However, LangGraph streaming might not update the final state directly in the iterator
-            # We accumulate the response via the callback or within _process_stream
-            # Let's retrieve the final state to check if 'response' is updated
-            # Note: This might require adjustments based on LangGraph's async streaming behavior
-
-            # It seems LangGraph's astream might yield intermediate states.
-            # Let's try getting the final accumulated response from the task result.
-            final_response_from_task = stream_task.result()
-            if final_response_from_task:
-                full_response = final_response_from_task
-            else:
-                # Fallback or alternative way to get the final state if needed
-                # This part might be complex depending on how LangGraph manages state in async streams
-                logging.warning(
-                    "Could not retrieve final response from stream task result. Accumulated response might be incomplete.")
-                # We rely on the callback having accumulated the full_response if the task doesn't return it
-
-            logging.info(
-                f"Final response for session {session_id}: {full_response[:100]}...")
-            return full_response
-
-        except RuntimeError as e:
-            # Catch the specific loop error
-            if "attached to a different loop" in str(e):
-                logging.error(
-                    f"Caught asyncio loop error: {e}. This might indicate an issue with nest_asyncio or thread interaction.")
-                # Potentially re-raise or handle differently if needed
-                raise e  # Re-raise for now
-            else:
-                logging.error(f"Runtime error during async response: {e}")
-                raise e
-        except Exception as e:
-            logging.exception(
-                f"Error during async LLM stream for session {session_id}: {e}")
-            # Ensure callback is called with error if provided
-            if callback:
-                try:
-                    callback(f"Error: {e}")
-                except Exception as cb_err:
-                    logging.error(
-                        f"Error calling callback with error message: {cb_err}")
-            raise  # Re-raise the exception after logging
-
-    async def _process_stream(self, stream, callback: Optional[Callable[[str], None]] = None) -> str:
-        """Helper coroutine to process the LangGraph stream and call the callback."""
-        full_response = ""
-        try:
-            async for event in stream:
-                # Determine the type of event and extract relevant data
-                # LangGraph streams yield dictionaries where keys are node names
-                # and values are the outputs of those nodes (or the state itself)
-                logging.debug(f"Stream event: {event}")
-
-                # Check if the event contains the final response or intermediate steps
-                # Adjust this logic based on your graph structure and node names
-                response_chunk = None
-
-                # Look for response chunks in the event data
-                # This depends heavily on your graph structure and node names
-                for node_name, node_output in event.items():
-                    if isinstance(node_output, dict):
-                        # Check common places for response chunks
-                        if "response" in node_output and isinstance(node_output["response"], str):
-                            # Check if it's an update to the final response
-                            if node_output["response"] != full_response:
-                                new_part = node_output["response"][len(
-                                    full_response):]
-                                if new_part:
-                                    response_chunk = new_part
-                                    # Update tracked full response
-                                    full_response = node_output["response"]
-                                    break  # Found response chunk in this node output
-                        elif "messages" in node_output and isinstance(node_output["messages"], list):
-                            # Check the last message if it's an AIMessage chunk
-                            if node_output["messages"]:
-                                last_message = node_output["messages"][-1]
-                                if isinstance(last_message, AIMessage) and isinstance(last_message.content, str):
-                                    # Check if it's a new chunk added to the last AI message
-                                    # This logic assumes streaming updates the content of the last message
-                                    current_ai_content = last_message.content
-                                    # Find the previous AI message content to diff (more complex state needed)
-                                    # Simple approach: assume any AI message content is part of the stream
-                                    # This might repeat content if the full message is sent multiple times
-                                    # A better approach relies on LangChain's streaming format if available directly
-                                    # Let's assume the 'generate_response' node output might be the direct chunk
-                                    pass  # Avoid complex message diffing for now
-
-                # Specific check for the likely response generation node
-                # Replace 'generate_response_node_name' with the actual name of your LLM call node
-                generate_node_name = "generate_response"  # Assuming this is the node name
-                if generate_node_name in event:
-                    node_output = event[generate_node_name]
-                    # Check if the output is directly the AIMessageChunk or similar streaming object
-                    if hasattr(node_output, 'content'):
-                        response_chunk = node_output.content
-                        if response_chunk:
-                            full_response += response_chunk  # Accumulate here if chunks are delta
-                    # Fallback check if node output is a dict containing the response
-                    elif isinstance(node_output, dict) and "response" in node_output:
-                        # This logic assumes the full response is sent each time, calculate delta
-                        current_full = node_output["response"]
-                        if isinstance(current_full, str) and current_full != full_response:
-                            new_part = current_full[len(full_response):]
-                            if new_part:
-                                response_chunk = new_part
-                                full_response = current_full  # Update tracked full response
-
-                # Fallback: If the event itself is a string (less likely with LangGraph state updates)
-                elif isinstance(event, str):
-                    response_chunk = event
-
-                # If a chunk was identified, process and callback
-                if response_chunk:
-                    # full_response += response_chunk # Accumulate only if chunk represents new part
-                    if callback:
-                        try:
-                            # Ensure callback runs in the correct context if needed
-                            # loop = asyncio.get_running_loop()
-                            # loop.call_soon_threadsafe(callback, response_chunk) # If callback needs main thread
-                            # Direct call if callback is thread-safe/async-safe
-                            callback(response_chunk)
-                        except Exception as cb_err:
-                            logging.error(
-                                f"Error in stream callback: {cb_err}")
-
-            logging.debug("Stream finished.")
-            return full_response
-        except Exception as e:
-            logging.exception(f"Error processing LLM stream: {e}")
-            if callback:
-                try:
-                    callback(f"Error during streaming: {e}")
-                except Exception as cb_err:
-                    logging.error(
-                        f"Error calling callback with stream error message: {cb_err}")
-            return full_response  # Return whatever was accumulated before the error
-
-    def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None, session_id: str = "default", selected_text: str = None, mode: str = "chat", image_data: Optional[str] = None) -> str:
+    # Delegate to ResponseGenerator
+    def get_response(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None,
+                     session_id: str = "default", selected_text: str = None,
+                     mode: str = "chat", image_data: Optional[str] = None) -> str:
         """Synchronous wrapper for get_response_async."""
-        try:
-            # Get the current running event loop or create a new one if none exists
-            # This is important when calling from a synchronous context (like Qt signal handlers)
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If a loop is already running (e.g., from nest_asyncio), create a future
-                # and run the coroutine within that loop.
-                future = asyncio.ensure_future(
-                    self.get_response_async(
-                        query, callback, model, session_id, selected_text, mode, image_data)
-                )
-                # This part is tricky. Blocking here might freeze the UI if called from the main thread.
-                # Consider running this in a separate thread if blocking is an issue.
-                # For now, let's assume nest_asyncio handles the blocking correctly.
-                return loop.run_until_complete(future)
-            else:
-                # If no loop is running, asyncio.run can be used (but nest_asyncio should make this rare)
-                return asyncio.run(
-                    self.get_response_async(
-                        query, callback, model, session_id, selected_text, mode, image_data)
-                )
-        except RuntimeError as e:
-            if "cannot run nested event loops" in str(e) or "cannot schedule new futures after shutdown" in str(e):
-                # This might happen if nest_asyncio isn't working as expected or due to shutdown sequences
-                logging.error(
-                    f"Caught common asyncio runtime error: {e}. Trying fallback loop management.")
-                # Fallback: try creating a new loop specifically for this call (might have side effects)
-                try:
-                    return asyncio.run(
-                        self.get_response_async(
-                            query, callback, model, session_id, selected_text, mode, image_data)
-                    )
-                except Exception as fallback_e:
-                    logging.error(
-                        f"Fallback asyncio.run also failed: {fallback_e}")
-                    raise fallback_e from e
-            elif "attached to a different loop" in str(e):
-                logging.error(
-                    f"Caught asyncio loop error: {e}. This might indicate an issue with nest_asyncio or thread interaction.")
-                raise e
-            else:
-                logging.error(f"Runtime error during sync wrapper: {e}")
-                raise e
-        except Exception as e:
-            logging.exception(f"Error in get_response sync wrapper: {e}")
-            raise
+        return self.response_generator.get_response(
+            query=query,
+            callback=callback,
+            model=model,
+            session_id=session_id,
+            selected_text=selected_text,
+            mode=mode,
+            image_data=image_data
+        )
 
+    # Delegate to ResponseGenerator
     def suggest_filename(self, content: str, session_id: str = "default") -> str:
         """Suggest a filename based on content and recent query history."""
-        try:
-            # Get message history for this session
-            message_history = self._get_message_history(session_id)
+        return self.response_generator.suggest_filename(content, session_id)
 
-            # Get the most recent user query from history
-            messages = message_history.messages
-            recent_query = ""
-
-            # Find the most recent user query
-            if messages:
-                for msg in reversed(messages):
-                    if isinstance(msg, HumanMessage):
-                        recent_query = msg.content
-                        break
-
-            # Check if we have a detected language that would suggest a better extension
-            file_extension = ".md"  # Default extension
-            extension_hint = ""
-
-            if self.detected_language:
-                # Map language to file extension
-                extension_map = {
-                    "python": ".py",
-                    "py": ".py",
-                    "javascript": ".js",
-                    "js": ".js",
-                    "typescript": ".ts",
-                    "ts": ".ts",
-                    "java": ".java",
-                    "c": ".c",
-                    "cpp": ".cpp",
-                    "c++": ".cpp",
-                    "csharp": ".cs",
-                    "c#": ".cs",
-                    "go": ".go",
-                    "rust": ".rs",
-                    "ruby": ".rb",
-                    "php": ".php",
-                    "swift": ".swift",
-                    "kotlin": ".kt",
-                    "html": ".html",
-                    "css": ".css",
-                    "sql": ".sql",
-                    "shell": ".sh",
-                    "bash": ".sh",
-                    "json": ".json",
-                    "xml": ".xml",
-                    "yaml": ".yaml",
-                    "yml": ".yml",
-                    "markdown": ".md",
-                    "md": ".md",
-                    "text": ".txt",
-                    "plaintext": ".txt",
-                }
-
-                if self.detected_language.lower() in extension_map:
-                    file_extension = extension_map[self.detected_language.lower(
-                    )]
-                    extension_hint = f"(use {file_extension} extension for this {self.detected_language} code)"
-
-            # Create the prompt for filename suggestion using the template from prompts hub
-            filename_query = FILENAME_SUGGESTION_TEMPLATE.format(
-                file_extension=file_extension,
-                extension_hint=extension_hint,
-                recent_query=recent_query,
-                content=content[:500]
-            )
-
-            # Create direct message list
-            messages = [
-                SystemMessage(content=self.system_prompt),
-                HumanMessage(content=filename_query)
-            ]
-
-            # Invoke the LLM directly
-            response = self.llm.invoke(messages)
-            suggested_filename = response.content.strip().strip('"').strip("'").strip()
-
-            # Ensure correct extension
-            if not suggested_filename.endswith(file_extension):
-                if '.' in suggested_filename:
-                    suggested_filename = suggested_filename.split('.')[0]
-                suggested_filename += file_extension
-
-            # Reset detected language
-            self.detected_language = None
-
-            return suggested_filename
-
-        except Exception as e:
-            logging.error(
-                f"Error suggesting filename: {str(e)}", exc_info=True)
-            # Return default filename with timestamp
-            from datetime import datetime
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-            # Use stored language for extension if available
-            extension = ".md"
-            # Simplified extension logic based on potential language hints
-            lang_lower = (self.detected_language or "").lower()
-            if lang_lower in ["python", "py"]:
-                extension = ".py"
-            elif lang_lower in ["javascript", "js"]:
-                extension = ".js"
-            elif lang_lower in ["typescript", "ts"]:
-                extension = ".ts"
-            elif lang_lower in ["html"]:
-                extension = ".html"
-            elif lang_lower in ["css"]:
-                extension = ".css"
-            elif lang_lower in ["json"]:
-                extension = ".json"
-            elif lang_lower in ["yaml", "yml"]:
-                extension = ".yaml"
-            elif lang_lower in ["shell", "bash", "sh"]:
-                extension = ".sh"
-            elif lang_lower in ["sql"]:
-                extension = ".sql"
-            # Add other common languages as needed
-            elif lang_lower in ["text", "plaintext"]:
-                extension = ".txt"
-
-            # Reset detected language
-            self.detected_language = None
-
-            return f"dasi_response_{timestamp}{extension}"
+    # Forward tool call results to graph nodes
+    def handle_tool_call_result(self, result):
+        """Handle the result of a tool call from the tool handler."""
+        logging.info(f"Forwarding tool call result to graph nodes: {result}")
+        self.graph_nodes._on_tool_call_completed(result)

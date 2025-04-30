@@ -204,6 +204,34 @@ wheels = [
 ]
 
 [[package]]
+name = "cairocffi"
+version = "1.7.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cffi" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/70/c5/1a4dc131459e68a173cbdab5fad6b524f53f9c1ef7861b7698e998b837cc/cairocffi-1.7.1.tar.gz", hash = "sha256:2e48ee864884ec4a3a34bfa8c9ab9999f688286eb714a15a43ec9d068c36557b", size = 88096 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/93/d8/ba13451aa6b745c49536e87b6bf8f629b950e84bd0e8308f7dc6883b67e2/cairocffi-1.7.1-py3-none-any.whl", hash = "sha256:9803a0e11f6c962f3b0ae2ec8ba6ae45e957a146a004697a1ac1bbf16b073b3f", size = 75611 },
+]
+
+[[package]]
+name = "cairosvg"
+version = "2.7.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cairocffi" },
+    { name = "cssselect2" },
+    { name = "defusedxml" },
+    { name = "pillow" },
+    { name = "tinycss2" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d5/e6/ec5900b724e3c44af7f6f51f719919137284e5da4aabe96508baec8a1b40/CairoSVG-2.7.1.tar.gz", hash = "sha256:432531d72347291b9a9ebfb6777026b607563fd8719c46ee742db0aef7271ba0", size = 8399085 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/01/a5/1866b42151f50453f1a0d28fc4c39f5be5f412a2e914f33449c42daafdf1/CairoSVG-2.7.1-py3-none-any.whl", hash = "sha256:8a5222d4e6c3f86f1f7046b63246877a63b49923a1cd202184c3a634ef546b3b", size = 43235 },
+]
+
+[[package]]
 name = "certifi"
 version = "2025.1.31"
 source = { registry = "https://pypi.org/simple" }
@@ -352,6 +380,19 @@ wheels = [
 ]
 
 [[package]]
+name = "cssselect2"
+version = "0.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tinycss2" },
+    { name = "webencodings" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9f/86/fd7f58fc498b3166f3a7e8e0cddb6e620fe1da35b02248b1bd59e95dbaaa/cssselect2-0.8.0.tar.gz", hash = "sha256:7674ffb954a3b46162392aee2a3a0aedb2e14ecf99fcc28644900f4e6e3e9d3a", size = 35716 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0f/e7/aa315e6a749d9b96c2504a1ba0ba031ba2d0517e972ce22682e3fccecb09/cssselect2-0.8.0-py3-none-any.whl", hash = "sha256:46fc70ebc41ced7a32cd42d58b1884d72ade23d21e5a4eaaf022401c13f0e76e", size = 15454 },
+]
+
+[[package]]
 name = "darkdetect"
 version = "0.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -366,6 +407,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
+    { name = "cairosvg" },
     { name = "duckduckgo-search" },
     { name = "exa-py" },
     { name = "invoke" },
@@ -385,6 +427,7 @@ dependencies = [
     { name = "langchain-xai" },
     { name = "langgraph" },
     { name = "nest-asyncio" },
+    { name = "psutil" },
     { name = "pyautogui" },
     { name = "pyinstaller" },
     { name = "pynput" },
@@ -400,6 +443,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12.3" },
+    { name = "cairosvg", specifier = ">=2.7.1" },
     { name = "duckduckgo-search", specifier = ">=7.5.0" },
     { name = "exa-py", specifier = ">=1.0.6" },
     { name = "invoke", specifier = ">=2.2.0" },
@@ -419,6 +463,7 @@ requires-dist = [
     { name = "langchain-xai", specifier = ">=0.1.0" },
     { name = "langgraph", specifier = ">=0.3.27" },
     { name = "nest-asyncio", specifier = ">=1.6.0" },
+    { name = "psutil", specifier = ">=7.0.0" },
     { name = "pyautogui", specifier = ">=0.9.54" },
     { name = "pyinstaller", specifier = ">=6.12.0" },
     { name = "pynput", specifier = ">=1.7.6" },
@@ -442,6 +487,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/64/a4/f71d9cf3a5ac257c993b5ca3f93df5f7fb395c725e7f1e6479d2514173c3/dataclasses_json-0.6.7.tar.gz", hash = "sha256:b6b3e528266ea45b9535223bc53ca645f5208833c29229e847b3f26a1cc55fc0", size = 32227 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c3/be/d0d44e092656fe7a06b55e6103cbce807cdbdee17884a5367c68c9860853/dataclasses_json-0.6.7-py3-none-any.whl", hash = "sha256:0dbf33f26c8d5305befd61b39d2b3414e8a407bedc2834dea9b8d642666fb40a", size = 28686 },
+]
+
+[[package]]
+name = "defusedxml"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/d5/c66da9b79e5bdb124974bfe172b4daf3c984ebd9c2a06e2b8a4dc7331c72/defusedxml-0.7.1.tar.gz", hash = "sha256:1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69", size = 75520 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/6c/aa3f2f849e01cb6a001cd8554a88d4c77c5c1a31c95bdf1cf9301e6d9ef4/defusedxml-0.7.1-py2.py3-none-any.whl", hash = "sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61", size = 25604 },
 ]
 
 [[package]]
@@ -1942,6 +1996,21 @@ wheels = [
 ]
 
 [[package]]
+name = "psutil"
+version = "7.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2a/80/336820c1ad9286a4ded7e845b2eccfcb27851ab8ac6abece774a6ff4d3de/psutil-7.0.0.tar.gz", hash = "sha256:7be9c3eba38beccb6495ea33afd982a44074b78f28c434a1f51cc07fd315c456", size = 497003 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ed/e6/2d26234410f8b8abdbf891c9da62bee396583f713fb9f3325a4760875d22/psutil-7.0.0-cp36-abi3-macosx_10_9_x86_64.whl", hash = "sha256:101d71dc322e3cffd7cea0650b09b3d08b8e7c4109dd6809fe452dfd00e58b25", size = 238051 },
+    { url = "https://files.pythonhosted.org/packages/04/8b/30f930733afe425e3cbfc0e1468a30a18942350c1a8816acfade80c005c4/psutil-7.0.0-cp36-abi3-macosx_11_0_arm64.whl", hash = "sha256:39db632f6bb862eeccf56660871433e111b6ea58f2caea825571951d4b6aa3da", size = 239535 },
+    { url = "https://files.pythonhosted.org/packages/2a/ed/d362e84620dd22876b55389248e522338ed1bf134a5edd3b8231d7207f6d/psutil-7.0.0-cp36-abi3-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:1fcee592b4c6f146991ca55919ea3d1f8926497a713ed7faaf8225e174581e91", size = 275004 },
+    { url = "https://files.pythonhosted.org/packages/bf/b9/b0eb3f3cbcb734d930fdf839431606844a825b23eaf9a6ab371edac8162c/psutil-7.0.0-cp36-abi3-manylinux_2_12_x86_64.manylinux2010_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4b1388a4f6875d7e2aff5c4ca1cc16c545ed41dd8bb596cefea80111db353a34", size = 277986 },
+    { url = "https://files.pythonhosted.org/packages/eb/a2/709e0fe2f093556c17fbafda93ac032257242cabcc7ff3369e2cb76a97aa/psutil-7.0.0-cp36-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a5f098451abc2828f7dc6b58d44b532b22f2088f4999a937557b603ce72b1993", size = 279544 },
+    { url = "https://files.pythonhosted.org/packages/50/e6/eecf58810b9d12e6427369784efe814a1eec0f492084ce8eb8f4d89d6d61/psutil-7.0.0-cp37-abi3-win32.whl", hash = "sha256:ba3fcef7523064a6c9da440fc4d6bd07da93ac726b5733c29027d7dc95b39d99", size = 241053 },
+    { url = "https://files.pythonhosted.org/packages/50/1b/6921afe68c74868b4c9fa424dad3be35b095e16687989ebbb50ce4fceb7c/psutil-7.0.0-cp37-abi3-win_amd64.whl", hash = "sha256:4cf3d4eb1aa9b348dec30105c55cd9b7d4629285735a102beb4441e38db90553", size = 244885 },
+]
+
+[[package]]
 name = "pyasn1"
 version = "0.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2818,6 +2887,18 @@ wheels = [
 ]
 
 [[package]]
+name = "tinycss2"
+version = "1.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "webencodings" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7a/fd/7a5ee21fd08ff70d3d33a5781c255cbe779659bd03278feb98b19ee550f4/tinycss2-1.4.0.tar.gz", hash = "sha256:10c0972f6fc0fbee87c3edb76549357415e94548c1ae10ebccdea16fb404a9b7", size = 87085 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e6/34/ebdc18bae6aa14fbee1a08b63c015c72b64868ff7dae68808ab500c492e2/tinycss2-1.4.0-py3-none-any.whl", hash = "sha256:3a49cf47b7675da0b15d0c6e1df8df4ebd96e9394bb905a5775adb0d884c5289", size = 26610 },
+]
+
+[[package]]
 name = "tomli"
 version = "2.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2947,6 +3028,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/4b/4d/938bd85e5bf2edeec766267a5015ad969730bb91e31b44021dfe8b22df6c/uvicorn-0.34.0.tar.gz", hash = "sha256:404051050cd7e905de2c9a7e61790943440b3416f49cb409f965d9dcd0fa73e9", size = 76568 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/61/14/33a3a1352cfa71812a3a21e8c9bfb83f60b0011f5e36f2b1399d51928209/uvicorn-0.34.0-py3-none-any.whl", hash = "sha256:023dc038422502fa28a09c7a30bf2b6991512da7dcdb8fd35fe57cfc154126f4", size = 62315 },
+]
+
+[[package]]
+name = "webencodings"
+version = "0.5.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/02/ae6ceac1baeda530866a85075641cec12989bd8d31af6d5ab4a3e8c92f47/webencodings-0.5.1.tar.gz", hash = "sha256:b36a1c245f2d304965eb4e0a82848379241dc04b865afcc4aab16748587e1923", size = 9721 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f4/24/2a3e3df732393fed8b3ebf2ec078f05546de641fe1b667ee316ec1dcf3b7/webencodings-0.5.1-py2.py3-none-any.whl", hash = "sha256:a0af1213f3c2226497a97e2b3aa01a7e4bee4f403f95be16fc9acd2947514a78", size = 11774 },
 ]
 
 [[package]]

@@ -17,6 +17,7 @@ class Settings(QObject):
     temperature_changed = pyqtSignal()  # Signal emitted when temperature changes
     # Signal emitted when web search settings change
     web_search_changed = pyqtSignal()
+    tools_settings_changed = pyqtSignal()  # New signal for tools
 
     def __new__(cls):
         """Create a new instance or return the existing one (Singleton pattern)."""
@@ -70,6 +71,9 @@ class Settings(QObject):
                 'vision_model_info': None
             },
             'general': {
+                'temperature': 0.7,  # Default temperature
+                'chat_history_limit': 20,  # Default number of messages to keep
+                'custom_instructions': ''  # Default custom instructions
             },
             'web_search': {
                 'default_provider': 'google_serper',
@@ -80,6 +84,11 @@ class Settings(QObject):
                     'brave_search',
                     'ddg_search'
                 ]
+            },
+            'tools': {
+                'web_search_enabled': True,
+                'system_info_enabled': True,
+                'terminal_command_enabled': True
             }
         }
 
@@ -171,6 +180,9 @@ class Settings(QObject):
             # Check for model changes
             elif keys[0] == 'models':
                 self.models_changed.emit()
+            # Check for tools change
+            elif keys[0] == 'tools':
+                self.tools_settings_changed.emit()
 
         return success
 
@@ -242,3 +254,38 @@ class Settings(QObject):
         """Set the full information dictionary for the vision model."""
         self.set('models', 'vision_model_info', model_info)
         self.models_changed.emit()
+
+    def reset_defaults(self):
+        """Reset all settings to their default values."""
+        self.set('general', 'custom_instructions', '')
+        self.set('general', 'temperature', 0.7)
+        self.set('tools', 'web_search_enabled', True)
+        self.set('tools', 'system_info_enabled', True)
+        self.set('tools', 'terminal_command_enabled', True)
+        self.set('models', 'selected_models', [])
+        self.set('models', 'vision_model_info', None)
+        self.set('web_search', 'default_provider', 'google_serper')
+        self.set('web_search', 'max_results', 5)
+        self.set('web_search', 'scrape_content', True)
+        self.set('web_search', 'enabled_providers', [
+                 'google_serper', 'brave_search', 'ddg_search'])
+        self.save_settings()
+        self.load_settings()
+        self.models_changed.emit()
+        self.web_search_changed.emit()
+        self.tools_settings_changed.emit()
+        self.api_keys_changed.emit()
+
+    def is_tool_enabled(self, tool_name: str) -> bool:
+        """Check if a specific tool is enabled in settings.
+
+        Args:
+            tool_name: The base name of the tool (e.g., 'web_search', 'system_info').
+
+        Returns:
+            True if the tool is enabled, False otherwise.
+        """
+        setting_key = f'{tool_name}_enabled'
+        # Default to enabled
+        default = self.get('tools', setting_key, default=True)
+        return self.get('tools', setting_key, default=default)

@@ -17,11 +17,16 @@ graph TD
 
     E --> F(prepare_messages: Build text prompt + description);
 
-    F --> G(generate_response: Call LLM);
-    G --> H[END];
+    F --> G{generate_response: Call LLM / Check for Tool Call};
+
+    G -- "Tool Call Detected" --> I(Handle Tool Call: Confirm & Execute);
+    I -- "Success/Error/Rejected" --> F;
+
+    G -- "No Tool Call / Final Response" --> H[END];
 
     style START fill:#222,stroke:#e67e22,stroke-width:2px,color:#fff
     style END fill:#222,stroke:#e67e22,stroke-width:2px,color:#fff
+    style I fill:#eee,stroke:#333,stroke-width:1px,color:#000
 ```
 
 ## Node Descriptions
@@ -31,9 +36,18 @@ graph TD
 *   **web_search**: If triggered, performs a web search using `WebSearchHandler` or scrapes content from a link. Updates state with results.
 *   **vision_processing**: If an image is present *and* a dedicated vision model is configured in settings, calls `VisionHandler` to get a text description of the image. Updates state with the description.
 *   **prepare_messages**: Constructs the final list of messages for the LLM based on the current state:
-    *   Includes system prompt, mode instruction (chat/compose), and chat history.
+    *   Includes system prompt, mode instruction (chat/compose), and chat history (including any previous `ToolMessage` results from the loop).
     *   Incorporates web search results (or errors) if available.
     *   If a `vision_description` exists (from `vision_processing`), appends it to the text query.
     *   If `image_data` exists *and* no vision model was configured, constructs a multimodal message (text + image).
     *   If `image_data` existed but `vision_processing` failed (and a vision model *was* configured), adds a system note about the failure.
-*   **generate_response**: Invokes the selected LLM instance with the prepared messages. Extracts code blocks if in Compose Mode. Adds query and response to history. 
+*   **generate_response**: Invokes the selected LLM instance with the prepared messages via `ResponseGenerator.get_response_async`. This method now handles streaming and tool call detection:
+    *   Streams the LLM response.
+    *   If a tool call is detected in the response, it initiates the `Handle Tool Call` logic.
+    *   If no tool call is detected, the response is finalized, added to history, and the process ends.
+*   **Handle Tool Call**: This logical step (within `ResponseGenerator.get_response_async`) handles the tool call lifecycle:
+    *   Requests user confirmation via `ToolCallHandler`.
+    *   Waits for the user's response (accept/reject/timeout).
+    *   If accepted, the tool is executed by `ToolCallHandler`.
+    *   The result (success data, error, or rejection) is formatted into a `ToolMessage`.
+    *   The flow loops back to `prepare_messages` to incorporate the `ToolMessage` into the next LLM call context. 
