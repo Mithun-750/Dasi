@@ -1,0 +1,38 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Dasi Architecture
+
+Dasi follows a modular architecture with clear separation of concerns:
+
+## Core Components
+
+- **Main Application** ([src/main.py](mdc:src/main.py)): Initializes and coordinates all components
+- **Hotkey Listener** ([src/hotkey_listener.py](mdc:src/hotkey_listener.py)): Captures global hotkeys to trigger the UI
+- **LangGraph Handler** ([src/core/langgraph_handler.py](mdc:src/core/langgraph_handler.py)): Manages LLM interaction workflow
+- **UI Components** ([src/ui/popup/ui.py](mdc:src/ui/popup/ui.py)): Modern borderless interface
+
+## Data Flow
+
+1. User triggers hotkey → Hotkey Listener captures event
+2. UI is displayed near cursor position
+3. User query is processed by LangGraph Handler
+4. Response is generated and displayed to user
+
+## LLM Integration
+
+The application uses a flexible architecture to support multiple AI model providers:
+
+- **LLM Factory** ([src/core/llm_factory.py](mdc:src/core/llm_factory.py)): Creates appropriate LLM clients
+- **LangGraph Nodes** ([src/core/langgraph_nodes.py](mdc:src/core/langgraph_nodes.py)): Define processing steps for queries
+- **Response Generation** ([src/core/response_generation.py](mdc:src/core/response_generation.py)): Handles response formatting
+
+## Tool Support
+
+The application integrates various tools that can be called by the LLM:
+
+- Tools are defined in [src/core/tools/](mdc:src/core/tools) directory
+- Web search functionality in [src/core/web_search_handler.py](mdc:src/core/web_search_handler.py)
+- Vision capabilities in [src/core/vision_handler.py](mdc:src/core/vision_handler.py)

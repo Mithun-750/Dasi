@@ -1,0 +1,148 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Dasi Popup Components
+
+Detailed documentation of the individual components that make up Dasi's popup UI system.
+
+## Input Panel
+
+[input_panel.py](mdc:src/ui/popup/components/input_panel.py)
+
+The main input interface component:
+
+- **Features**:
+  - Mode switching (Chat/Compose)
+  - Text input with history
+  - Context management
+  - Selected text handling
+
+- **Signals**:
+  - `submit_query`: Emitted when query is submitted
+  - `mode_changed`: Emitted when mode is switched
+
+## Preview Panel
+
+[preview_panel.py](mdc:src/ui/popup/components/preview_panel.py)
+
+Displays and manages AI responses:
+
+- **Features**:
+  - Markdown rendering
+  - Code block handling
+  - Export functionality
+  - Use/Insert options
+  - Response history
+
+- **Signals**:
+  - `use_clicked`: When user selects to use response
+  - `export_clicked`: When export is requested
+
+## Web Search Panel
+
+[web_search.py](mdc:src/ui/popup/components/web_search.py)
+
+Handles web search functionality:
+
+- **Features**:
+  - Search progress indication
+  - Result display
+  - Stop functionality
+  - Error handling
+
+- **Signals**:
+  - `search_stopped`: When search is cancelled
+  - `search_completed`: When results are ready
+
+## Loading Panel
+
+[loading_panel.py](mdc:src/ui/popup/components/loading_panel.py)
+
+Shows tool execution progress:
+
+- **Features**:
+  - Progress animation
+  - Tool name display
+  - Cancel option
+  - Status updates
+
+- **Signals**:
+  - `cancel_clicked`: When user cancels operation
+
+## Confirmation Panel
+
+[confirmation_panel.py](mdc:src/ui/popup/components/confirmation_panel.py)
+
+Tool execution confirmation dialog:
+
+- **Features**:
+  - Tool details display
+  - Confirm/Cancel options
+  - Parameter preview
+  - Security warnings
+
+- **Signals**:
+  - `confirmed`: When tool execution is approved
+  - `cancelled`: When tool execution is rejected
+
+## Markdown Renderer
+
+[markdown_renderer.py](mdc:src/ui/popup/components/markdown_renderer.py)
+
+Handles markdown formatting and display:
+
+- **Features**:
+  - Syntax highlighting
+  - Code block formatting
+  - Link handling
+  - Image support
+  - Custom styling
+
+## Component Integration
+
+Components are integrated in [DasiWindow](mdc:src/ui/popup/window.py):
+
+```python
+def setup_ui(self):
+    """Set up the UI components."""
+    # Main layout setup
+    layout = QVBoxLayout()
+    
+    # Input panel
+    self.input_panel = InputPanel()
+    self.input_panel.submit_query.connect(self._handle_input_submit)
+    
+    # Preview panel
+    self.preview_panel = PreviewPanel()
+    self.preview_panel.use_clicked.connect(self._handle_use)
+    
+    # Web search panel
+    self.web_search_panel = WebSearchPanel()
+    self.web_search_panel.search_stopped.connect(self._handle_stop)
+    
+    # Add panels to layout
+    layout.addWidget(self.input_panel)
+    layout.addWidget(self.preview_panel)
+    layout.addWidget(self.web_search_panel)
+```
+
+## Component Communication
+
+Components communicate through Qt's signal/slot mechanism:
+
+1. **Direct Signals**:
+   - Component-specific signals for direct actions
+   - Connected in parent window
+
+2. **Global Signals**:
+   - Managed by UISignals class
+   - Used for cross-component communication
+
+3. **Tool Integration**:
+   - Tool calls trigger confirmation panels
+   - Loading panels show progress
+   - Results update preview panel
+
+For implementation details, see the individual component files in [src/ui/popup/components/](mdc:src/ui/popup/components)

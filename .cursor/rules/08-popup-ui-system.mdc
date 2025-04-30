@@ -1,0 +1,116 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Dasi Popup UI System
+
+The popup UI system provides a modern, borderless interface that appears near the cursor when triggered. It's built using PyQt6 and follows a component-based architecture.
+
+## Core Components
+
+### Main Entry Points
+
+- **CopilotUI** ([src/ui/popup/ui.py](mdc:src/ui/popup/ui.py)): Main UI coordinator
+  - Manages window positioning
+  - Handles clipboard integration
+  - Coordinates signal/slot connections
+
+- **DasiWindow** ([src/ui/popup/window.py](mdc:src/ui/popup/window.py)): Main window implementation
+  - Implements borderless window with custom styling
+  - Manages tool call integration
+  - Handles user interactions and state management
+
+### UI Components
+
+Located in [src/ui/popup/components/](mdc:src/ui/popup/components):
+
+1. **InputPanel** ([input_panel.py](mdc:src/ui/popup/components/input_panel.py)):
+   - Text input and mode selection
+   - Context management
+   - Query submission handling
+
+2. **PreviewPanel** ([preview_panel.py](mdc:src/ui/popup/components/preview_panel.py)):
+   - Response preview and formatting
+   - Export functionality
+   - Use/Insert options
+
+3. **WebSearchPanel** ([web_search.py](mdc:src/ui/popup/components/web_search.py)):
+   - Web search interface
+   - Search result display
+   - Progress indication
+
+4. **Support Components**:
+   - **LoadingPanel** ([loading_panel.py](mdc:src/ui/popup/components/loading_panel.py)): Tool execution progress
+   - **ConfirmationPanel** ([confirmation_panel.py](mdc:src/ui/popup/components/confirmation_panel.py)): Tool confirmation dialogs
+   - **MarkdownRenderer** ([markdown_renderer.py](mdc:src/ui/popup/components/markdown_renderer.py)): Markdown formatting
+
+## Features
+
+### Window Management
+- Borderless window with custom styling
+- Automatic positioning near cursor
+- Drag support for repositioning
+- Always-on-top behavior
+
+### Input Modes
+1. **Chat Mode**:
+   - Interactive conversation
+   - Context preservation
+   - Multi-turn dialogue
+
+2. **Compose Mode**:
+   - Direct content generation
+   - Clipboard integration
+   - Insert at cursor support
+
+### Tool Integration
+- Tool call confirmation dialogs
+- Progress indication during tool execution
+- Result preview and formatting
+- Error handling and display
+
+### Response Handling
+- Markdown rendering
+- Code syntax highlighting
+- Export functionality
+- Use/Insert options
+- Context preservation
+
+## Key Interactions
+
+1. **Window Activation**:
+```python
+def show_popup(self, x: int, y: int):
+    """Show window at cursor position."""
+    self.signals.show_window.emit(x, y)
+```
+
+2. **Query Processing**:
+```python
+def _handle_input_submit(self, query: str, model_info=None):
+    """Process user input and show response."""
+    self.worker = QueryWorker(self.process_query, query, model_info)
+    self.worker.start()
+```
+
+3. **Tool Handling**:
+```python
+def _setup_tool_call_signals(self):
+    """Set up tool call signal connections."""
+    self.tool_call_handler.tool_call_requested.connect(
+        self._show_confirmation_panel)
+    self.tool_call_handler.tool_call_started.connect(
+        self._show_loading_panel)
+```
+
+## Styling
+
+The UI uses a modern, consistent style with:
+- Dark theme by default
+- Custom border radius
+- Smooth animations
+- Responsive layout
+- High contrast text
+
+For component details and implementation examples, see the individual component files in [src/ui/popup/components/](mdc:src/ui/popup/components)

@@ -1,0 +1,49 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Dasi Development Guide
+
+## Project Setup
+
+Dasi is a Python application that uses:
+- PyQt6 for the UI
+- LangGraph for workflow orchestration
+- Various LLM client libraries
+
+## Main Files and Directories
+
+- [src/main.py](mdc:src/main.py): Application entry point
+- [src/core/](mdc:src/core): Core LLM functionality
+- [src/ui/](mdc:src/ui): User interface components
+- [src/hotkey_listener.py](mdc:src/hotkey_listener.py): Global hotkey management
+
+## Key Development Areas
+
+### Adding a New AI Provider
+
+To add a new AI provider:
+1. Extend the LLM Factory in [src/core/llm_factory.py](mdc:src/core/llm_factory.py)
+2. Add appropriate authentication and API interaction
+3. Update the settings UI to include the new provider
+
+### Adding New Tools
+
+To add a new tool:
+1. Create a new tool in [src/core/tools/](mdc:src/core/tools)
+2. Register the tool in the LangGraph workflow
+3. Update prompt templates to reference the new tool capability
+
+### UI Modifications
+
+To modify the UI:
+1. UI components are in [src/ui/](mdc:src/ui)
+2. The main popup interface is in [src/ui/popup/ui.py](mdc:src/ui/popup/ui.py)
+3. Settings are managed in [src/ui/settings/](mdc:src/ui/settings)
+
+## Testing and Building
+
+- The application uses PyInstaller for creating distributable binaries
+- Build configuration is in [dasi.spec](mdc:dasi.spec)
+- Development tasks are defined in [tasks.py](mdc:tasks.py)

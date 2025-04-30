@@ -1,0 +1,139 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Dasi Settings System
+
+The settings system provides a comprehensive configuration interface for the application. It's built using PyQt6 and follows a tab-based architecture with consistent UI patterns.
+
+## Core Components
+
+### Main Entry Points
+
+- **SettingsManager** ([src/ui/settings/settings_manager.py](mdc:src/ui/settings/settings_manager.py)): Core settings management
+  - Handles settings persistence
+  - Provides access to application configuration
+  - Implements signals for settings changes
+
+- **SettingsWindow** ([src/ui/settings/settings_window.py](mdc:src/ui/settings/settings_window.py)): Main settings window
+  - Coordinates tab management
+  - Handles save/cancel/reset operations
+  - Manages undo/redo functionality
+
+### Settings Tabs
+
+Settings are organized in specialized tabs:
+
+1. **GeneralTab** ([src/ui/settings/general_tab.py](mdc:src/ui/settings/general_tab.py)):
+   - Application behavior settings
+   - UI preferences
+   - Startup options
+
+2. **ModelsTab** ([src/ui/settings/models_tab.py](mdc:src/ui/settings/models_tab.py)):
+   - AI model configuration
+   - Provider settings
+   - Default model selection
+
+3. **ApiKeysTab** ([src/ui/settings/api_keys_tab.py](mdc:src/ui/settings/api_keys_tab.py)):
+   - Provider API key management
+   - Key validation
+   - Secure storage
+
+4. **WebSearchTab** ([src/ui/settings/web_search_tab.py](mdc:src/ui/settings/web_search_tab.py)):
+   - Web search provider configuration
+   - Search behavior settings
+   - Result presentation options
+
+5. **ToolsTab** ([src/ui/settings/tools_tab.py](mdc:src/ui/settings/tools_tab.py)):
+   - Tool availability management
+   - Tool configuration
+   - Tool permission settings
+
+6. **PromptChunksTab** ([src/ui/settings/prompt_chunks_tab.py](mdc:src/ui/settings/prompt_chunks_tab.py)):
+   - Prompt template management
+   - Chunk configuration
+   - Context settings
+
+## UI Consistency Guidelines
+
+### Checkbox Implementation
+- Use `Qt.CheckState.Checked` and `Qt.CheckState.Unchecked` consistently
+- Always connect checkboxes to appropriate change handlers
+- Maintain visual alignment of checkboxes within sections
+- Use clear, concise labels with proper capitalization
+
+### Layout and Padding
+- Maintain consistent padding (10px) between UI elements
+- Use consistent spacing (15px) between different settings groups
+- Align related controls horizontally and vertically
+- Group related settings with clear visual separation
+- Use QFormLayout for label-value pairs
+
+### Save/Cancel/Reset UI
+- Always place buttons in consistent order: Save, Cancel, Reset
+- Position at bottom of the dialog with 15px margin
+- Use standard button sizes across all dialogs
+- Implement proper validation before save operations
+- Provide visual feedback for unsaved changes
+- Reset should only affect the current tab's settings
+
+### Section Headers
+- Use QGroupBox for logical grouping of related settings
+- Maintain consistent header styling
+- Use sentence case for section titles
+- Add tooltips to section headers for additional explanation
+
+### Settings Validation
+- Validate input immediately when possible
+- Show clear error messages near the relevant field
+- Prevent save operations with invalid settings
+- Provide visual indicators for validation errors
+
+## Example Implementation
+
+```python
+# Standard tab setup
+def _setup_ui(self):
+    """Set up the tab UI with consistent layout."""
+    layout = QVBoxLayout(self)
+    layout.setContentsMargins(10, 10, 10, 10)
+    layout.setSpacing(15)
+    
+    # Settings groups
+    self._create_general_settings_group(layout)
+    self._create_advanced_settings_group(layout)
+    
+    # Bottom buttons
+    self._create_button_panel(layout)
+    
+    layout.addStretch(1)
+    self.setLayout(layout)
+
+# Consistent button implementation
+def _create_button_panel(self, parent_layout):
+    """Create the standard button panel."""
+    button_layout = QHBoxLayout()
+    
+    self.reset_button = QPushButton("Reset")
+    self.cancel_button = QPushButton("Cancel")
+    self.save_button = QPushButton("Save")
+    
+    button_layout.addWidget(self.reset_button)
+    button_layout.addStretch(1)
+    button_layout.addWidget(self.cancel_button)
+    button_layout.addWidget(self.save_button)
+    
+    parent_layout.addLayout(button_layout)
+    
+    # Connect signals
+    self.reset_button.clicked.connect(self._reset_settings)
+    self.cancel_button.clicked.connect(self._cancel_changes)
+    self.save_button.clicked.connect(self._save_settings)
+```
+
+## Settings Persistence
+
+Settings are stored in a JSON format with proper validation on load/save. Each tab is responsible for validating its own settings before saving. The main SettingsManager coordinates the overall persistence and change notification system.
+
+For detailed implementation examples, refer to the individual tab files in the [src/ui/settings/](mdc:src/ui/settings) directory.

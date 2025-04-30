@@ -1,0 +1,40 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Dasi UI System
+
+Dasi features a modern UI system with multiple components:
+
+## Main UI Components
+
+- **Popup UI** ([src/ui/popup/ui.py](mdc:src/ui/popup/ui.py)): The main borderless interface that appears near the cursor
+- **Settings Window** ([src/ui/settings_window.py](mdc:src/ui/settings_window.py)): Configuration interface
+- **System Tray** (in [src/main.py](mdc:src/main.py)): Provides quick access to settings and app control
+
+## UI Modes
+
+### Chat Mode
+- Interactive conversation with the LLM
+- History and context are maintained within the session
+- Supports multi-turn conversations
+
+### Compose Mode
+- Direct content generation mode
+- Generated content can be inserted at cursor position
+- Designed for quick content creation tasks
+
+## UI Styling
+
+The UI uses a modern, borderless design that:
+- Appears near the cursor position
+- Uses the dark theme by default (applied in [src/ui/assets](mdc:src/ui/assets))
+- Implements responsive design with Qt widgets
+
+## Key UI Interactions
+
+1. Global hotkey activation (default: Ctrl+Alt+Shift+I)
+2. Type query or select mode
+3. Receive and interact with AI responses
+4. Insert content or continue conversation

@@ -1,0 +1,25 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Dasi - Desktop Copilot Application
+
+Dasi is a powerful desktop copilot application that provides inline LLM support through a global hotkey (Ctrl+Alt+Shift+I by default). The application integrates with multiple AI model providers and features a modern, borderless interface that appears near the cursor.
+
+## Key Features
+
+- Inline LLM support via global hotkey
+- Multiple AI model provider integration: Google Gemini, OpenAI, Anthropic, Groq, Ollama, Deepseek, Together AI, OpenRouter, and custom OpenAI-compatible endpoints
+- Two primary modes:
+  - Chat Mode: Interactive conversations with the AI
+  - Compose Mode: Direct content generation and insertion
+- Tool calling support
+- Modern borderless UI that appears near the cursor
+
+## Main Entry Points
+
+- The main application entry point is [src/main.py](mdc:src/main.py)
+- The hotkey listener is in [src/hotkey_listener.py](mdc:src/hotkey_listener.py)
+- UI components are in the [src/ui](mdc:src/ui) directory
+- Core LLM functionality is in the [src/core](mdc:src/core) directory

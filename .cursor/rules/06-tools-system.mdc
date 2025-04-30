@@ -1,0 +1,74 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Dasi Tools System
+
+Dasi implements a sophisticated tools system based on LangChain's tool framework, providing user-confirmable tools that extend the application's capabilities.
+
+## Tool Components
+
+### Core Components
+
+- **Tool Definitions** ([src/core/tools/tool_definitions.json](mdc:src/core/tools/tool_definitions.json)): JSON schema definitions for all tools
+- **LangGraph Tool Config** ([src/core/tools/langgraph_tool_config.py](mdc:src/core/tools/langgraph_tool_config.py)): Pydantic models and LangChain tool configurations
+- **Tool Call Handler** ([src/core/tools/tool_call_handler.py](mdc:src/core/tools/tool_call_handler.py)): Main handler for tool execution and management
+- **LangGraph Tool Node** ([src/core/tools/langgraph_tool_node.py](mdc:src/core/tools/langgraph_tool_node.py)): LangGraph node for processing tool calls
+
+### Available Tools
+
+1. **WebSearchTool** ([src/core/tools/web_search_tool.py](mdc:src/core/tools/web_search_tool.py)):
+   - Modes: web_search, link_scrape
+   - Required params: query
+   - Optional params: mode, url (for link_scrape), selected_text
+
+2. **SystemInfoTool** ([src/core/tools/system_info_tool.py](mdc:src/core/tools/system_info_tool.py)):
+   - Info types: basic, memory, cpu, all
+   - Optional params: info_type
+
+3. **TerminalCommandTool** ([src/core/tools/terminal_command_tool.py](mdc:src/core/tools/terminal_command_tool.py)):
+   - Required params: command
+   - Optional params: working_dir, timeout (default: 30s), shell_type (bash/fish/zsh/sh)
+
+## Tool Architecture
+
+### Tool Definition Flow
+
+1. **Schema Definition**: Tools are defined in `tool_definitions.json`
+2. **Pydantic Models**: Input schemas in `langgraph_tool_config.py`
+3. **Tool Implementation**: Individual tool classes inherit from `BaseTool`
+4. **Handler Registration**: Tools registered in `ToolCallHandler` and `LangGraphToolNode`
+
+### Execution Flow
+
+1. LLM generates tool call
+2. `ToolCallHandler` validates and routes the call
+3. `LangGraphToolNode` processes the call through appropriate handler
+4. Tool executes and returns structured response
+5. Response formatted and returned to user
+
+## Tool Response Format
+
+All tools must return a structured response:
+```python
+{
+    "status": "success" | "error",
+    "data": result_data,  # On success
+    "error": error_message  # On failure
+}
+```
+
+## Tool Call Formats
+
+LLMs can invoke tools using:
+
+1. Custom marker format:
+```
+<<TOOL: tool_name {"param1": "value", "param2": 42}>>
+```
+
+2. OpenAI function calling format (for OpenAI/compatible models)
+3. Anthropic Tool Use format (for Claude/compatible models)
+
+For complete documentation, see [src/core/tools/README.md](mdc:src/core/tools/README.md)

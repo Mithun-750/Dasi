@@ -1,0 +1,48 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# LLM Integration in Dasi
+
+Dasi integrates with multiple AI model providers to offer flexibility and choice:
+
+## Supported Model Providers
+
+- **OpenAI**: GPT models
+- **Anthropic**: Claude models
+- **Google**: Gemini models
+- **Groq**: Fast inference models
+- **Ollama**: Local model support
+- **Deepseek**: Specialized models
+- **Together AI**: Hosted model support
+- **OpenRouter**: Aggregator service
+- **Custom OpenAI-compatible endpoints**: For self-hosted solutions
+
+## LLM Handling
+
+The core LLM integration is managed by:
+
+- **LLM Factory** ([src/core/llm_factory.py](mdc:src/core/llm_factory.py)): Creates appropriate clients based on selected provider
+- **LangGraph Handler** ([src/core/langgraph_handler.py](mdc:src/core/langgraph_handler.py)): Orchestrates the workflow
+- **LangGraph Nodes** ([src/core/langgraph_nodes.py](mdc:src/core/langgraph_nodes.py)): Define processing steps
+
+## Query Processing Flow
+
+1. User input is captured
+2. Query is processed through the LangGraph workflow
+3. Appropriate tool invocation may occur (web search, vision processing, etc.)
+4. LLM generates response
+5. Response is formatted and displayed to user
+
+## Prompts and Templates
+
+Prompt templates are defined in:
+- **Prompts Hub** ([src/core/prompts_hub.py](mdc:src/core/prompts_hub.py)): Central repository for prompt templates
+
+## Tool Calling
+
+The LLM can invoke tools during its operation:
+- Tools are defined in [src/core/tools/](mdc:src/core/tools/)
+- Web search capabilities in [src/core/web_search_handler.py](mdc:src/core/web_search_handler.py)
+- Vision capabilities in [src/core/vision_handler.py](mdc:src/core/vision_handler.py)

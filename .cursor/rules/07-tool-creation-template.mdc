@@ -1,0 +1,166 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Creating New Tools in Dasi
+
+This guide provides templates and examples for creating new tools in Dasi's LangChain-based tool system.
+
+## 1. Define Tool Schema
+
+First, add your tool schema to [tool_definitions.json](mdc:src/core/tools/tool_definitions.json):
+
+```json
+{
+  "name": "your_tool_name",
+  "description": "Description of what your tool does",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "param1": {
+        "type": "string",
+        "description": "Description of param1"
+      },
+      "param2": {
+        "type": "integer",
+        "description": "Description of param2"
+      }
+    },
+    "required": ["param1"]
+  }
+}
+```
+
+## 2. Create Pydantic Model
+
+Add your tool's input schema to [langgraph_tool_config.py](mdc:src/core/tools/langgraph_tool_config.py):
+
+```python
+class YourToolInput(BaseModel):
+    """Input schema for your tool."""
+    param1: str = Field(..., description="Description of param1")
+    param2: Optional[int] = Field(None, description="Description of param2")
+
+
+class YourTool(BaseTool):
+    """Tool for your functionality."""
+    name = "your_tool_name"
+    description = "Description of what your tool does"
+    args_schema = YourToolInput
+
+    def _run(self, param1: str, param2: Optional[int] = None) -> Dict[str, Any]:
+        """This method should not be called directly."""
+        raise NotImplementedError(
+            "Tool calls should be handled by ToolCallHandler")
+```
+
+## 3. Implement Tool Handler
+
+Create your tool implementation file `your_tool_name_tool.py`:
+
+```python
+import logging
+from typing import Dict, Any, Optional
+from langchain.tools import BaseTool
+
+logger = logging.getLogger(__name__)
+
+class YourToolNameTool:
+    """Implementation of your tool's functionality."""
+
+    def __init__(self):
+        """Initialize your tool."""
+        logger.info("YourToolNameTool initialized")
+
+    async def run(self, param1: str, param2: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Execute the tool's functionality.
+
+        Args:
+            param1: First parameter
+            param2: Optional second parameter
+
+        Returns:
+            Dict with status and data/error
+        """
+        try:
+            # Your tool implementation here
+            result = await self._process(param1, param2)
+            
+            return {
+                "status": "success",
+                "data": result
+            }
+            
+        except Exception as e:
+            logger.exception("Error in YourToolNameTool")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+
+    async def _process(self, param1: str, param2: Optional[int]) -> Any:
+        """Internal processing logic."""
+        # Implement your tool's core functionality
+        pass
+```
+
+## 4. Add Tool Handler to LangGraph
+
+Update [langgraph_tool_node.py](mdc:src/core/tools/langgraph_tool_node.py):
+
+```python
+async def _handle_your_tool(self, args: Dict[str, Any]) -> str:
+    """Handle your tool calls."""
+    # Validate required parameters
+    param1 = args.get("param1")
+    if not param1:
+        raise ValueError("Tool requires 'param1' parameter")
+
+    param2 = args.get("param2")  # Optional parameter
+
+    try:
+        # Initialize and run your tool
+        tool = YourToolNameTool()
+        result = await tool.run(param1, param2)
+        return json.dumps(result)
+    except Exception as e:
+        return json.dumps({
+            "status": "error",
+            "error": str(e)
+        })
+```
+
+Then register your handler:
+
+```python
+self._tool_handlers = {
+    "web_search": self._handle_web_search,
+    "system_info": self._handle_system_info,
+    "your_tool_name": self._handle_your_tool  # Add your handler
+}
+```
+
+## 5. Register Tool in Config
+
+Update the `get_available_tools()` function in [langgraph_tool_config.py](mdc:src/core/tools/langgraph_tool_config.py):
+
+```python
+def get_available_tools() -> List[BaseTool]:
+    return [
+        WebSearchTool(),
+        SystemInfoTool(),
+        YourTool()  # Add your tool
+    ]
+```
+
+## Example Tools
+
+For reference, examine these existing tools:
+
+- [WebSearchTool](mdc:src/core/tools/web_search_tool.py): Example of web API integration
+- [SystemInfoTool](mdc:src/core/tools/system_info_tool.py): Example of system interaction
+- [TerminalCommandTool](mdc:src/core/tools/terminal_command_tool.py): Example of process handling
+
+For complete documentation, see [src/core/tools/README.md](mdc:src/core/tools/README.md)
