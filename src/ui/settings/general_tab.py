@@ -371,7 +371,7 @@ class GeneralTab(QWidget):
         self.has_unsaved_changes = (
             current['custom_instructions'] != self.original_values['custom_instructions'] or
             current['temperature'] != self.original_values['temperature'] or
-            current['hotkey'] != self.original_values['hotkey'] or
+            json.dumps(current['hotkey'], sort_keys=True) != json.dumps(self.original_values['hotkey'], sort_keys=True) or
             current['start_on_boot'] != self.original_values['start_on_boot'] or
             current['export_path'] != self.original_values['export_path'] or
             current['use_cache'] != self.original_values['use_cache']
