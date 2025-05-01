@@ -67,7 +67,8 @@ class CustomComboBox(QComboBox):
 
         # Store configuration
         self.max_visible_items = max_visible_items
-        self.item_height = 36  # Base item height including padding
+        # Base item height including padding (Reduced from 36)
+        self.item_height = 32
         self.custom_popup_width = popup_width  # Store custom width if provided
 
         # Apply custom arrow
@@ -130,8 +131,8 @@ class CustomComboBox(QComboBox):
         self.list_container = QWidget()
         self.list_container.setStyleSheet("background-color: transparent;")
         self.list_layout = QVBoxLayout(self.list_container)
-        self.list_layout.setContentsMargins(4, 4, 4, 4)
-        self.list_layout.setSpacing(2)
+        self.list_layout.setContentsMargins(2, 2, 2, 2)  # Reduced margins
+        self.list_layout.setSpacing(1)  # Reduced spacing
 
         # Create list widget for items
         self.list_widget = QListWidget()
@@ -149,7 +150,7 @@ class CustomComboBox(QComboBox):
                 outline: none;
             }
             QListWidget::item {
-                padding: 8px;
+                padding: 6px; /* Reduced padding */
                 border-radius: 4px;
                 color: #e0e0e0;
                 margin: 1px;
@@ -431,14 +432,14 @@ class InputPanel(QWidget):
         # Main layout
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(4)  # Reduced spacing
 
         # Context area with image and selected text
         self.context_frame = QFrame()
         self.context_frame.setObjectName("contextFrame")
         context_layout = QHBoxLayout()  # Changed to horizontal layout
         context_layout.setContentsMargins(0, 0, 0, 0)
-        context_layout.setSpacing(8)  # Add spacing between elements
+        context_layout.setSpacing(6)  # Reduced spacing
         self.context_frame.setLayout(context_layout)
 
         # Set size policy and maximum height for the frame
@@ -532,7 +533,7 @@ class InputPanel(QWidget):
         selectors_container.setProperty("class", "transparent-container")
         selectors_layout = QHBoxLayout(selectors_container)
         selectors_layout.setContentsMargins(0, 0, 0, 0)
-        selectors_layout.setSpacing(8)
+        selectors_layout.setSpacing(6)  # Reduced spacing
 
         # Create mode selector dropdown - use narrower popup width
         self.mode_selector = CustomComboBox(
@@ -574,13 +575,13 @@ class InputPanel(QWidget):
             #imageLabel {
                 background-color: #222222;
                 border-radius: 6px;
-                padding: 4px; /* Reduced padding */
+                padding: 2px; /* Reduced padding */
             }
             
             #textLabel {
                 background-color: #222222;
                 border-radius: 6px;
-                padding: 4px 8px;
+                padding: 2px 6px; /* Reduced padding */
                 color: #e0e0e0;
             }
             
@@ -609,7 +610,7 @@ class InputPanel(QWidget):
                 border: 1px solid #333333;
                 border-radius: 6px;
                 color: #e0e0e0;
-                padding: 6px;
+                padding: 4px; /* Reduced padding */
                 selection-background-color: #3b82f6;
                 selection-color: white;
             }
@@ -646,7 +647,7 @@ class InputPanel(QWidget):
                 background-color: #2a2a2a;
                 border: 1px solid #3b3b3b;
                 border-radius: 4px;
-                padding: 6px 8px;
+                padding: 4px 6px; /* Reduced padding */
                 color: #e0e0e0;
                 min-height: 18px;
             }
@@ -665,7 +666,7 @@ class InputPanel(QWidget):
                 width: 20px;
                 subcontrol-origin: padding;
                 subcontrol-position: center right;
-                padding-right: 8px;
+                padding-right: 6px; /* Reduced padding */
             }
             
             #progressBar {

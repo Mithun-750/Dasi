@@ -74,7 +74,7 @@ class CustomComboBox(QComboBox):
                 background-color: #222222;
                 border: 1px solid #333333;
                 border-radius: 6px;
-                padding: 4px;
+                padding: 2px;
             }
         """)
 
@@ -101,10 +101,10 @@ class CustomComboBox(QComboBox):
                 outline: none;
             }
             QListWidget::item {
-                padding: 8px;
+                padding: 6px;
                 border-radius: 4px;
                 color: #e0e0e0;
-                margin: 2px;
+                margin: 1px;
             }
             QListWidget::item:selected {
                 background-color: #e67e22;
@@ -286,7 +286,7 @@ class SplitButton(QToolButton):
                 border-radius: 4px;
                 font-weight: bold;
                 font-size: 12px;
-                padding: 6px 8px;
+                padding: 4px 6px;
                 min-height: 18px;
                 max-height: 18px;
             }
@@ -322,13 +322,13 @@ class SplitButton(QToolButton):
                 background-color: #222222;
                 border: 1px solid #333333;
                 border-radius: 4px;
-                padding: 4px;
+                padding: 2px;
             }
             QMenu::item {
-                padding: 6px 8px;
+                padding: 4px 6px;
                 border-radius: 3px;
                 color: #e0e0e0;
-                margin: 2px;
+                margin: 1px;
                 min-width: 150px;
             }
             QMenu::item:selected {
@@ -447,7 +447,7 @@ class PreviewPanel(QWidget):
         # Create a stacked widget to hold both preview types
         self.preview_stack = QStackedWidget()
         # Keep fixed width for consistent UI
-        self.preview_stack.setFixedWidth(330)
+        self.preview_stack.setFixedWidth(340)
         self.preview_stack.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
@@ -461,7 +461,7 @@ class PreviewPanel(QWidget):
                 background-color: #1e1e1e;
                 border: 1px solid #333333;
                 border-radius: 8px;
-                padding: 8px;
+                padding: 6px;
                 selection-background-color: #4a4a4a;
                 font-size: 12px;
                 color: #ffffff;
@@ -489,7 +489,7 @@ class PreviewPanel(QWidget):
         # Create a container for the preview stack that allows positioning
         self.preview_container = QFrame()
         self.preview_container.setObjectName("preview_container")
-        self.preview_container.setFixedWidth(330)
+        self.preview_container.setFixedWidth(340)
         self.preview_container.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
@@ -568,7 +568,7 @@ class PreviewPanel(QWidget):
         # Action frame for buttons and selector
         self.action_frame = QFrame()
         # Match width with response preview
-        self.action_frame.setFixedWidth(330)
+        self.action_frame.setFixedWidth(340)
         # Only take minimum vertical space
         self.action_frame.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
@@ -576,7 +576,7 @@ class PreviewPanel(QWidget):
         self.action_layout.setContentsMargins(
             2, 0, 2, 0)  # Removed bottom margin completely
         # Further reduced spacing between elements
-        self.action_layout.setSpacing(4)
+        self.action_layout.setSpacing(2)
 
         # Button layout with grid to ensure equal width
         button_layout = QHBoxLayout()
@@ -613,7 +613,7 @@ class PreviewPanel(QWidget):
                 color: #e0e0e0;
                 border: none;
                 border-radius: 4px;
-                padding: 6px 8px;
+                padding: 4px 6px;
                 font-size: 12px;
                 font-weight: bold;
                 min-height: 18px;
@@ -645,7 +645,7 @@ class PreviewPanel(QWidget):
         # Add widgets to main layout
         layout.addWidget(self.preview_container)
         # Use 0 stretch factor to minimize height but add spacing
-        layout.addSpacing(5)  # Add 8px spacing between preview and buttons
+        layout.addSpacing(4)  # Reduced spacing
         layout.addWidget(self.action_frame)
 
         self.setLayout(layout)

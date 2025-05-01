@@ -90,8 +90,8 @@ class DasiWindow(QWidget):
         header = QFrame()
         header.setObjectName("header")
         header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(10, 8, 10, 8)
-        header_layout.setSpacing(8)
+        header_layout.setContentsMargins(8, 6, 8, 6)
+        header_layout.setSpacing(6)
 
         # Add logo
         logo_label = QLabel()
@@ -146,7 +146,7 @@ class DasiWindow(QWidget):
         self.reset_session_button.hide()  # Hide by default
 
         # Add close button
-        close_button = QPushButton("×")
+        close_button = QPushButton("x")
         close_button.setObjectName("closeButton")
         close_button.setProperty("class", "header-button")
         close_button.clicked.connect(self._handle_escape)
@@ -162,8 +162,8 @@ class DasiWindow(QWidget):
 
         # Content area with horizontal layout
         content_layout = QHBoxLayout()
-        content_layout.setContentsMargins(12, 12, 12, 12)
-        content_layout.setSpacing(12)
+        content_layout.setContentsMargins(8, 8, 8, 8)
+        content_layout.setSpacing(8)
 
         # Left side - Input area (now using InputPanel component)
         self.input_panel = InputPanel()
@@ -176,7 +176,7 @@ class DasiWindow(QWidget):
         right_panel.setProperty("class", "transparent-container")
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(8)
+        right_layout.setSpacing(6)
         self.right_layout = right_layout  # Store reference to the layout
 
         # Set a fixed width for the right panel to ensure consistency
@@ -188,8 +188,8 @@ class DasiWindow(QWidget):
         self.stop_button.setProperty("class", "danger")
         self.stop_button.setCursor(Qt.CursorShape.PointingHandCursor)
         # Set a fixed size for the stop button to prevent expansion issues
-        self.stop_button.setFixedWidth(330)
-        self.stop_button.setFixedHeight(30)
+        self.stop_button.setFixedWidth(340)
+        self.stop_button.setFixedHeight(32)
         self.stop_button.setStyleSheet("""
             QPushButton#stopButton {
                 background-color: #dc2626;
@@ -199,8 +199,8 @@ class DasiWindow(QWidget):
                 font-weight: bold;
                 font-size: 12px;
                 padding: 6px 8px;
-                min-height: 18px;
-                max-height: 18px;
+                min-height: 20px;
+                max-height: 20px;
             }
             QPushButton#stopButton:hover {
                 background-color: #ef4444;
@@ -338,7 +338,7 @@ class DasiWindow(QWidget):
                 background-color: #2a2a2a;
                 border: none;
                 border-radius: 6px;
-                padding: 6px 12px;
+                padding: 4px 8px;
                 color: white;
                 min-width: 80px;
             }
