@@ -150,6 +150,9 @@ class Dasi:
             else:
                 self.app = QApplication.instance()
 
+            # Set the application name explicitly
+            self.app.setApplicationName("Dasi")
+
             # Apply our modern theme
             apply_theme(self.app, "dark")
 
@@ -309,6 +312,34 @@ class Dasi:
             # Create tray menu
             menu = QMenu()
 
+            # Set custom styling for the menu
+            menu.setStyleSheet("""
+                QMenu {
+                    min-width: 180px;  /* Reduce overall width */
+                    max-width: 220px;  /* Maximum width */
+                    padding: 5px;
+                }
+                QMenu::item {
+                    height: 28px;      /* Increase item height */
+                    padding-left: 28px; /* Make room for icon */
+                }
+                QMenu::item:selected {
+                    background-color: #3a3a3a;  /* Subtle highlight */
+                }
+                QMenu::icon {
+                    position: absolute;
+                    left: 6px;         /* Position icon further left */
+                }
+            """)
+
+            # Add Dasi action at the top
+            dasi_action = menu.addAction("Dasi")
+            # Remove icon setting for the Dasi menu item
+            # dasi_action.setIcon(self.tray.icon())
+            # dasi_action.setIconVisibleInMenu(True)
+            dasi_action.triggered.connect(self.show_popup_centered)
+            menu.addSeparator()  # Add separator after Dasi item
+
             # Add menu items
             settings_action = menu.addAction("Settings")
             settings_action.triggered.connect(self.show_settings)
@@ -385,6 +416,35 @@ class Dasi:
         """Handle completion of background initialization."""
         logging.info("Background initialization completed")
         # Any tasks that should run after initialization
+
+    def show_popup_centered(self):
+        """Show the main popup UI centered on the screen."""
+        try:
+            screen = QApplication.primaryScreen()
+            if not screen:
+                logging.warning(
+                    "Could not get primary screen, showing popup at default location.")
+                # Cannot determine screen, so don't attempt to show popup.
+                # Log the issue and return.
+                return
+
+            screen_geometry = screen.availableGeometry()
+            # Get the size hint from the actual window object (self.ui.window)
+            popup_size = self.ui.window.sizeHint()  # Get the preferred size
+
+            # Center calculation
+            x = screen_geometry.x() + (screen_geometry.width() - popup_size.width()) // 2
+            y = screen_geometry.y() + (screen_geometry.height() - popup_size.height()) // 2
+
+            logging.info(f"Showing popup centered at ({x}, {y})")
+            # Pass coordinates to the specific centered popup method
+            self.ui.show_popup_centered(x=x, y=y)
+
+        except Exception as e:
+            logging.error(
+                f"Error showing popup centered: {str(e)}", exc_info=True)
+            # Fallback: Log error, do not attempt to show popup incorrectly.
+            return
 
     def process_query(self, query: str, callback: Optional[Callable[[str], None]] = None,
                       model: Optional[str] = None, image_data: Optional[str] = None) -> str:

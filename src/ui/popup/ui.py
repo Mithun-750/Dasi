@@ -8,7 +8,7 @@ from ..components.ui_signals import UISignals
 
 
 class CopilotUI:
-    def _show_window(self, x: int, y: int):
+    def _show_window(self, x: int, y: int, centered: bool = False):
         """Show window at specified coordinates (runs in main thread)."""
         try:
             # First reset all context and input
@@ -23,10 +23,15 @@ class CopilotUI:
             if selected_text and selected_text.strip() and len(selected_text.strip()) >= 4:
                 self.window.set_selected_text(selected_text.strip())
 
-            # Position window near cursor with screen bounds check
-            screen = self.app.primaryScreen().geometry()
-            x = min(max(x + 10, 0), screen.width() - self.window.width())
-            y = min(max(y + 10, 0), screen.height() - self.window.height())
+            window_width = self.window.width()
+            window_height = self.window.height()
+
+            if not centered:
+                # Position window near cursor with screen bounds check
+                screen = self.app.primaryScreen().geometry()
+                x = min(max(x + 10, 0), screen.width() - window_width)
+                y = min(max(y + 10, 0), screen.height() - window_height)
+            # If centered=True, x and y are already calculated, so use them directly
 
             # Show and activate window
             self.window.move(x, y)
@@ -62,9 +67,15 @@ class CopilotUI:
         self.signals.process_error.connect(self.window._handle_error)
 
     def show_popup(self, x: int, y: int):
-        """Emit signal to show popup window."""
-        self.signals.show_window.emit(x, y)
+        """Emit signal to show popup window near cursor."""
+        # Called by HotkeyListener
+        self.signals.show_window.emit(x, y, False)  # centered=False
+
+    def show_popup_centered(self, x: int, y: int):
+        """Emit signal to show popup window centered."""
+        # Called by tray menu action in main.py
+        self.signals.show_window.emit(x, y, True)  # centered=True
 
     def run(self):
         """Start the UI event loop."""
-        self.app.exec() 
+        self.app.exec()
