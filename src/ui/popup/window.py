@@ -142,11 +142,11 @@ class DasiWindow(QWidget):
         # Set tooltip for the reset button
         self.reset_session_button.setToolTip("Reset Session")
         # Add trash bin icon using text as a unicode character since we're not loading external resources
-        self.reset_session_button.setText("🗑️")
+        self.reset_session_button.setText("↻")
         self.reset_session_button.hide()  # Hide by default
 
         # Add close button
-        close_button = QPushButton("x")
+        close_button = QPushButton("×")
         close_button.setObjectName("closeButton")
         close_button.setProperty("class", "header-button")
         close_button.clicked.connect(self._handle_escape)
@@ -361,7 +361,6 @@ class DasiWindow(QWidget):
                 background-color: transparent;
                 color: #888888;
                 font-size: 14px;
-                margin-top: 2px;
                 padding: 0px;
                 margin-right: 6px;
                 font-weight: bold;
