@@ -18,8 +18,9 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QFrame,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from .settings_manager import Settings
+import logging
 
 
 class ExampleDialog(QDialog):
@@ -34,7 +35,7 @@ class ExampleDialog(QDialog):
         """
         super().__init__(parent)
         self.example = example if example else {"input": "", "output": ""}
-        self.setWindowTitle("Jailbreak Example")
+        self.setWindowTitle("Example")
         self.setMinimumWidth(600)
         self.setMinimumHeight(400)
 
@@ -45,6 +46,18 @@ class ExampleDialog(QDialog):
         self.input_edit = QTextEdit()
         self.input_edit.setPlaceholderText("Enter the user's request here...")
         self.input_edit.setText(self.example["input"])
+        self.input_edit.setStyleSheet("""
+            QTextEdit {
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                padding: 8px;
+                color: #e0e0e0;
+            }
+            QTextEdit:focus {
+                border: 1px solid #e67e22;
+            }
+        """)
         self.form_layout.addRow("Input (request):", self.input_edit)
 
         # Output field
@@ -52,6 +65,18 @@ class ExampleDialog(QDialog):
         self.output_edit.setPlaceholderText(
             "Enter the desired response here...")
         self.output_edit.setText(self.example["output"])
+        self.output_edit.setStyleSheet("""
+            QTextEdit {
+                background-color: #222222;
+                border: 1px solid #333333;
+                border-radius: 6px;
+                padding: 8px;
+                color: #e0e0e0;
+            }
+            QTextEdit:focus {
+                border: 1px solid #e67e22;
+            }
+        """)
         self.form_layout.addRow("Output (response):", self.output_edit)
 
         self.layout.addLayout(self.form_layout)
@@ -91,8 +116,11 @@ class ExamplesTab(QWidget):
         self.examples_file = self.config_dir / "examples.json"
 
         self.examples = self._load_examples()
+        self.original_examples = []  # Store original state
+        self.has_unsaved_changes = False
 
         self.init_ui()
+        self._save_original_values()  # Save initial state
 
     def init_ui(self):
         """Initialize the UI."""
@@ -277,6 +305,75 @@ class ExamplesTab(QWidget):
         scroll.setWidget(content_widget)
         main_layout.addWidget(scroll)
 
+        # Create button container at the bottom for Save/Cancel/Reset
+        self.button_container = QWidget()
+        self.button_container.setProperty("class", "transparent-container")
+        self.button_container.setStyleSheet("background-color: transparent;")
+        action_button_layout = QHBoxLayout(self.button_container)
+        action_button_layout.setContentsMargins(
+            20, 16, 20, 0)  # Match content margins
+        action_button_layout.setSpacing(8)
+
+        # Add Cancel button
+        cancel_button = QPushButton("Cancel")
+        cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #333333;
+                color: white;
+            }
+        """)
+        cancel_button.clicked.connect(self._cancel_changes)
+
+        # Add Reset button
+        reset_button = QPushButton("Reset")
+        reset_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2a2a2a;
+                color: #e0e0e0;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+            }
+            QPushButton:hover {
+                background-color: #333333;
+                color: white;
+            }
+        """)
+        reset_button.clicked.connect(self._reset_changes)
+
+        # Add Save button
+        save_all_button = QPushButton("Save")
+        save_all_button.setProperty("class", "primary")
+        save_all_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e67e22;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #f39c12;
+            }
+        """)
+        save_all_button.clicked.connect(self._apply_all_settings)
+
+        action_button_layout.addWidget(cancel_button)
+        action_button_layout.addWidget(reset_button)
+        action_button_layout.addStretch()
+        action_button_layout.addWidget(save_all_button)
+
+        main_layout.addWidget(self.button_container)
+        self.button_container.hide()  # Initially hide the buttons
+
         self.setLayout(main_layout)
 
         # Populate the table
@@ -304,6 +401,30 @@ class ExamplesTab(QWidget):
         # Emit signal to notify of changes
         self.examples_changed.emit()
 
+    def _save_original_values(self):
+        """Save the current examples state as the original state."""
+        # Deep copy is important for lists of dictionaries
+        self.original_examples = json.loads(json.dumps(self.examples))
+        self.has_unsaved_changes = False
+        self._update_button_visibility()
+
+    def _get_current_values(self):
+        """Return the current examples."""
+        # Return a copy to prevent accidental modification
+        return json.loads(json.dumps(self.examples))
+
+    def _check_for_changes(self):
+        """Check if the current examples differ from the original."""
+        current_values = self._get_current_values()
+        # Compare JSON strings for a reliable deep comparison
+        self.has_unsaved_changes = json.dumps(current_values, sort_keys=True) != json.dumps(
+            self.original_examples, sort_keys=True)
+        self._update_button_visibility()
+
+    def _update_button_visibility(self):
+        """Show or hide the action buttons based on unsaved changes."""
+        self.button_container.setVisible(self.has_unsaved_changes)
+
     def _populate_table(self):
         """Populate the examples table."""
         self.examples_table.setRowCount(0)
@@ -329,8 +450,8 @@ class ExamplesTab(QWidget):
         dialog = ExampleDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.examples.append(dialog.get_example())
-            self._save_examples()
             self._populate_table()
+            self._check_for_changes()
 
     def edit_example(self):
         """Edit the selected example."""
@@ -344,8 +465,8 @@ class ExamplesTab(QWidget):
         dialog = ExampleDialog(self, self.examples[row])
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.examples[row] = dialog.get_example()
-            self._save_examples()
             self._populate_table()
+            self._check_for_changes()
 
     def delete_example(self):
         """Delete the selected example."""
@@ -366,8 +487,8 @@ class ExamplesTab(QWidget):
 
         if msg_box.exec() == QMessageBox.StandardButton.Yes:
             self.examples.pop(row)
-            self._save_examples()
             self._populate_table()
+            self._check_for_changes()
 
     def import_examples(self):
         """Import examples from a JSON file."""
@@ -401,8 +522,8 @@ class ExamplesTab(QWidget):
 
             if msg_box.exec() == QMessageBox.StandardButton.Yes:
                 self.examples = imported
-                self._save_examples()
                 self._populate_table()
+                self._check_for_changes()
 
                 QMessageBox.information(self, "Import Complete",
                                         f"Successfully imported {len(imported)} examples.")
@@ -431,3 +552,136 @@ class ExamplesTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Export Error",
                                  f"Failed to export examples: {str(e)}")
+
+    def _cancel_changes(self):
+        """Cancel all changes and restore original examples."""
+        self.examples = json.loads(json.dumps(
+            self.original_examples))  # Restore from deep copy
+        self._populate_table()
+        self.has_unsaved_changes = False
+        self._update_button_visibility()
+
+    def _reset_changes(self):
+        """Reset examples to an empty list (default)."""
+        # Check if already empty to avoid unnecessary changes
+        if self.examples:
+            self.examples = []
+            self._populate_table()
+            self._check_for_changes()
+
+    def _apply_all_settings(self):
+        """Apply all changes to the examples."""
+        try:
+            logging.info("Applying example changes")
+            # Save the examples to file
+            self._save_examples()
+
+            # Update the original state
+            self._save_original_values()
+
+            # Hide the buttons
+            self.has_unsaved_changes = False
+            self._update_button_visibility()
+
+            # Emit the signal AFTER saving and updating state
+            self.examples_changed.emit()
+            logging.info("Examples saved and signal emitted.")
+
+            # Prompt for restart
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Settings Applied")
+            msg_box.setText("Examples have been saved successfully.")
+            msg_box.setInformativeText(
+                "Changes to examples require restarting the Dasi service to take effect.\n\n"
+                "Would you like to restart now?"
+            )
+            msg_box.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+
+            # Style the buttons
+            for button in msg_box.buttons():
+                if msg_box.buttonRole(button) == QMessageBox.ButtonRole.YesRole:
+                    button.setStyleSheet("""
+                        QPushButton {
+                            background-color: #e67e22;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            padding: 6px 12px;
+                            font-weight: bold;
+                        }
+                        QPushButton:hover {
+                            background-color: #f39c12;
+                        }
+                    """)
+
+            response = msg_box.exec()
+
+            if response == QMessageBox.StandardButton.Yes:
+                logging.info(
+                    "User selected to restart Dasi service from Examples tab")
+                self._restart_dasi_service()
+            else:
+                logging.info("User chose not to restart Dasi service")
+
+        except Exception as e:
+            logging.error(
+                f"Error applying example settings: {str(e)}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to save examples: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
+
+    def _restart_dasi_service(self):
+        """Helper method to restart Dasi service via the main settings window."""
+        main_window = self.window()
+        # Traverse up if needed (might be nested in scroll area etc.)
+        while main_window and not hasattr(main_window, 'start_dasi'):
+            main_window = main_window.parent()
+
+        if main_window and hasattr(main_window, 'stop_dasi') and hasattr(main_window, 'start_dasi'):
+            logging.info(
+                "Performing full restart of Dasi service from Examples tab")
+
+            # Stop Dasi without showing message
+            main_window.stop_dasi(show_message=False)
+
+            # Small delay to ensure proper shutdown before restarting
+            QTimer.singleShot(
+                500, lambda: self._start_dasi_after_stop(main_window))
+        else:
+            logging.error(
+                "Could not restart Dasi: main window or required methods not found")
+            QMessageBox.warning(
+                self,
+                "Restart Failed",
+                "Could not restart Dasi service automatically. Please restart manually.",
+                QMessageBox.StandardButton.Ok
+            )
+
+    def _start_dasi_after_stop(self, main_window):
+        """Helper method to start Dasi after stopping."""
+        try:
+            # Start Dasi without showing message - assumes it handles reinitialization
+            main_window.start_dasi(show_message=False)
+
+            # Show a single success message after restart attempt
+            QMessageBox.information(
+                self,
+                "Restart Initiated",
+                "Dasi service restart initiated successfully. New examples will be loaded.",
+                QMessageBox.StandardButton.Ok
+            )
+        except Exception as e:
+            logging.error(
+                f"Error restarting Dasi after stop: {str(e)}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Restart Error",
+                f"Failed to restart Dasi after stop: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
