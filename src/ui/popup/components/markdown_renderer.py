@@ -113,12 +113,19 @@ class MarkdownRenderer(QWidget):
             base_path = os.path.dirname(os.path.dirname(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-        # Try multiple possible paths for marked.js
+        # Try multiple possible paths for marked.js and mermaid.js
         possible_paths = [
             os.path.join(base_path, 'assets', 'js', 'marked.min.js'),
             os.path.join(base_path, 'src', 'assets', 'js', 'marked.min.js'),
             os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          '..', '..', '..', 'assets', 'js', 'marked.min.js')
+        ]
+
+        mermaid_possible_paths = [
+            os.path.join(base_path, 'assets', 'js', 'mermaid.min.js'),
+            os.path.join(base_path, 'src', 'assets', 'js', 'mermaid.min.js'),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         '..', '..', '..', 'assets', 'js', 'mermaid.min.js')
         ]
 
         marked_js_content = None
@@ -132,12 +139,28 @@ class MarkdownRenderer(QWidget):
                 logging.debug(
                     f"Could not load marked.js from {path}: {str(e)}")
 
+        mermaid_js_content = None
+        for path in mermaid_possible_paths:
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    mermaid_js_content = f.read()
+                    logging.info(f"Successfully loaded mermaid.js from {path}")
+                    break
+            except Exception as e:
+                logging.debug(
+                    f"Could not load mermaid.js from {path}: {str(e)}")
+
         if marked_js_content is None:
             logging.error(
                 "Could not find marked.js in any of the expected locations")
             marked_js_content = ""  # Empty string as fallback
 
-        # Create HTML template with marked.js embedded
+        if mermaid_js_content is None:
+            logging.error(
+                "Could not find mermaid.js in any of the expected locations")
+            mermaid_js_content = ""  # Empty string as fallback
+
+        # Create HTML template with marked.js and mermaid.js embedded
         html_template = """
         <!DOCTYPE html>
         <html lang="en">
@@ -147,6 +170,8 @@ class MarkdownRenderer(QWidget):
             <title>Markdown Preview</title>
             <script>
                 // Embed marked.js directly
+                %s
+                // Embed mermaid.js directly
                 %s
             </script>
             <script src="qrc:/qtwebchannel/qwebchannel.js"></script>
@@ -282,7 +307,7 @@ class MarkdownRenderer(QWidget):
                     background-color: #2a2a2a;
                     padding: 0.2em 0.4em;
                     border-radius: 3px;
-                    font-size: 85%%;
+                    font-size: 85%%; /* Escaped percentage */
                 }
                 
                 pre code {
@@ -299,7 +324,7 @@ class MarkdownRenderer(QWidget):
                 
                 table {
                     border-collapse: collapse;
-                    width: 100%%;
+                    width: 100%%; /* Escaped percentage */
                     margin: 1em 0;
                 }
                 
@@ -332,7 +357,7 @@ class MarkdownRenderer(QWidget):
                 }
                 
                 img {
-                    max-width: 100%%;
+                    max-width: 100%%; /* Escaped percentage */
                     height: auto;
                     border-radius: 4px;
                 }
@@ -348,6 +373,150 @@ class MarkdownRenderer(QWidget):
                     left: 0;
                     top: 0.25em;
                 }
+                
+                /* Mermaid diagram styles */
+                .mermaid-container {
+                    position: relative; /* Needed for absolute positioning of toggle buttons */
+                    margin: 1em 0; /* Add margin similar to pre blocks */
+                    padding: 0; /* Remove default padding if any */
+                    background-color: #2a2a2a; /* Match pre background */
+                    border-radius: 4px; /* Match pre border-radius */
+                    border: 1px solid #333333; /* Match pre border */
+                }
+
+                .mermaid-svg-container {
+                    padding: 1em; /* Add padding around the SVG */
+                    background-color: #2a2a2a;
+                    border-radius: 4px;
+                    display: flex; /* Use flexbox for centering */
+                    justify-content: center; /* Center horizontally */
+                    align-items: center; /* Center vertically */
+                    overflow: hidden; /* Prevent SVG overflow issues */
+                }
+                
+                .mermaid-svg-container.hidden, .mermaid-container > pre.hidden {
+                    display: none;
+                }
+
+                .mermaid-container > pre {
+                    margin: 0; /* Remove margin from pre inside container */
+                    border: none; /* Remove border from pre inside container */
+                    border-radius: 0 0 4px 4px; /* Adjust radius if needed */
+                }
+
+                .mermaid { /* Style for the direct mermaid div, if needed */
+                    background: transparent !important; 
+                }
+                .mermaid svg {
+                    max-width: 100%%; /* Escaped percentage */
+                    height: auto;
+                    display: block;
+                    margin: 0 auto;
+                }
+                .mermaid .label {
+                    color: #e0e0e0 !important;
+                }
+
+                /* Toggle Buttons positioning */
+                .mermaid-container .mermaid-code-toggle {
+                    position: absolute;
+                    top: 4px;
+                    right: 4px;
+                    z-index: 10; /* Above SVG */
+                    /* Button styles copied from general copy button */
+                    background-color: #4a4a4a;
+                    color: #e0e0e0;
+                    border: none;
+                    padding: 3px 8px;
+                    border-radius: 3px;
+                    font-size: 0.8em;
+                    cursor: pointer;
+                    transition: background-color 0.2s ease;
+                }
+                .mermaid-container .mermaid-code-toggle:hover {
+                    background-color: #e67e22;
+                    color: #1e1e1e;
+                }
+                .mermaid-container .mermaid-code-toggle.hidden {
+                    display: none;
+                }
+                
+                /* Buttons inside the PRE block for Mermaid */
+                /* Remove the container div style */
+                /*
+                .mermaid-container > pre .mermaid-pre-buttons {
+                    position: absolute;
+                    top: 4px;
+                    right: 4px;
+                    z-index: 5; 
+                    display: flex;
+                    gap: 4px;
+                }
+                */
+                
+                /* Style for Preview button inside the pre block (Top Left) */
+                .mermaid-container > pre .mermaid-preview-toggle {
+                    position: absolute;
+                    top: 4px;
+                    left: 4px;
+                    z-index: 5;
+                    background-color: #4a4a4a;
+                    color: #e0e0e0;
+                    border: none;
+                    padding: 3px 8px;
+                    border-radius: 3px;
+                    font-size: 0.8em;
+                    cursor: pointer;
+                    transition: background-color 0.2s ease, opacity 0.2s ease;
+                    opacity: 0; /* Hidden by default */
+                }
+                .mermaid-container > pre .mermaid-preview-toggle:hover {
+                    background-color: #e67e22;
+                    color: #1e1e1e;
+                }
+
+                /* Style for Copy button inside the pre block (Top Right) */
+                 .mermaid-container > pre .copy-button {
+                    position: absolute;
+                    top: 4px;
+                    right: 4px;
+                    z-index: 5;
+                    /* Styles inherited from general .copy-button, ensure opacity/transition */
+                    transition: background-color 0.2s ease, opacity 0.2s ease;
+                    opacity: 0; /* Hidden by default */
+                }
+                 .mermaid-container > pre .copy-button:hover {
+                    /* Hover effect already defined for .copy-button:hover */
+                 }
+                 .mermaid-container > pre .copy-button.copied {
+                    /* Copied effect already defined */
+                 }
+
+                /* Show buttons on pre hover */
+                .mermaid-container > pre:hover .mermaid-preview-toggle,
+                .mermaid-container > pre:hover .copy-button {
+                     opacity: 1; /* Show on hover */
+                 }
+
+                /* Remove styles related to mermaid-pre-buttons */
+                /*
+                .mermaid-pre-buttons button {
+                    ...
+                }
+                .mermaid-pre-buttons button:hover {
+                   ...
+                }
+                .mermaid-pre-buttons button.copied {
+                    ...
+                }
+                */
+                
+                /* Hide original copy button if it's directly under pre in mermaid container */
+                /* This might be needed if cloning adds one automatically */
+                .mermaid-container > pre > .copy-button {
+                    /* display: none; /* Let's try managing via JS instead */
+                }
+
             </style>
         </head>
         <body>
@@ -356,7 +525,221 @@ class MarkdownRenderer(QWidget):
             <script>
                 'use strict';
                 
-                let webChannelContent = null; // Variable to hold the content object
+                let webChannelContent = null;
+
+                // Initialize mermaid with dark theme
+                function initializeMermaid() {
+                    if (typeof mermaid !== 'undefined') {
+                        mermaid.initialize({
+                            startOnLoad: false,
+                            theme: 'dark',
+                            darkMode: true,
+                            themeVariables: {
+                                'primaryColor': '#e67e22',
+                                'primaryTextColor': '#e0e0e0',
+                                'primaryBorderColor': '#666666',
+                                'lineColor': '#e0e0e0',
+                                'secondaryColor': '#444444',
+                                'tertiaryColor': '#2a2a2a'
+                            }
+                        });
+                    }
+                }
+
+                // Function to render mermaid diagrams with toggle
+                async function renderMermaidDiagrams() {
+                    if (typeof mermaid === 'undefined') {
+                        console.warn('Mermaid library not available.');
+                        return;
+                    }
+                    
+                    const mermaidCodeBlocks = document.querySelectorAll('pre code.language-mermaid');
+                    
+                    for (let i = 0; i < mermaidCodeBlocks.length; i++) {
+                        const codeBlock = mermaidCodeBlocks[i];
+                        const originalPre = codeBlock.parentElement;
+                        const mermaidCode = codeBlock.textContent;
+                        const uniqueId = 'mermaid-diagram-' + i + '-' + Math.random().toString(36).substr(2, 9);
+
+                        let svgContent = '';
+                        let renderError = null;
+
+                        // 1. Attempt to render first
+                        try {
+                            const { svg } = await mermaid.render(uniqueId, mermaidCode);
+                            svgContent = svg;
+                        } catch (error) {
+                            console.error('Mermaid rendering error for ID ' + uniqueId + ':', error);
+                            renderError = error;
+                            svgContent = '<p style="color: #ff6b6b; padding: 1em;">Error rendering diagram</p>';
+                        }
+
+                        // 2. Build the DOM structure
+                        const mainContainer = document.createElement('div');
+                        mainContainer.className = 'mermaid-container';
+
+                        // 3. Create SVG container and add content
+                        const svgContainer = document.createElement('div');
+                        svgContainer.className = 'mermaid-svg-container';
+                        svgContainer.id = uniqueId + '-svg';
+                        svgContainer.innerHTML = svgContent;
+
+                        // 4. Create the "Code" button (lives outside the pre)
+                        const codeToggleButton = document.createElement('button');
+                        codeToggleButton.textContent = 'Code';
+                        codeToggleButton.className = 'mermaid-code-toggle';
+                        codeToggleButton.id = uniqueId + '-code-toggle';
+
+                        // 5. Clone the original pre block and prepare its buttons
+                        const codePreElement = originalPre.cloneNode(true);
+                        codePreElement.id = uniqueId + '-code';
+                        // Remove any potentially cloned copy button directly under pre
+                        const directCopyButton = codePreElement.querySelector(':scope > .copy-button');
+                        if (directCopyButton) directCopyButton.remove();
+                        // Add the Preview/Copy button structure inside the pre NOW
+                        addMermaidCodeViewButtons(codePreElement, svgContainer, codeToggleButton); 
+
+                        // 6. Append elements to main container
+                        mainContainer.appendChild(codeToggleButton);
+                        mainContainer.appendChild(svgContainer); 
+                        mainContainer.appendChild(codePreElement);
+
+                        // 7. Replace original pre with the new container structure
+                        originalPre.parentNode.replaceChild(mainContainer, originalPre);
+                        
+                        // 8. Set initial visibility based on render success
+                        if (renderError) {
+                            svgContainer.classList.add('hidden');
+                            codePreElement.classList.remove('hidden');
+                            codeToggleButton.classList.add('hidden');
+                        } else {
+                            svgContainer.classList.remove('hidden');
+                            codePreElement.classList.add('hidden');
+                            codeToggleButton.classList.remove('hidden');
+                        }
+
+                        // 9. Add listener for the main "Code" toggle button (only really needed if render succeeded)
+                        if (!renderError) {
+                            codeToggleButton.addEventListener('click', () => {
+                                svgContainer.classList.add('hidden');
+                                codePreElement.classList.remove('hidden');
+                                codeToggleButton.classList.add('hidden');
+                                // Buttons inside pre were already added, they become visible on pre:hover
+                            });
+                        } 
+                        // Listeners for buttons inside pre were added by addMermaidCodeViewButtons
+                    }
+                     // Ensure copy buttons are added to any *non-mermaid* code blocks remaining
+                     addCopyButtons();
+                }
+
+                // Add/ensure Preview and Copy buttons inside a Mermaid PRE block
+                function addMermaidCodeViewButtons(preElement, svgContainer, codeToggleButton) {
+                    if (!preElement) return;
+                    
+                    // Remove the button container div logic
+                    /*
+                    let buttonsDiv = preElement.querySelector('.mermaid-pre-buttons');
+                    if (!buttonsDiv) {
+                        buttonsDiv = document.createElement('div');
+                        buttonsDiv.className = 'mermaid-pre-buttons';
+                        preElement.appendChild(buttonsDiv);
+                    }
+                    */
+                    preElement.style.position = 'relative'; // Ensure pre is relative
+
+                    // Preview Button (Top Left) (ensure only one exists)
+                    let previewButton = preElement.querySelector('.mermaid-preview-toggle');
+                    if (!previewButton) {
+                        previewButton = document.createElement('button');
+                        previewButton.textContent = 'Preview';
+                        previewButton.className = 'mermaid-preview-toggle';
+                        previewButton.addEventListener('click', (event) => {
+                            event.stopPropagation();
+                            svgContainer.classList.remove('hidden'); // Show SVG
+                            preElement.classList.add('hidden');      // Hide Code Pre
+                            codeToggleButton.classList.remove('hidden'); // Show 'Code' toggle button
+                        });
+                        preElement.appendChild(previewButton); // Append directly to pre
+                    }
+
+                    // Copy Button (Top Right) (ensure only one exists)
+                    let copyButton = preElement.querySelector('.copy-button');
+                    if (!copyButton) {
+                        copyButton = createCopyButton(preElement); // Create button with logic
+                        preElement.appendChild(copyButton); // Append directly to pre
+                    }
+                }
+
+                // Modify addCopyButtons to ignore mermaid containers
+                function addCopyButtons(parentElement = document) {
+                    // Select PRE blocks that are NOT inside a mermaid container
+                    const preBlocks = parentElement.querySelectorAll('pre:not(.hidden)');
+
+                    preBlocks.forEach(block => {
+                        // Skip if inside a mermaid container or already has a copy button (in the standard location)
+                        if (block.closest('.mermaid-container') || block.querySelector(':scope > .copy-button')) {
+                            return;
+                        }
+                        
+                        // Add standard copy button directly to pre element
+                        const button = createCopyButton(block);
+                        block.appendChild(button);
+                        block.style.position = 'relative'; // Ensure pre is relative for button positioning
+                    });
+                }
+
+                // Helper function to create a copy button and its logic (returns the button element)
+                function createCopyButton(block) {
+                    const button = document.createElement('button');
+                    button.textContent = 'Copy';
+                    button.className = 'copy-button'; 
+                    
+                    button.addEventListener('click', (event) => {
+                        event.stopPropagation(); 
+                        const codeElement = block.querySelector('code');
+                        let textToCopy = block.innerText;
+                        
+                        // Simpler text extraction: remove button texts if they exist at the end
+                        // This is less robust but simpler now buttons are separated
+                        const previewBtn = block.querySelector('.mermaid-preview-toggle');
+                        const copyBtnText = button.textContent;
+                        let previewBtnText = '';
+                        if (previewBtn) previewBtnText = previewBtn.textContent;
+                        
+                        // Remove button texts from the end, order doesn't strictly matter now
+                        if (textToCopy.endsWith(copyBtnText)) {
+                            textToCopy = textToCopy.slice(0, -copyBtnText.length).trim();
+                        }
+                        if (textToCopy.endsWith(previewBtnText)) { // Check for preview button text too
+                             textToCopy = textToCopy.slice(0, -previewBtnText.length).trim();
+                         }
+                         
+                        // Fallback to code element if available and text seems empty
+                        if (!textToCopy.trim() && codeElement) {
+                            textToCopy = codeElement.innerText;
+                        }
+
+                        try {
+                            if (webChannelContent) {
+                                webChannelContent.copy_to_clipboard(textToCopy);
+                                button.textContent = 'Copied!';
+                                button.classList.add('copied');
+                                setTimeout(() => {
+                                    button.textContent = 'Copy';
+                                    button.classList.remove('copied');
+                                }, 2000);
+                            } else {
+                                throw new Error('Web channel content object not available.');
+                            }
+                        } catch (err) {
+                            console.error('Failed to call copy_to_clipboard slot: ', err);
+                            button.textContent = 'Error';
+                            setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+                        }
+                    });
+                    return button;
+                }
                 
                 // Wait for marked to be available
                 function initializeMarked() {
@@ -367,10 +750,10 @@ class MarkdownRenderer(QWidget):
                     
                     // Configure marked.js options
                     marked.setOptions({
-                        breaks: true,           // Add line breaks on single line breaks
-                        gfm: true,              // Use GitHub Flavored Markdown
-                        headerIds: true,        // Generate IDs for headers
-                        mangle: false,          // Don't mangle header IDs
+                        breaks: true,
+                        gfm: true,
+                        headerIds: true,
+                        mangle: false,
                     });
                     
                     // Handle content updates
@@ -379,75 +762,36 @@ class MarkdownRenderer(QWidget):
                             // Preprocess text to ensure fences are on new lines
                             const processedText = (text || '').replace(/([^\\n])(```)/g, '$1\\n$2');
                             document.getElementById('markdown-content').innerHTML = marked.parse(processedText);
+                            // IMPORTANT: Render mermaid diagrams AFTER markdown parsing but BEFORE adding copy buttons to standard blocks
+                            renderMermaidDiagrams().then(() => {
+                                // Add copy buttons to non-mermaid code blocks AFTER mermaid rendering is complete
+                                addCopyButtons(); 
+                            }); 
                         } catch (e) {
                             console.error('Error parsing markdown:', e);
                             document.getElementById('markdown-content').innerHTML = '<p style="color: #ff6b6b;">Error rendering markdown</p>';
                         }
-                        addCopyButtons(); // Add copy buttons after rendering
+                        // Copy buttons are now added async within renderMermaidDiagrams or after it completes
                     };
-                    
-                    // Function to add copy buttons to code blocks
-                    function addCopyButtons() {
-                        const codeBlocks = document.querySelectorAll('pre');
-                        codeBlocks.forEach(block => {
-                            // Avoid adding button if it already exists
-                            if (block.querySelector('.copy-button')) {
-                                return;
-                            }
-                            
-                            const button = document.createElement('button');
-                            button.textContent = 'Copy';
-                            button.className = 'copy-button';
-                            
-                            button.addEventListener('click', () => {
-                                // Find the 'code' element inside 'pre' or use 'pre' itself
-                                const codeElement = block.querySelector('code');
-                                const textToCopy = codeElement ? codeElement.innerText : block.innerText.replace(/\\nCopy$/, ''); // Fallback + remove trailing button text if needed
-
-                                try {
-                                    // Call the Python slot via the web channel using the accessible variable
-                                    if (webChannelContent) {
-                                        webChannelContent.copy_to_clipboard(textToCopy);
-                                    } else {
-                                        console.error('webChannelContent is not initialized');
-                                        throw new Error('Web channel content object not available.');
-                                    }
-
-                                    // Provide immediate feedback (assuming success for now)
-                                    button.textContent = 'Copied!';
-                                    button.classList.add('copied');
-                                    setTimeout(() => {
-                                        button.textContent = 'Copy';
-                                        button.classList.remove('copied');
-                                    }, 2000);
-                                } catch (err) {
-                                    console.error('Failed to call copy_to_clipboard slot: ', err);
-                                    button.textContent = 'Error';
-                                    setTimeout(() => {
-                                        button.textContent = 'Copy';
-                                    }, 2000);
-                                }
-                            });
-                            
-                            block.appendChild(button);
-                        });
-                    }
 
                     // Set up WebChannel to receive content updates
                     new QWebChannel(qt.webChannelTransport, function(channel) {
                         var content = channel.objects.content;
-                        webChannelContent = content; // Assign to the broader scoped variable
-                        updateContent(content.text);
-                        content.textChanged.connect(updateContent);
+                        webChannelContent = content; 
+                        updateContent(content.text); // Initial load
+                        content.textChanged.connect(updateContent); // Subsequent updates
                     });
                 }
                 
                 // Initialize when the document is ready
-                document.addEventListener('DOMContentLoaded', initializeMarked);
+                document.addEventListener('DOMContentLoaded', () => {
+                    initializeMermaid();
+                    initializeMarked();
+                });
             </script>
         </body>
         </html>
-        """ % marked_js_content
+        """ % (marked_js_content, mermaid_js_content)
 
         # Create a temporary HTML file
         temp_dir = tempfile.gettempdir()
