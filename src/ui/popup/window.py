@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout,
                              QFrame, QLabel, QPushButton, QHBoxLayout, QFileDialog, QMessageBox)
-from PyQt6.QtCore import (Qt, QThread, pyqtSignal)
+from PyQt6.QtCore import (Qt, QThread, pyqtSignal, QEvent)
 from PyQt6.QtGui import QFont, QClipboard, QPixmap
 from typing import Callable,  List
 import sys
@@ -850,6 +850,78 @@ class DasiWindow(QWidget):
         elif event.key() == Qt.Key.Key_Backspace and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             self.input_panel.reset_context()
             event.accept()
+        # History navigation with up/down arrow keys
+        elif event.key() == Qt.Key.Key_Up:
+            # Alt+Up to cycle to previous model
+            if event.modifiers() & Qt.KeyboardModifier.AltModifier:
+                current_index = self.input_panel.model_selector.currentIndex()
+                if current_index > 0:
+                    self.input_panel.model_selector.setCurrentIndex(
+                        current_index - 1)
+                else:
+                    # Wrap around to the last item
+                    self.input_panel.model_selector.setCurrentIndex(
+                        self.input_panel.model_selector.count() - 1)
+                event.accept()
+                return
+
+            # Only handle history if dropdown is not visible
+            if not self.input_panel.chunk_dropdown.isVisible():
+                self.input_panel._handle_history_up()
+                event.accept()
+                return
+        elif event.key() == Qt.Key.Key_Down:
+            # Alt+Down to cycle to next model
+            if event.modifiers() & Qt.KeyboardModifier.AltModifier:
+                current_index = self.input_panel.model_selector.currentIndex()
+                if current_index < self.input_panel.model_selector.count() - 1:
+                    self.input_panel.model_selector.setCurrentIndex(
+                        current_index + 1)
+                else:
+                    # Wrap around to the first item
+                    self.input_panel.model_selector.setCurrentIndex(0)
+                event.accept()
+                return
+
+            # Only handle history if dropdown is not visible
+            if not self.input_panel.chunk_dropdown.isVisible():
+                self.input_panel._handle_history_down()
+                event.accept()
+                return
+        # Alt+Left/Right to cycle through modes
+        elif event.key() == Qt.Key.Key_Left and event.modifiers() & Qt.KeyboardModifier.AltModifier:
+            # Cycle to previous mode
+            current_index = self.input_panel.mode_selector.currentIndex()
+            if current_index > 0:
+                self.input_panel.mode_selector.setCurrentIndex(
+                    current_index - 1)
+            else:
+                # Wrap around to the last item
+                self.input_panel.mode_selector.setCurrentIndex(
+                    self.input_panel.mode_selector.count() - 1)
+            self.input_panel._handle_mode_change(
+                self.input_panel.mode_selector.currentIndex())
+            event.accept()
+            return
+        elif event.key() == Qt.Key.Key_Right and event.modifiers() & Qt.KeyboardModifier.AltModifier:
+            # Cycle to next mode
+            current_index = self.input_panel.mode_selector.currentIndex()
+            if current_index < self.input_panel.mode_selector.count() - 1:
+                self.input_panel.mode_selector.setCurrentIndex(
+                    current_index + 1)
+            else:
+                # Wrap around to the first item
+                self.input_panel.mode_selector.setCurrentIndex(0)
+            self.input_panel._handle_mode_change(
+                self.input_panel.mode_selector.currentIndex())
+            event.accept()
+            return
+        # Handle Enter/Return key to submit
+        elif event.key() == Qt.Key.Key_Return and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            if not self.input_panel.chunk_dropdown.isVisible():
+                self.input_panel._handle_submit()
+                event.accept()
+                return
         else:
             super().keyPressEvent(event)
 

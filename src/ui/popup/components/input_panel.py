@@ -774,38 +774,8 @@ class InputPanel(QWidget):
                 if self.chunk_dropdown.isVisible():
                     return False
 
-                # Get current text for searching
-                current_text = self.input_field.toPlainText()
-
-                # Save the current input before navigating history
-                if self.history_position == -1:
-                    self.current_input = current_text
-
-                # Navigate history backwards (older entries)
-                if len(self.history) > 0:
-                    # Search mode - find items starting with current input (not current display text)
-                    search_text = self.current_input if self.history_position != -1 else current_text
-
-                    # Start searching from next position
-                    start_pos = self.history_position + 1 if self.history_position != -1 else 0
-
-                    # Don't search beyond the history length
-                    if start_pos < len(self.history):
-                        found = False
-                        # Loop through history entries from newest to oldest
-                        for i in range(start_pos, len(self.history)):
-                            if self.history[len(self.history) - 1 - i].startswith(search_text):
-                                self.history_position = i
-                                self._set_input_text(
-                                    self.history[len(self.history) - 1 - i])
-                                found = True
-                                break
-
-                        if not found and start_pos > 0:
-                            # No more matches, stay at current position
-                            pass
-
-                return True
+                # Handle history navigation with the extracted method
+                return self._handle_history_up()
 
             elif key_event.key() == Qt.Key.Key_Down:
                 # Alt+Down to cycle to next model
@@ -822,35 +792,8 @@ class InputPanel(QWidget):
                 if self.chunk_dropdown.isVisible():
                     return False
 
-                # Only navigate down if we're in history
-                if self.history_position == -1:
-                    return False
-
-                # Navigate history forwards (newer entries)
-                search_text = self.current_input
-
-                if self.history_position > 0:
-                    # Try to find a matching entry in a newer position
-                    found = False
-                    # Loop from current position toward newer entries
-                    for i in range(self.history_position - 1, -1, -1):
-                        if self.history[len(self.history) - 1 - i].startswith(search_text):
-                            self.history_position = i
-                            self._set_input_text(
-                                self.history[len(self.history) - 1 - i])
-                            found = True
-                            break
-
-                    if not found:
-                        # Return to original input if no more matches
-                        self.history_position = -1
-                        self._set_input_text(self.current_input)
-                else:
-                    # Already at newest history entry, return to original input
-                    self.history_position = -1
-                    self._set_input_text(self.current_input)
-
-                return True
+                # Handle history navigation with the extracted method
+                return self._handle_history_down()
 
             # Alt+Left/Right to cycle through modes
             elif key_event.key() == Qt.Key.Key_Left and key_event.modifiers() & Qt.KeyboardModifier.AltModifier:
@@ -1288,3 +1231,70 @@ class InputPanel(QWidget):
         # Hide the context frame if image is also not visible
         if not self.image_data or self.image_container.isHidden():
             self.context_frame.hide()
+
+    def _handle_history_up(self):
+        """Handle up arrow key for history navigation."""
+        # Get current text for searching
+        current_text = self.input_field.toPlainText()
+
+        # Save the current input before navigating history
+        if self.history_position == -1:
+            self.current_input = current_text
+
+        # Navigate history backwards (older entries)
+        if len(self.history) > 0:
+            # Search mode - find items starting with current input (not current display text)
+            search_text = self.current_input if self.history_position != -1 else current_text
+
+            # Start searching from next position
+            start_pos = self.history_position + 1 if self.history_position != -1 else 0
+
+            # Don't search beyond the history length
+            if start_pos < len(self.history):
+                found = False
+                # Loop through history entries from newest to oldest
+                for i in range(start_pos, len(self.history)):
+                    if self.history[len(self.history) - 1 - i].startswith(search_text):
+                        self.history_position = i
+                        self._set_input_text(
+                            self.history[len(self.history) - 1 - i])
+                        found = True
+                        break
+
+                if not found and start_pos > 0:
+                    # No more matches, stay at current position
+                    pass
+
+        return True
+
+    def _handle_history_down(self):
+        """Handle down arrow key for history navigation."""
+        # Only navigate down if we're in history
+        if self.history_position == -1:
+            return False
+
+        # Navigate history forwards (newer entries)
+        search_text = self.current_input
+
+        if self.history_position > 0:
+            # Try to find a matching entry in a newer position
+            found = False
+            # Loop from current position toward newer entries
+            for i in range(self.history_position - 1, -1, -1):
+                if self.history[len(self.history) - 1 - i].startswith(search_text):
+                    self.history_position = i
+                    self._set_input_text(
+                        self.history[len(self.history) - 1 - i])
+                    found = True
+                    break
+
+            if not found:
+                # Return to original input if no more matches
+                self.history_position = -1
+                self._set_input_text(self.current_input)
+        else:
+            # Already at newest history entry, return to original input
+            self.history_position = -1
+            self._set_input_text(self.current_input)
+
+        return True
