@@ -1094,6 +1094,9 @@ class InputPanel(QWidget):
         if not query or (self.history and self.history[-1] == query):
             return
 
+        # Remove previous occurrences of the same query
+        self.history = [item for item in self.history if item != query]
+
         # Add to history
         self.history.append(query)
 
