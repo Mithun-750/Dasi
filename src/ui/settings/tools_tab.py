@@ -288,61 +288,16 @@ class ToolsTab(QWidget):
                 except Exception as e:
                     logging.error(f"Error creating default config: {e}")
 
-            # Get an apply_callback to reload the tool configuration if applicable
-            apply_callback = None
-
-            # Terminal tool configuration reload
-            if setting_key == "terminal_command_enabled":
-                # Get the main window
-                main_window = self.window()
-                if main_window and hasattr(main_window, 'llm_chat') and \
-                   hasattr(main_window.llm_chat, 'tool_call_handler') and \
-                   hasattr(main_window.llm_chat.tool_call_handler, 'tool_registry'):
-
-                    # Get the tool registry
-                    tool_registry = main_window.llm_chat.tool_call_handler.tool_registry
-
-                    # Get the terminal tool handler if it exists
-                    if hasattr(tool_registry, 'terminal_command_tool') and \
-                       tool_registry.terminal_command_tool is not None:
-
-                        # Create a callback to reload the terminal tool configuration
-                        terminal_tool = tool_registry.terminal_command_tool
-                        if hasattr(terminal_tool, 'reload_config'):
-                            apply_callback = terminal_tool.reload_config
-                            logging.info(
-                                "Found terminal tool reload_config callback")
-
-            # Web Search tool configuration reload
-            elif setting_key == "web_search_enabled":
-                # Get the main window
-                main_window = self.window()
-                if main_window and hasattr(main_window, 'llm_chat') and \
-                   hasattr(main_window.llm_chat, 'tool_call_handler') and \
-                   hasattr(main_window.llm_chat.tool_call_handler, 'tool_registry'):
-
-                    # Get the tool registry
-                    tool_registry = main_window.llm_chat.tool_call_handler.tool_registry
-
-                    # Get the web search tool handler if it exists
-                    if hasattr(tool_registry, 'web_search_tool') and \
-                       tool_registry.web_search_tool is not None:
-
-                        # Create a callback to reload the web search tool configuration
-                        web_search_tool = tool_registry.web_search_tool
-                        if hasattr(web_search_tool, 'reload_config'):
-                            apply_callback = web_search_tool.reload_config
-                            logging.info(
-                                "Found web search tool reload_config callback")
-
             # Create and show the config dialog
             dialog = ToolConfigDialog(
                 tool_name=tool_config["name"],
                 schema_path=tool_config["schema_path"],
                 config_path=tool_config["config_path"],
-                apply_callback=apply_callback,
                 parent=self
             )
+
+            # Connect the dialog's save signal to trigger the main save/restart logic
+            dialog.config_saved.connect(self._trigger_main_save)
 
             dialog.exec()
 
@@ -355,6 +310,26 @@ class ToolsTab(QWidget):
                 f"Failed to open configuration: {str(e)}",
                 QMessageBox.StandardButton.Ok
             )
+
+    def _trigger_main_save(self):
+        """Helper function to trigger the main save mechanism after dialog save."""
+        # Mark changes as detected to ensure save button logic runs correctly
+        # even if only dialog changes were made.
+        # Check if there are actually unsaved changes in the checkboxes first
+        current_checkbox_values = self._get_current_values()
+        checkbox_changed = any(current_checkbox_values.get(key) != original_value
+                               for key, original_value in self.original_values.items())
+
+        # Only mark as having unsaved changes if checkboxes changed OR
+        # if there were no checkbox changes (meaning only dialog changes)
+        if checkbox_changed or not self.unsaved_changes:
+            # We might not have changes directly on the tab, but the dialog save implies changes
+            self.has_unsaved_changes = True
+            self._update_button_visibility()  # Show buttons if they were hidden
+
+        logging.info("Tool config dialog saved, triggering main save action.")
+        # Call the main apply function which includes restart logic
+        self._apply_all_settings()
 
     def load_settings(self):
         """Load settings from the SettingsManager into checkboxes."""
@@ -521,64 +496,64 @@ class ToolsTab(QWidget):
     def _apply_all_settings(self):
         """Apply all changes and save settings."""
         logging.debug("Applying all changes in Tools tab")
-        if not self.unsaved_changes:
+        # Check the boolean flag first, which is set by both checkbox changes and dialog saves
+        if not self.has_unsaved_changes:
             logging.info("No changes to apply in Tools tab.")
             return
 
         try:
-            if self.save_settings():  # save_settings now returns True/False
-                self.has_unsaved_changes = False
-                self._update_button_visibility()  # Hide buttons on successful save
-                logging.info("All changes applied and saved.")
+            # Attempt to save any direct checkbox changes
+            checkbox_settings_saved = self.save_settings()
+            # We proceed even if checkbox_settings_saved is False,
+            # because the important dialog config was saved by the dialog itself.
+            # The main goal here is to trigger the UI update and restart prompt.
 
-                # Show restart dialog
-                msg_box = QMessageBox(self)
-                msg_box.setWindowTitle("Settings Saved")
-                msg_box.setText("Tool settings have been saved successfully.")
-                msg_box.setInformativeText(
-                    "Changes to Tool settings require restarting the Dasi service to take full effect.\\n\\nWould you like to restart now?"
-                )
-                msg_box.setStandardButtons(
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
+            # Update state and UI
+            self.has_unsaved_changes = False
+            self._update_button_visibility()  # Hide buttons on successful save
+            logging.info(
+                "Settings applied (changes might have been in dialog). Triggering restart check.")
 
-                # Style the Yes button
-                for button in msg_box.buttons():
-                    if msg_box.buttonRole(button) == QMessageBox.ButtonRole.YesRole:
-                        button.setProperty("class", "primary")
-                        button.setStyleSheet("""
-                            QPushButton {
-                                background-color: #e67e22;
-                                color: white;
-                                border: none;
-                                border-radius: 4px;
-                                padding: 6px 12px;
-                                font-weight: bold;
-                            }
-                            QPushButton:hover {
-                                background-color: #f39c12;
-                            }
-                        """)
-                        # Ensure style is applied correctly
-                        button.style().unpolish(button)
-                        button.style().polish(button)
+            # Show restart dialog
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Settings Saved")
+            msg_box.setText("Tool settings have been saved successfully.")
+            msg_box.setInformativeText(
+                "Changes to Tool settings require restarting the Dasi service to take full effect.\\n\\nWould you like to restart now?"
+            )
+            msg_box.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            msg_box.setDefaultButton(QMessageBox.StandardButton.Yes)
 
-                response = msg_box.exec()
+            # Style the Yes button
+            for button in msg_box.buttons():
+                if msg_box.buttonRole(button) == QMessageBox.ButtonRole.YesRole:
+                    button.setProperty("class", "primary")
+                    button.setStyleSheet("""
+                        QPushButton {
+                            background-color: #e67e22;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            padding: 6px 12px;
+                            font-weight: bold;
+                        }
+                        QPushButton:hover {
+                            background-color: #f39c12;
+                        }
+                    """)
+                    # Ensure style is applied correctly
+                    button.style().unpolish(button)
+                    button.style().polish(button)
 
-                if response == QMessageBox.StandardButton.Yes:
-                    logging.info("User selected to restart Dasi service")
-                    self._restart_dasi_service()
-                else:
-                    logging.info("User chose not to restart Dasi service")
+            response = msg_box.exec()
+
+            if response == QMessageBox.StandardButton.Yes:
+                logging.info("User selected to restart Dasi service")
+                self._restart_dasi_service()
             else:
-                logging.error("Failed to save settings during apply.")
-                QMessageBox.critical(
-                    self,
-                    "Error",
-                    "Failed to save settings.",
-                    QMessageBox.StandardButton.Ok
-                )
+                logging.info("User chose not to restart Dasi service")
         except Exception as e:
             logging.error(
                 f"Error applying all changes in Tools tab: {e}", exc_info=True)

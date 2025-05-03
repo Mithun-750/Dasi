@@ -3,20 +3,21 @@ import logging
 from typing import Dict, Any, Optional, Callable
 
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QDialogButtonBox, QLabel
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 
 from .json_schema_form import JSONSchemaForm
 
 
 class ToolConfigDialog(QDialog):
     """Dialog for editing tool configuration."""
+    # Signal emitted when the config is successfully saved
+    config_saved = pyqtSignal()
 
     def __init__(
         self,
         tool_name: str,
         schema_path: str,
         config_path: Optional[str] = None,
-        apply_callback: Optional[Callable[[], bool]] = None,
         parent=None
     ):
         """
@@ -26,14 +27,12 @@ class ToolConfigDialog(QDialog):
             tool_name: The name of the tool
             schema_path: Path to the JSON schema file
             config_path: Path to the configuration file (optional)
-            apply_callback: Callback to notify when configuration is applied
             parent: Parent widget
         """
         super().__init__(parent)
         self.tool_name = tool_name
         self.schema_path = schema_path
         self.config_path = config_path
-        self.apply_callback = apply_callback
         self.config_data = {}
 
         self._setup_ui()
@@ -89,18 +88,8 @@ class ToolConfigDialog(QDialog):
         self.config_data = config
         logging.info(f"Tool config saved for {self.tool_name}")
 
-        # Apply the configuration if a callback was provided
-        if self.apply_callback:
-            try:
-                success = self.apply_callback()
-                if success:
-                    logging.info(
-                        f"Configuration applied successfully for {self.tool_name}")
-                else:
-                    logging.warning(
-                        f"Failed to apply configuration for {self.tool_name}")
-            except Exception as e:
-                logging.error(f"Error applying configuration: {e}")
+        # Emit the signal indicating save is complete
+        self.config_saved.emit()
 
     def get_config(self) -> Dict[str, Any]:
         """
