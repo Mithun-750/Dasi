@@ -44,6 +44,13 @@ class ToolsTab(QWidget):
                 "schema_path": os.path.join(self._get_app_dir(), "core", "tools", "schema", "terminal_tool_schema.json"),
                 "config_path": os.path.join(os.path.expanduser("~"), ".config", "dasi", "config", "tools", "terminal_tool_config.json"),
                 "default_config_path": os.path.join(self._get_app_dir(), "..", "defaults", "tools", "terminal_tool_config.json"),
+            },
+            # Add Web Search Tool configuration
+            "web_search_enabled": {
+                "name": "Web Search Tool",
+                "schema_path": os.path.join(self._get_app_dir(), "core", "tools", "schema", "web_search_tool_schema.json"),
+                "config_path": os.path.join(os.path.expanduser("~"), ".config", "dasi", "config", "tools", "web_search_tool_config.json"),
+                "default_config_path": os.path.join(self._get_app_dir(), "..", "defaults", "tools", "web_search_tool_config.json"),
             }
         }
 
@@ -305,6 +312,28 @@ class ToolsTab(QWidget):
                             apply_callback = terminal_tool.reload_config
                             logging.info(
                                 "Found terminal tool reload_config callback")
+
+            # Web Search tool configuration reload
+            elif setting_key == "web_search_enabled":
+                # Get the main window
+                main_window = self.window()
+                if main_window and hasattr(main_window, 'llm_chat') and \
+                   hasattr(main_window.llm_chat, 'tool_call_handler') and \
+                   hasattr(main_window.llm_chat.tool_call_handler, 'tool_registry'):
+
+                    # Get the tool registry
+                    tool_registry = main_window.llm_chat.tool_call_handler.tool_registry
+
+                    # Get the web search tool handler if it exists
+                    if hasattr(tool_registry, 'web_search_tool') and \
+                       tool_registry.web_search_tool is not None:
+
+                        # Create a callback to reload the web search tool configuration
+                        web_search_tool = tool_registry.web_search_tool
+                        if hasattr(web_search_tool, 'reload_config'):
+                            apply_callback = web_search_tool.reload_config
+                            logging.info(
+                                "Found web search tool reload_config callback")
 
             # Create and show the config dialog
             dialog = ToolConfigDialog(

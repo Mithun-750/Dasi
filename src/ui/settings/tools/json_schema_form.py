@@ -12,6 +12,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
+# Import the shared CustomComboBox
+from ..components.custom_widgets import CustomComboBox
+
 
 class JSONSchemaForm(QWidget):
     """A dynamic form generator based on JSON schema."""
@@ -265,13 +268,25 @@ class JSONSchemaForm(QWidget):
         prop_type = prop_schema.get("type")
 
         if prop_type == "string":
-            widget = QLineEdit()
-            if value is not None:
-                widget.setText(str(value))
-            # Add padding to line edits
-            widget.setStyleSheet("padding: 4px 6px;")
-            widget.textChanged.connect(lambda: self._on_form_changed(path))
-            return widget
+            # Check if enum is defined for string type, indicating a dropdown
+            if "enum" in prop_schema:
+                widget = CustomComboBox()
+                for item in prop_schema["enum"]:
+                    widget.addItem(str(item))
+                if value is not None and value in prop_schema["enum"]:
+                    widget.setCurrentText(str(value))
+                widget.currentIndexChanged.connect(
+                    lambda: self._on_form_changed(path))
+                return widget
+            else:
+                # Standard string input
+                widget = QLineEdit()
+                if value is not None:
+                    widget.setText(str(value))
+                # Add padding to line edits
+                widget.setStyleSheet("padding: 4px 6px;")
+                widget.textChanged.connect(lambda: self._on_form_changed(path))
+                return widget
 
         elif prop_type == "integer":
             widget = QSpinBox()
@@ -341,17 +356,6 @@ class JSONSchemaForm(QWidget):
                 }}
             """
             widget.setStyleSheet(checkbox_style)
-            return widget
-
-        elif prop_type == "array" and "enum" in prop_schema.get("items", {}):
-            # Create a combo box for enums
-            widget = QComboBox()
-            for item in prop_schema["items"]["enum"]:
-                widget.addItem(str(item))
-            if value is not None and value in prop_schema["items"]["enum"]:
-                widget.setCurrentText(str(value))
-            widget.currentIndexChanged.connect(
-                lambda: self._on_form_changed(path))
             return widget
 
         return None

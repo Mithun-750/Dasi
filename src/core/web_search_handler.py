@@ -14,6 +14,7 @@ from .prompts_hub import (
     WEB_SEARCH_RESULTS_INSTRUCTION,
     SCRAPED_CONTENT_INSTRUCTION
 )
+import json
 # Exa is now in a separate package
 try:
     from langchain_exa import ExaSearchRetriever
@@ -70,12 +71,62 @@ class WebSearchHandler:
         self.settings = Settings()
         self.llm_handler = llm_handler  # Store the passed LLM handler
         self.search_providers = {}
-        self.initialize_search_providers()
+        self.tool_config = {}  # Initialize tool config dictionary
         self._cancellation_requested = False
 
-        # Connect to settings changes
-        self.settings.web_search_changed.connect(
-            self.initialize_search_providers)
+        # Load initial config and initialize providers
+        self.reload_config()
+
+        # No longer need to connect to web_search_changed from main settings
+        # self.settings.web_search_changed.connect(
+        #     self.initialize_search_providers)
+
+    def reload_config(self):
+        """Load or reload configuration from the tool-specific JSON file."""
+        config_dir = os.path.join(os.path.expanduser(
+            "~"), ".config", "dasi", "config", "tools")
+        config_path = os.path.join(config_dir, "web_search_tool_config.json")
+        default_config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))), "..", "defaults", "tools", "web_search_tool_config.json")
+
+        loaded_config = {}
+
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    loaded_config = json.load(f)
+                logging.info(f"Loaded web search config from {config_path}")
+            elif os.path.exists(default_config_path):
+                # Copy default if specific config doesn't exist
+                os.makedirs(config_dir, exist_ok=True)
+                with open(default_config_path, 'r') as default_f:
+                    loaded_config = json.load(default_f)
+                with open(config_path, 'w') as new_f:
+                    json.dump(loaded_config, new_f, indent=2)
+                logging.info(
+                    f"Created default web search config at {config_path}")
+            else:
+                logging.error(
+                    f"Neither user config ({config_path}) nor default config ({default_config_path}) found for web search tool.")
+                # Use hardcoded defaults as a last resort
+                loaded_config = {
+                    "default_provider": "ddg_search",
+                    "max_results": 3
+                }
+
+        except Exception as e:
+            logging.error(
+                f"Error loading web search config: {e}. Using defaults.")
+            # Use hardcoded defaults in case of error
+            loaded_config = {
+                "default_provider": "ddg_search",
+                "max_results": 3
+            }
+
+        # Update the instance config and re-initialize providers
+        self.tool_config = loaded_config
+        self.initialize_search_providers()  # Re-initialize after loading config
+        return True  # Indicate success for the callback mechanism
 
     def _is_valid_tavily_api_key(self, api_key: str) -> bool:
         """Check if the provided Tavily API key is valid by making a test request."""
@@ -134,12 +185,12 @@ class WebSearchHandler:
         # Clear existing providers
         self.search_providers = {}
 
-        # Get default provider
-        default_provider = self.settings.get(
-            'web_search', 'default_provider', default='google_serper')
+        # Get default provider from the loaded tool config
+        default_provider = self.tool_config.get(
+            'default_provider', 'ddg_search')
 
         logging.info(
-            f"Initializing search providers with default provider: {default_provider}")
+            f"Initializing search providers with default provider from config: {default_provider}")
 
         # Check if API key exists for the default provider
         if default_provider == 'google_serper':
@@ -200,11 +251,10 @@ class WebSearchHandler:
     def _initialize_provider(self, provider: str):
         """Initialize a specific search provider."""
         try:
-            # Get max_results from settings once for all providers
-            max_results = self.settings.get(
-                'web_search', 'max_results', default=3)
+            # Get max_results from the loaded tool config
+            max_results = self.tool_config.get('max_results', 3)
             logging.info(
-                f"Initializing provider {provider} with max_results={max_results}")
+                f"Initializing provider {provider} with max_results={max_results} from config")
 
             if provider == 'google_serper':
                 api_key = self.settings.get_api_key('google_serper')
@@ -238,9 +288,8 @@ class WebSearchHandler:
                 else:
                     # Fall back to the LangChain wrapper if DDGS is not available
                     try:
-                        # Get max_results from settings
-                        max_results = self.settings.get(
-                            'web_search', 'max_results', default=3)
+                        # Get max_results from the loaded tool config
+                        max_results = self.tool_config.get('max_results', 3)
 
                         # Set reasonable defaults with more conservative settings to avoid rate limiting
                         ddg_wrapper = DuckDuckGoSearchAPIWrapper(
@@ -445,17 +494,19 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
 
         # Get default provider if none specified
         if not provider:
-            provider = self.settings.get(
-                'web_search', 'default_provider', default='google_serper')
-            logging.info(f"Using default search provider: {provider}")
+            # Get default provider from the loaded tool config
+            provider = self.tool_config.get('default_provider', 'ddg_search')
+            logging.info(
+                f"Using default search provider from config: {provider}")
         else:
             logging.info(f"Using specified search provider: {provider}")
 
         # Get max results if none specified
         if not max_results:
-            max_results = self.settings.get(
-                'web_search', 'max_results', default=5)
-            logging.info(f"Using default max_results: {max_results}")
+            # Get max results from the loaded tool config
+            max_results = self.tool_config.get('max_results', 3)
+            logging.info(
+                f"Using default max_results from config: {max_results}")
         else:
             logging.info(f"Using specified max_results: {max_results}")
 
@@ -552,10 +603,9 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
                         logging.info("DuckDuckGo search cancelled")
                         return []
 
-                    # Get max results if not specified
+                    # Get max results if not specified, from tool config
                     if not max_results:
-                        max_results = self.settings.get(
-                            'web_search', 'max_results', default=5)
+                        max_results = self.tool_config.get('max_results', 3)
 
                     # Limit max results to avoid rate limiting
                     max_results = min(max_results, 10)
@@ -882,6 +932,7 @@ Based on both the USER QUERY and the SELECTED TEXT above, generate an optimized 
         documents = []
 
         # Limit the number of URLs to scrape to avoid hanging
+        # Keep this setting in the main settings file for now, as it's more general
         max_urls = self.settings.get(
             'web_search', 'max_scrape_urls', default=5)
         urls = urls[:max_urls]

@@ -1,0 +1,29 @@
+{
+  "title": "Web Search Tool Configuration",
+  "description": "Settings for the Web Search tool.",
+  "type": "object",
+  "properties": {
+    "default_provider": {
+      "title": "Default Search Provider",
+      "description": "The primary search engine to use for web queries.",
+      "type": "string",
+      "enum": [
+        "ddg_search",
+        "google_serper",
+        "brave_search",
+        "exa_search",
+        "tavily_search"
+      ],
+      "default": "ddg_search"
+    },
+    "max_results": {
+      "title": "Maximum Search Results",
+      "description": "The maximum number of search results to retrieve and process.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 3
+    }
+  },
+  "required": ["default_provider", "max_results"]
+}

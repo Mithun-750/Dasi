@@ -34,35 +34,36 @@ from .api_keys.custom_openai import CustomOpenAISection
 # ComboBoxStyle for proper arrow display
 class ComboBoxStyle(QProxyStyle):
     """Custom style to draw a text arrow for combo boxes."""
+
     def __init__(self, style=None):
         super().__init__(style)
         self.arrow_color = QColor("#e67e22")  # Orange color for arrow
-        
+
     def drawPrimitive(self, element, option, painter, widget=None):
         if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown and isinstance(widget, QComboBox):
             # Draw a custom arrow
             rect = option.rect
             painter.save()
-            
+
             # Set up the arrow color
             painter.setPen(QPen(self.arrow_color, 1.5))
-            
+
             # Draw a triangle instead of text arrow for more modern look
             # Calculate the triangle points
             width = 9
             height = 6
             x = rect.center().x() - width // 2
             y = rect.center().y() - height // 2
-            
+
             path = QPainterPath()
             path.moveTo(x, y)
             path.lineTo(x + width, y)
             path.lineTo(x + width // 2, y + height)
             path.lineTo(x, y)
-            
+
             # Fill the triangle
             painter.fillPath(path, self.arrow_color)
-            
+
             painter.restore()
             return
         super().drawPrimitive(element, option, painter, widget)
@@ -71,18 +72,19 @@ class ComboBoxStyle(QProxyStyle):
 # Custom ComboBox with animated popup
 class CustomComboBox(QComboBox):
     """ComboBox with custom popup and animation."""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        
+
         # Apply custom arrow
         self.setStyle(ComboBoxStyle())
-        
+
         # Create popup frame
         self.popup_frame = QFrame(self.window())
-        self.popup_frame.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.popup_frame.setWindowFlags(
+            Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self.popup_frame.setProperty("class", "popup-frame")
-        
+
         # Create shadow effect
         self.popup_frame.setStyleSheet("""
             QFrame.popup-frame {
@@ -92,20 +94,23 @@ class CustomComboBox(QComboBox):
                 padding: 4px;
             }
         """)
-        
+
         # Create scroll area for better handling of many items
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll_area.setStyleSheet("background-color: transparent;")
-        
+
         # Create list widget for items
         self.list_widget = QListWidget()
         self.list_widget.setProperty("class", "popup-list")
         self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
-        self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list_widget.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.list_widget.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list_widget.setStyleSheet("""
             QListWidget {
                 background-color: transparent;
@@ -127,45 +132,47 @@ class CustomComboBox(QComboBox):
                 border-left: 2px solid #e67e22;
             }
         """)
-        
+
         # Set up the popup layout
         self.scroll_area.setWidget(self.list_widget)
         self.popup_layout = QVBoxLayout(self.popup_frame)
         self.popup_layout.setContentsMargins(0, 0, 0, 0)
         self.popup_layout.addWidget(self.scroll_area)
-        
+
         # Connect list widget signals
         self.list_widget.itemClicked.connect(self._handle_item_selected)
-        
+
         # Add animation
         self.animation = QPropertyAnimation(self.popup_frame, b"geometry")
         self.animation.setEasingCurve(QEasingCurve.Type.OutQuint)
         self.animation.setDuration(180)  # Animation duration in milliseconds
-        
+
         # Remember if popup is visible
         self.popup_visible = False
-        
+
         # Set fixed item height to make calculations easier
         self.item_height = 32
-        
+
         # Set max height in items
         self.max_visible_items = 10
-        
+
     def showPopup(self):
         """Show custom popup instead of standard dropdown."""
         if self.count() == 0 or not self.isEnabled():
             return
-            
+
         # Calculate popup position and size
-        popup_width = max(self.width(), 260)  # Minimum width for better readability
-        
+        # Minimum width for better readability
+        popup_width = max(self.width(), 260)
+
         # Calculate height based on number of items (limited by max_visible_items)
-        items_height = min(self.count(), self.max_visible_items) * self.item_height
+        items_height = min(
+            self.count(), self.max_visible_items) * self.item_height
         popup_height = items_height + 8  # Add padding
-        
+
         # Get global position for the popup
         pos = self.mapToGlobal(QPoint(0, self.height()))
-        
+
         # Clear and populate list widget
         self.list_widget.clear()
         for i in range(self.count()):
@@ -174,55 +181,56 @@ class CustomComboBox(QComboBox):
             if self.itemData(i) is not None:
                 item.setData(Qt.ItemDataRole.UserRole, self.itemData(i))
             self.list_widget.addItem(item)
-        
+
         # Set the current item
         if self.currentIndex() >= 0:
             self.list_widget.setCurrentRow(self.currentIndex())
-        
+
         # Set initial and final geometry for animation
         start_rect = QRect(pos.x(), pos.y(), popup_width, 0)
         end_rect = QRect(pos.x(), pos.y(), popup_width, popup_height)
-        
+
         # Set up animation
         self.animation.setStartValue(start_rect)
         self.animation.setEndValue(end_rect)
-        
+
         # Show popup
         self.popup_frame.setGeometry(start_rect)
         self.popup_frame.show()
         self.animation.start()
-        
+
         # Set popup visible flag
         self.popup_visible = True
-        
+
         # Install event filter to handle mouse events outside the popup
         self.window().installEventFilter(self)
-    
+
     def hidePopup(self):
         """Hide the custom popup."""
         if not self.popup_visible:
             return
-            
+
         # Set up closing animation
         current_rect = self.popup_frame.geometry()
         start_rect = current_rect
-        end_rect = QRect(current_rect.x(), current_rect.y(), current_rect.width(), 0)
-        
+        end_rect = QRect(current_rect.x(), current_rect.y(),
+                         current_rect.width(), 0)
+
         self.animation.setStartValue(start_rect)
         self.animation.setEndValue(end_rect)
-        
+
         # Connect animation finished signal to hide the popup
         self.animation.finished.connect(self._finish_hiding)
-        
+
         # Start the closing animation
         self.animation.start()
-        
+
         # Remove event filter
         self.window().removeEventFilter(self)
-        
+
         # Set popup visible flag
         self.popup_visible = False
-    
+
     def _finish_hiding(self):
         """Hide the popup frame and disconnect signal after animation."""
         self.popup_frame.hide()
@@ -231,14 +239,14 @@ class CustomComboBox(QComboBox):
         except:
             # Signal might already be disconnected
             pass
-    
+
     def _handle_item_selected(self, item):
         """Handle item selection from the list."""
         index = self.list_widget.row(item)
         self.setCurrentIndex(index)
         self.hidePopup()
         self.activated.emit(index)
-        
+
     def eventFilter(self, obj, event):
         """Handle events for checking if clicked outside the popup."""
         if event.type() == QEvent.Type.MouseButtonPress and self.popup_visible:
@@ -248,7 +256,7 @@ class CustomComboBox(QComboBox):
                 self.hidePopup()
                 return True
         return super().eventFilter(obj, event)
-    
+
     def wheelEvent(self, event):
         """Override wheel event to prevent scroll changing the selection when popup is not visible."""
         if not self.popup_visible:
@@ -258,20 +266,20 @@ class CustomComboBox(QComboBox):
 class APIKeysTab(QWidget):
     # Signal emitted when an API key is cleared
     api_key_cleared = pyqtSignal(str)
-    
+
     def __init__(self, settings: Settings):
         super().__init__()
         self.settings = settings
         self.api_sections = {}  # Store references to API sections
         self.checkmark_path = None  # Initialize the checkmark path
         self.init_ui()
-        
+
     def init_ui(self):
         # Create main layout with proper spacing
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(16)
         main_layout.setContentsMargins(16, 16, 0, 16)  # Right padding is 0
-        
+
         # Set transparent background for this widget
         self.setStyleSheet("background-color: transparent;")
 
@@ -279,11 +287,14 @@ class APIKeysTab(QWidget):
         if getattr(sys, 'frozen', False):
             # Running as bundled app
             base_path = sys._MEIPASS
-            self.checkmark_path = os.path.join(base_path, "assets", "icons", "checkmark.svg")
+            self.checkmark_path = os.path.join(
+                base_path, "assets", "icons", "checkmark.svg")
         else:
             # Running in development
-            app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            self.checkmark_path = os.path.join(app_dir, "ui", "assets", "icons", "checkmark.svg")
+            app_dir = os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))))
+            self.checkmark_path = os.path.join(
+                app_dir, "ui", "assets", "icons", "checkmark.svg")
 
         # Create scroll area with modern styling
         scroll = QScrollArea()
@@ -291,7 +302,7 @@ class APIKeysTab(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet("background-color: transparent;")
         scroll.setProperty("class", "global-scrollbar")
-        
+
         # Apply scrollbar styling directly
         scrollbar = scroll.verticalScrollBar()
         if scrollbar:
@@ -333,7 +344,8 @@ class APIKeysTab(QWidget):
         content.setProperty("class", "global-scrollbar")
         self.content_layout = QVBoxLayout(content)
         self.content_layout.setSpacing(16)
-        self.content_layout.setContentsMargins(0, 0, 8, 0)  # Added 8px right padding for gap between content and scrollbar
+        # Added 8px right padding for gap between content and scrollbar
+        self.content_layout.setContentsMargins(0, 0, 8, 0)
 
         # Create filter section with modern card design
         filter_section = self.create_filter_section()
@@ -344,7 +356,7 @@ class APIKeysTab(QWidget):
 
         scroll.setWidget(content)
         main_layout.addWidget(scroll)
-        
+
         # Connect internal signals
         self.search_input.textChanged.connect(self.apply_filters)
         self.category_combo.currentTextChanged.connect(self.apply_filters)
@@ -382,19 +394,21 @@ class APIKeysTab(QWidget):
         form_layout = QVBoxLayout(form_widget)
         form_layout.setContentsMargins(0, 0, 0, 0)
         form_layout.setSpacing(12)
-        
+
         # Search bar with icon styling
         search_container = QWidget()
         search_container.setStyleSheet("background-color: transparent;")
         search_layout = QHBoxLayout(search_container)
         search_layout.setContentsMargins(0, 0, 0, 0)
         search_layout.setSpacing(12)
-        
+
         search_label = QLabel("Search:")
         search_label.setFixedWidth(90)
-        search_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        search_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
-        
+        search_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        search_label.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #e0e0e0;")
+
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search API keys...")
         self.search_input.setProperty("class", "search-input")
@@ -415,7 +429,7 @@ class APIKeysTab(QWidget):
                 color: #888888;
             }
         """)
-        
+
         search_layout.addWidget(search_label)
         search_layout.addWidget(self.search_input)
         form_layout.addWidget(search_container)
@@ -426,12 +440,14 @@ class APIKeysTab(QWidget):
         category_layout = QHBoxLayout(category_container)
         category_layout.setContentsMargins(0, 0, 0, 0)
         category_layout.setSpacing(12)
-        
+
         category_label = QLabel("Category:")
         category_label.setFixedWidth(90)
-        category_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        category_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
-        
+        category_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        category_label.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #e0e0e0;")
+
         self.category_combo = CustomComboBox()
         self.category_combo.setProperty("class", "category-combo")
         self.category_combo.addItem("All Categories")
@@ -472,7 +488,7 @@ class APIKeysTab(QWidget):
                 padding: 4px;
             }
         """)
-        
+
         category_layout.addWidget(category_label)
         category_layout.addWidget(self.category_combo)
         form_layout.addWidget(category_container)
@@ -483,23 +499,25 @@ class APIKeysTab(QWidget):
         status_layout = QHBoxLayout(status_container)
         status_layout.setContentsMargins(0, 0, 0, 0)
         status_layout.setSpacing(12)
-        
+
         status_label = QLabel("Status:")
         status_label.setFixedWidth(90)
-        status_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        status_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
-        
+        status_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        status_label.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #e0e0e0;")
+
         checkbox_container = QWidget()
         checkbox_container.setStyleSheet("background-color: transparent;")
         checkbox_layout = QHBoxLayout(checkbox_container)
         checkbox_layout.setContentsMargins(0, 0, 0, 0)
         checkbox_layout.setSpacing(16)
-        
+
         self.show_empty = QCheckBox("Show Empty")
         self.show_empty.setChecked(True)
         self.show_filled = QCheckBox("Show Filled")
         self.show_filled.setChecked(True)
-        
+
         # Apply consistent checkbox styling
         checkbox_style = f"""
             QCheckBox {{
@@ -535,17 +553,17 @@ class APIKeysTab(QWidget):
                 border: none;
             }}
         """
-        
+
         self.show_empty.setStyleSheet(checkbox_style)
         self.show_filled.setStyleSheet(checkbox_style)
-        
+
         checkbox_layout.addWidget(self.show_empty)
         checkbox_layout.addWidget(self.show_filled)
         checkbox_layout.addStretch()
-        
+
         status_layout.addWidget(status_label)
         status_layout.addWidget(checkbox_container)
-        
+
         form_layout.addWidget(status_container)
         filter_layout.addWidget(form_widget)
 
@@ -555,18 +573,20 @@ class APIKeysTab(QWidget):
         """Initialize all API key sections using our modular components."""
         # Create Custom OpenAI Section (will be used by LLM section)
         self.custom_openai_section = CustomOpenAISection(self.settings)
-        self.custom_openai_section.api_key_cleared.connect(self.api_key_cleared)
-        
+        self.custom_openai_section.api_key_cleared.connect(
+            self.api_key_cleared)
+
         # Create LLM Providers Section
-        self.llm_section = LLMProvidersSection(self.settings, self.custom_openai_section)
+        self.llm_section = LLMProvidersSection(
+            self.settings, self.custom_openai_section)
         self.llm_section.api_key_cleared.connect(self.api_key_cleared)
         self.content_layout.addWidget(self.llm_section)
-        
+
         # Create Search Providers Section
         self.search_section = SearchProvidersSection(self.settings)
         self.search_section.api_key_cleared.connect(self.api_key_cleared)
         self.content_layout.addWidget(self.search_section)
-        
+
         # Collect API sections from components
         self.api_sections.update(self.llm_section.get_api_sections())
         self.api_sections.update(self.custom_openai_section.get_api_sections())
@@ -589,12 +609,12 @@ class APIKeysTab(QWidget):
         for provider, section_info in self.api_sections.items():
             widget = section_info['widget']
             category = section_info['category']
-            
+
             # Find the API key input field and searchable text
             api_input = None
             searchable_text = ""
             has_key = False
-            
+
             if provider.startswith('custom_openai'):
                 # For custom OpenAI, use the stored sections data in custom_openai_section
                 for section in self.custom_openai_section.custom_openai_sections:
@@ -604,7 +624,8 @@ class APIKeysTab(QWidget):
                         base_url = section['base_url_input'].text().strip()
                         title_label = widget.findChild(QLabel)
                         title_text = title_label.text() if title_label else "Custom OpenAI Model"
-                        searchable_text = f"{title_text} {model_id} {base_url}".lower()
+                        searchable_text = f"{title_text} {model_id} {base_url}".lower(
+                        )
                         has_key = bool(api_input.text().strip())
                         break
                 else:
@@ -630,11 +651,11 @@ class APIKeysTab(QWidget):
                         api_input = input_field
                         has_key = bool(api_input.text().strip())
                         break
-                
+
                 # Skip if we can't find an API input
                 if not api_input:
                     continue
-            
+
             # Apply filters
             should_show = True
 
@@ -653,20 +674,20 @@ class APIKeysTab(QWidget):
                 should_show = False
 
             widget.setVisible(should_show)
-            
+
             # Count visible items per category
             if should_show:
                 visible_items[category] += 1
 
         # Determine section visibility based on visible items
         self.llm_section.set_visibility(
-            visible_items[APICategory.LLM_PROVIDERS] > 0 or 
-            selected_category == "All Categories" or 
+            visible_items[APICategory.LLM_PROVIDERS] > 0 or
+            selected_category == "All Categories" or
             selected_category == APICategory.LLM_PROVIDERS
         )
-        
+
         self.search_section.set_visibility(
-            visible_items[APICategory.SEARCH_PROVIDERS] > 0 or 
-            selected_category == "All Categories" or 
+            visible_items[APICategory.SEARCH_PROVIDERS] > 0 or
+            selected_category == "All Categories" or
             selected_category == APICategory.SEARCH_PROVIDERS
-        ) 
+        )

@@ -8,22 +8,22 @@ from .common import APICategory, APIKeySection, create_section
 
 class SearchProvidersSection(APIKeySection):
     """Section for managing search provider API keys."""
-    
+
     def __init__(self, settings, parent=None):
         super().__init__(settings, parent)
         self.setObjectName("search_providers_section")
         self.init_ui()
-        
+
     def init_ui(self):
         # Main layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        
+
         # Create the search providers section
         self.search_section = create_section(APICategory.SEARCH_PROVIDERS)
         layout.addWidget(self.search_section)
-        
+
         # Add search provider API keys
         search_providers = {
             "google_serper": "Google Serper API Key",
@@ -44,11 +44,11 @@ class SearchProvidersSection(APIKeySection):
                 'category': APICategory.SEARCH_PROVIDERS
             }
             self.search_section.layout().addWidget(api_section)
-    
+
     def get_api_sections(self):
         """Get the API sections dictionary."""
         return self.api_sections
-    
+
     def set_visibility(self, visible):
         """Set the visibility of this section."""
-        self.setVisible(visible) 
+        self.setVisible(visible)

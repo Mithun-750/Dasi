@@ -22,7 +22,7 @@ from .api_keys_tab import APIKeysTab
 from .models_tab import ModelsTab
 from .general_tab import GeneralTab
 from .prompt_chunks_tab import PromptChunksTab
-from .web_search_tab import WebSearchTab
+# from .web_search_tab import WebSearchTab # Ensure this is removed/commented
 from .tools_tab import ToolsTab
 from .examples_tab import ExamplesTab
 from core.instance_manager import DasiInstanceManager
@@ -306,13 +306,11 @@ class SettingsWindow(QMainWindow):
         self.general_button = SidebarButton(
             "General", os.path.join(ui_assets_dir, "icons", "settings.svg"))
         self.models_button = SidebarButton(
-            "Models", os.path.join(ui_assets_dir, "icons", "models.svg"))
+            "Models", os.path.join(ui_assets_dir, "icons", "model.svg"))
         self.api_keys_button = SidebarButton(
             "API Keys", os.path.join(ui_assets_dir, "icons", "key.svg"))
         self.system_prompts_button = SidebarButton(
             "System Prompts", os.path.join(ui_assets_dir, "icons", "prompt.svg"))
-        self.web_search_button = SidebarButton(
-            "Web Search", os.path.join(ui_assets_dir, "icons", "search.svg"))
         self.tools_button = SidebarButton(
             "Tools", os.path.join(ui_assets_dir, "icons", "tools.svg"))
         self.examples_button = SidebarButton(
@@ -323,7 +321,6 @@ class SettingsWindow(QMainWindow):
         sidebar_layout.addWidget(self.models_button)
         sidebar_layout.addWidget(self.api_keys_button)
         sidebar_layout.addWidget(self.system_prompts_button)
-        sidebar_layout.addWidget(self.web_search_button)
         sidebar_layout.addWidget(self.tools_button)
         sidebar_layout.addWidget(self.examples_button)
         sidebar_layout.addStretch()
@@ -375,7 +372,7 @@ class SettingsWindow(QMainWindow):
         self.models_tab = ModelsTab(self.settings)
         self.api_keys_tab = APIKeysTab(self.settings)
         self.prompt_chunks_tab = PromptChunksTab(self.settings)
-        self.web_search_tab = WebSearchTab(self.settings)
+        # self.web_search_tab = WebSearchTab(self.settings) # Ensure this is removed/commented
         self.tools_tab = ToolsTab(self.settings)
         self.examples_tab = ExamplesTab(self.settings)
 
@@ -388,7 +385,7 @@ class SettingsWindow(QMainWindow):
         self.content.addWidget(self.models_tab)
         self.content.addWidget(self.api_keys_tab)
         self.content.addWidget(self.prompt_chunks_tab)
-        self.content.addWidget(self.web_search_tab)
+        # self.content.addWidget(self.web_search_tab) # Ensure this is removed/commented
         self.content.addWidget(self.tools_tab)
         self.content.addWidget(self.examples_tab)
 
@@ -402,9 +399,8 @@ class SettingsWindow(QMainWindow):
         self.models_button.clicked.connect(lambda: self.switch_tab(1))
         self.api_keys_button.clicked.connect(lambda: self.switch_tab(2))
         self.system_prompts_button.clicked.connect(lambda: self.switch_tab(3))
-        self.web_search_button.clicked.connect(lambda: self.switch_tab(4))
-        self.tools_button.clicked.connect(lambda: self.switch_tab(5))
-        self.examples_button.clicked.connect(lambda: self.switch_tab(6))
+        self.tools_button.clicked.connect(lambda: self.switch_tab(4))
+        self.examples_button.clicked.connect(lambda: self.switch_tab(5))
 
         # Connect API key cleared signal to remove models by provider
         self.api_keys_tab.api_key_cleared.connect(
@@ -422,7 +418,8 @@ class SettingsWindow(QMainWindow):
 
         # Update button states
         buttons = [self.general_button, self.models_button,
-                   self.api_keys_button, self.system_prompts_button, self.web_search_button, self.tools_button, self.examples_button]
+                   self.api_keys_button, self.system_prompts_button,
+                   self.tools_button, self.examples_button]
         for i, btn in enumerate(buttons):
             btn.setChecked(i == index)
 
@@ -808,7 +805,7 @@ class SettingsWindow(QMainWindow):
                 handlers = [
                     'vision_handler',
                     'audio_handler',
-                    'web_search_handler',
+                    # 'web_search_handler', # Ensure this is removed/commented if necessary
                 ]
 
                 for handler_name in handlers:

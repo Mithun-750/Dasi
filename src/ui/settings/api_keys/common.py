@@ -22,9 +22,10 @@ class APICategory:
 
 class ComboBoxStyle(QProxyStyle):
     """Custom style to draw a text arrow for combo boxes."""
+
     def __init__(self, style=None):
         super().__init__(style)
-        
+
     def drawPrimitive(self, element, option, painter, widget=None):
         if element == QStyle.PrimitiveElement.PE_IndicatorArrowDown and isinstance(widget, QComboBox):
             # Draw a custom arrow
@@ -50,16 +51,16 @@ def create_section(title):
             border: 1px solid #333333;
         }
     """)
-    
+
     layout = QVBoxLayout(section)
     layout.setSpacing(16)
-    
+
     # Create title container with horizontal layout
     title_container = QWidget()
     title_container.setStyleSheet("background-color: transparent;")
     title_layout = QHBoxLayout(title_container)
     title_layout.setContentsMargins(0, 0, 0, 0)
-    
+
     # Add title with modern styling
     title_label = QLabel(title)
     title_label.setStyleSheet("""
@@ -68,12 +69,12 @@ def create_section(title):
         color: #e0e0e0;
     """)
     title_layout.addWidget(title_label)
-    
+
     # Add stretch to push any additional widgets to the right
     title_layout.addStretch()
-    
+
     layout.addWidget(title_container)
-    
+
     # Add separator line below title
     separator = QFrame()
     separator.setFrameShape(QFrame.Shape.HLine)
@@ -86,7 +87,7 @@ def create_section(title):
         height: 1px;
     """)
     layout.addWidget(separator)
-    
+
     return section
 
 
@@ -96,33 +97,37 @@ def toggle_key_visibility(input_field, toggle_button):
     if getattr(sys, 'frozen', False):
         # Running as bundled PyInstaller app
         base_path = sys._MEIPASS
-        
+
         # Try both PNG and SVG formats (prefer PNG first, which seems to work better with PyInstaller)
         eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.png")
-        eye_off_icon_path = os.path.join(base_path, "assets", "icons", "eye_off.png")
-        
+        eye_off_icon_path = os.path.join(
+            base_path, "assets", "icons", "eye_off.png")
+
         # If PNG doesn't exist, try SVG
         if not os.path.exists(eye_icon_path):
-            eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.svg")
-            eye_off_icon_path = os.path.join(base_path, "assets", "icons", "eye_off.svg")
+            eye_icon_path = os.path.join(
+                base_path, "assets", "icons", "eye.svg")
+            eye_off_icon_path = os.path.join(
+                base_path, "assets", "icons", "eye_off.svg")
     else:
         # Running in development
-        icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
+        icons_dir = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
         # Prefer PNG in development mode too for consistency
         eye_icon_path = os.path.join(icons_dir, "eye.png")
         eye_off_icon_path = os.path.join(icons_dir, "eye_off.png")
-        
+
         # If PNG doesn't exist, try SVG
         if not os.path.exists(eye_icon_path):
             eye_icon_path = os.path.join(icons_dir, "eye.svg")
             eye_off_icon_path = os.path.join(icons_dir, "eye_off.svg")
-    
+
     # Log errors if icons not found
     if not os.path.exists(eye_icon_path):
         logging.error(f"Eye icon not found at: {eye_icon_path}")
     if not os.path.exists(eye_off_icon_path):
         logging.error(f"Eye-off icon not found at: {eye_off_icon_path}")
-    
+
     if input_field.echoMode() == QLineEdit.EchoMode.Password:
         input_field.setEchoMode(QLineEdit.EchoMode.Normal)
         toggle_button.setIcon(QIcon(eye_off_icon_path))
@@ -138,22 +143,23 @@ def create_field_row(label_text, placeholder_text, is_password=False, toggle_ico
     row_layout = QHBoxLayout(row_widget)
     row_layout.setContentsMargins(0, 0, 0, 0)
     row_layout.setSpacing(8)
-    
+
     # Label
     label = QLabel(label_text)
     label.setFixedWidth(100)
-    label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-    
+    label.setAlignment(Qt.AlignmentFlag.AlignRight |
+                       Qt.AlignmentFlag.AlignVCenter)
+
     # Input field
     input_field = QLineEdit()
     input_field.setPlaceholderText(placeholder_text)
     if is_password:
         input_field.setEchoMode(QLineEdit.EchoMode.Password)
-    
+
     # Add label and input to layout
     row_layout.addWidget(label)
     row_layout.addWidget(input_field, 1)  # Give input field stretch
-    
+
     # If this is a password field with toggle, add toggle button
     if is_password and toggle_icon:
         # Create toggle button
@@ -162,13 +168,13 @@ def create_field_row(label_text, placeholder_text, is_password=False, toggle_ico
         toggle_button.setProperty("class", "icon-button")
         toggle_button.setIcon(QIcon(toggle_icon))
         toggle_button.setIconSize(QSize(20, 20))
-        
+
         # Add to layout
         row_layout.addWidget(toggle_button)
-        
+
         # Return with toggle button
         return row_widget, input_field, toggle_button
-    
+
     # Return without toggle button
     return row_widget, input_field
 
@@ -184,15 +190,15 @@ def show_status(label, message, is_error=False):
 
 class APIKeySection(QWidget):
     """Base class for API key section widgets."""
-    
+
     # Signal emitted when an API key is cleared
     api_key_cleared = pyqtSignal(str)
-    
+
     def __init__(self, settings, parent=None):
         super().__init__(parent)
         self.settings = settings
         self.api_sections = {}  # Store references to API sections
-        
+
     def create_api_key_section(self, title, provider, placeholder, category):
         """Create a section for an API key input."""
         section = QFrame()
@@ -292,27 +298,30 @@ class APIKeySection(QWidget):
                 background-color: #444444;
             }
         """)
-        
+
         # Set the icon (try PNG first, then SVG)
         if getattr(sys, 'frozen', False):
             # Running in frozen mode
             base_path = sys._MEIPASS
-            eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.png")
+            eye_icon_path = os.path.join(
+                base_path, "assets", "icons", "eye.png")
             if not os.path.exists(eye_icon_path):
-                eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.svg")
+                eye_icon_path = os.path.join(
+                    base_path, "assets", "icons", "eye.svg")
         else:
             # Running in development mode
-            icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
+            icons_dir = os.path.join(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
             eye_icon_path = os.path.join(icons_dir, "eye.png")
             if not os.path.exists(eye_icon_path):
                 eye_icon_path = os.path.join(icons_dir, "eye.svg")
-        
+
         if not os.path.exists(eye_icon_path):
             logging.error(f"Eye icon not found at: {eye_icon_path}")
-            
+
         toggle_button.setIcon(QIcon(eye_icon_path))
         toggle_button.setIconSize(QSize(20, 20))
-        
+
         toggle_button.clicked.connect(
             lambda: toggle_key_visibility(api_input, toggle_button)
         )
@@ -373,7 +382,7 @@ class APIKeySection(QWidget):
         """)
         save_button.clicked.connect(lambda: self.save_api_key(
             provider, api_input, status_label))
-        
+
         # Reset button with modern styling
         reset_button = QPushButton("Reset")
         reset_button.setProperty("class", "secondary")
@@ -395,7 +404,8 @@ class APIKeySection(QWidget):
                 color: #888888;
             }
         """)
-        reset_button.clicked.connect(lambda: self.clear_api_key(provider, api_input, status_label))
+        reset_button.clicked.connect(
+            lambda: self.clear_api_key(provider, api_input, status_label))
 
         # Make buttons take full width
         button_layout.addWidget(save_button, 1)  # 1 is the stretch factor
@@ -416,16 +426,19 @@ class APIKeySection(QWidget):
         if getattr(sys, 'frozen', False):
             # Running in frozen mode
             base_path = sys._MEIPASS
-            eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.png")
+            eye_icon_path = os.path.join(
+                base_path, "assets", "icons", "eye.png")
             if not os.path.exists(eye_icon_path):
-                eye_icon_path = os.path.join(base_path, "assets", "icons", "eye.svg")
+                eye_icon_path = os.path.join(
+                    base_path, "assets", "icons", "eye.svg")
         else:
             # Running in development mode
-            icons_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
+            icons_dir = os.path.join(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__)))), "assets", "icons")
             eye_icon_path = os.path.join(icons_dir, "eye.png")
             if not os.path.exists(eye_icon_path):
                 eye_icon_path = os.path.join(icons_dir, "eye.svg")
-        
+
         api_key = input_field.text().strip()
 
         if not api_key:
@@ -462,14 +475,14 @@ class APIKeySection(QWidget):
         try:
             # Clear the input field
             input_field.clear()
-            
+
             # Remove from settings
             if self.settings.set_api_key(provider, ""):
                 show_status(status_label, "API key cleared successfully!")
-                
+
                 # Emit signal that the API key was cleared
                 self.api_key_cleared.emit(provider)
-                
+
                 # Show confirmation dialog
                 provider_display = provider
                 if provider.startswith('custom_openai_'):
@@ -479,7 +492,7 @@ class APIKeySection(QWidget):
                     provider_display = "Custom OpenAI Model"
                 else:
                     provider_display = provider.title()
-                    
+
                 QMessageBox.information(
                     self,
                     "Success",
@@ -489,4 +502,5 @@ class APIKeySection(QWidget):
             else:
                 show_status(status_label, "Failed to clear API key", True)
         except Exception as e:
-            show_status(status_label, f"Error clearing API key: {str(e)}", True) 
+            show_status(
+                status_label, f"Error clearing API key: {str(e)}", True)

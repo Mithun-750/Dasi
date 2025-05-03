@@ -1,4 +1,5 @@
 import logging
+import requests  # Keep this import for now, might be needed elsewhere or during cleanup
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -175,8 +176,10 @@ class ModelsTab(QWidget):
             self.fetch_worker.quit()
             self.fetch_worker.wait(2000)  # Wait up to 2 seconds
             if self.fetch_worker.isRunning():
+                logging.warning("Terminating model fetch worker forcefully.")
                 self.fetch_worker.terminate()
                 self.fetch_worker.wait()
+        self.fetch_worker = None  # Ensure worker reference is cleared
 
     def hideEvent(self, event):
         """Called when the tab is hidden."""
@@ -193,105 +196,34 @@ class ModelsTab(QWidget):
         # Clean up any existing worker first
         self.cleanup()
 
-        # Check if we have any API keys or custom models configured
-        google_key = self.settings.get_api_key('google')
+        # No need to check API keys or Ollama here anymore.
+        # The worker thread will handle these checks.
 
-        # Check for any custom OpenAI models
-        has_custom_openai = False
-
-        # Check the original custom_openai model
-        custom_model_id = self.settings.get(
-            'models', 'custom_openai', 'model_id')
-        custom_base_url = self.settings.get(
-            'models', 'custom_openai', 'base_url')
-        custom_api_key = self.settings.get_api_key('custom_openai')
-        if custom_model_id and custom_base_url and custom_api_key:
-            has_custom_openai = True
-
-        # Check for additional custom OpenAI models
-        if not has_custom_openai:
-            index = 1
-            while True:
-                settings_key = f"custom_openai_{index}"
-                model_id = self.settings.get(
-                    'models', settings_key, 'model_id')
-                base_url = self.settings.get(
-                    'models', settings_key, 'base_url')
-                api_key = self.settings.get_api_key(settings_key)
-
-                if model_id and base_url and api_key:
-                    has_custom_openai = True
-                    break
-
-                if index > 10:  # Limit the search to avoid infinite loop
-                    break
-
-                index += 1
-
-        # Always check for local Ollama models regardless of API keys
-        try:
-            # Quick check if Ollama is running
-            ollama_available = False
-            try:
-                response = requests.get(
-                    'http://localhost:11434/api/tags', timeout=0.5)
-                if response.status_code == 200:
-                    ollama_available = True
-            except:
-                pass
-
-            if ollama_available:
-                # Show loading state and start worker thread
-                self.model_dropdown.clear()
-                self.model_dropdown.addItem("Loading models...")
-                self.model_dropdown.setEnabled(False)
-                self.progress_bar.setRange(0, 0)  # Indeterminate progress
-                self.progress_bar.show()
-
-                # Start worker thread
-                self.fetch_worker = ModelFetchWorker(self.settings)
-                self.fetch_worker.finished.connect(self._on_fetch_success)
-                self.fetch_worker.error.connect(self._on_fetch_error)
-                self.fetch_worker.start()
-
-                # Update UI to show fetching state
-                self.refresh_button.setEnabled(False)
-                self.refresh_button.setText("⌛")
-                return
-        except Exception as e:
-            logging.error(f"Error checking for Ollama: {str(e)}")
-
-        # If no Ollama and no API keys, show message
-        if not google_key and not has_custom_openai:
-            self.model_dropdown.clear()
-            self.model_dropdown.addItem(
-                "Please configure at least one model provider")
-            self.model_dropdown.setEnabled(False)
-            return
-
-        # Show loading state
+        # Show loading state immediately
         self.model_dropdown.clear()
         self.model_dropdown.addItem("Loading models...")
         self.model_dropdown.setEnabled(False)
         self.progress_bar.setRange(0, 0)  # Indeterminate progress
         self.progress_bar.show()
+        self.refresh_button.setEnabled(False)
+        self.refresh_button.setText("⌛")
 
         # Start worker thread
         self.fetch_worker = ModelFetchWorker(self.settings)
         self.fetch_worker.finished.connect(self._on_fetch_success)
         self.fetch_worker.error.connect(self._on_fetch_error)
+        self.fetch_worker.no_providers.connect(
+            self._on_no_providers)  # Connect new signal
         self.fetch_worker.start()
-
-        # Update UI to show fetching state
-        self.refresh_button.setEnabled(False)
-        self.refresh_button.setText("⌛")
 
     def _on_fetch_success(self, models):
         """Handle successful model fetch."""
-        self.available_models = models
+        self.available_models = models  # Store fetched models (excluding custom for now)
         self.model_dropdown.clear()
 
-        # Check for custom OpenAI models
+        # Add custom OpenAI models from settings AFTER fetching others
+        # This ensures they are always included if configured, regardless of worker fetch status
+        custom_models = []
         # First check the original custom_openai model
         custom_model_id = self.settings.get(
             'models', 'custom_openai', 'model_id')
@@ -303,7 +235,7 @@ class ModelsTab(QWidget):
                 'provider': 'custom_openai',
                 'name': f"Custom: {custom_model_id}"
             }
-            models.append(custom_model)
+            custom_models.append(custom_model)
 
         # Then check for additional custom OpenAI models
         index = 1
@@ -313,20 +245,33 @@ class ModelsTab(QWidget):
                 'models', settings_key, 'model_id')
             custom_base_url = self.settings.get(
                 'models', settings_key, 'base_url')
-
             if custom_model_id and custom_base_url:
                 custom_model = {
                     'id': custom_model_id,  # Store the exact model ID as provided
                     'provider': settings_key,
                     'name': f"Custom {index+1}: {custom_model_id}"
                 }
-                models.append(custom_model)
+                custom_models.append(custom_model)
                 index += 1
             else:
-                break
+                if index > 20:  # Safety break
+                    logging.warning(
+                        "Stopped checking for additional custom models after index 20.")
+                    break
+                break  # Exit loop if no more models are found
+
+        all_display_models = self.available_models + custom_models
+
+        # Sort all models (fetched + custom) alphabetically by name
+        all_display_models.sort(key=lambda x: x.get('name', '').lower())
+
+        if not all_display_models:
+            # Call the no_providers handler if list is empty after adding custom
+            self._on_no_providers()
+            return  # Stop processing here
 
         # Add models to dropdown with provider info
-        for model in models:
+        for model in all_display_models:
             display_text = f"{model['name']} ({model['provider']})"
             # Store the full model info in the item data
             self.model_dropdown.addItem(display_text, model)
@@ -335,18 +280,19 @@ class ModelsTab(QWidget):
             tooltip = create_model_tooltip(model)
             # Set tooltip for the item
             self.model_dropdown.setItemData(
-                self.model_dropdown.count()-1, tooltip, 3)  # 3 is ToolTipRole
+                self.model_dropdown.count()-1, tooltip, Qt.ItemDataRole.ToolTipRole)  # Use ToolTipRole
 
         self.model_dropdown.setEnabled(True)
         self.progress_bar.hide()
-        self.fetch_worker = None
+        # Ensure worker reference is cleared AFTER processing results
+        # self.fetch_worker = None # Let cleanup handle this
 
         # Reset refresh button
         self.refresh_button.setEnabled(True)
         self.refresh_button.setText("⟳")
 
-        # Update vision models dropdown
-        self.vision_models_component.populate_models(models)
+        # Update vision models dropdown with ALL models (fetched + custom)
+        self.vision_models_component.populate_models(all_display_models)
 
     def _on_fetch_error(self, error):
         """Handle model fetch error."""
@@ -354,13 +300,28 @@ class ModelsTab(QWidget):
         self.model_dropdown.addItem("Failed to fetch models")
         self.model_dropdown.setEnabled(False)
         self.progress_bar.hide()
-        self.fetch_worker = None
+        # Ensure worker reference is cleared
+        # self.fetch_worker = None # Let cleanup handle this
 
         # Reset refresh button
         self.refresh_button.setEnabled(True)
         self.refresh_button.setText("⟳")
 
         QMessageBox.warning(self, "Error", f"Failed to fetch models: {error}")
+
+    def _on_no_providers(self):
+        """Handle the case where no providers are configured or found."""
+        logging.info("No providers configured or found by the fetch worker.")
+        self.model_dropdown.clear()
+        self.model_dropdown.addItem(
+            "Please configure at least one model provider")
+        self.model_dropdown.setEnabled(False)
+        self.progress_bar.hide()
+        # self.fetch_worker = None # Let cleanup handle this
+        self.refresh_button.setEnabled(True)
+        self.refresh_button.setText("⟳")
+        # Clear vision models as well if none are available
+        self.vision_models_component.populate_models([])
 
     def add_model(self):
         """Add selected model to the list."""

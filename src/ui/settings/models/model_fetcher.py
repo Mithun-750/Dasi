@@ -7,6 +7,8 @@ class ModelFetchWorker(QThread):
     """Worker thread for fetching models from various providers."""
     finished = pyqtSignal(list)  # Emits list of model names
     error = pyqtSignal(str)      # Emits error message
+    # Signal to indicate that no providers are configured or available
+    no_providers = pyqtSignal()
 
     def __init__(self, settings):
         super().__init__()
@@ -356,32 +358,103 @@ class ModelFetchWorker(QThread):
             return []
 
     def run(self):
+        """Fetch models from all configured providers."""
+        all_models = []
+        providers_checked = False
+
+        # 1. Check for Ollama first (local and potentially faster)
+        ollama_available = False
         try:
-            # Fetch models from all providers
-            google_models = self.fetch_google_models()
-            openrouter_models = self.fetch_openrouter_models()
-            ollama_models = self.fetch_ollama_models()
-            groq_models = self.fetch_groq_models()
-            openai_models = self.fetch_openai_models()
-            anthropic_models = self.fetch_anthropic_models()
-            deepseek_models = self.fetch_deepseek_models()
-            together_models = self.fetch_together_models()
-            xai_models = self.fetch_xai_models()
+            # Quick check if Ollama is running
+            response = requests.get(
+                'http://localhost:11434/api/tags', timeout=0.5)
+            if response.status_code == 200:
+                ollama_available = True
+                ollama_models = self.fetch_ollama_models()
+                all_models.extend(ollama_models)
+                providers_checked = True  # Mark that we found at least one potential source
+        except requests.exceptions.RequestException:
+            logging.warning(
+                "Ollama server not running or not accessible during check.")
+        except Exception as e:
+            logging.error(f"Error checking/fetching Ollama: {str(e)}")
 
-            # Combine all models
-            all_models = (google_models + openrouter_models +
-                          ollama_models + groq_models + openai_models +
-                          anthropic_models + deepseek_models + together_models +
-                          xai_models)
+        # 2. Check API keys for other providers
+        has_other_providers = False
+        providers_to_check = ['google', 'openrouter', 'groq',
+                              'openai', 'anthropic', 'deepseek', 'together', 'xai']
+        for provider in providers_to_check:
+            if self.settings.get_api_key(provider):
+                has_other_providers = True
+                break
 
-            if not all_models:
-                self.error.emit(
-                    "No models found. Please check your API keys and model configurations.")
-                return
+        # 3. Check for custom OpenAI models (original and indexed)
+        has_custom_openai = False
+        # Check the original custom_openai model
+        custom_model_id = self.settings.get(
+            'models', 'custom_openai', 'model_id')
+        custom_base_url = self.settings.get(
+            'models', 'custom_openai', 'base_url')
+        custom_api_key = self.settings.get_api_key('custom_openai')
+        if custom_model_id and custom_base_url and custom_api_key:
+            has_custom_openai = True
 
+        # Check for additional custom OpenAI models if the first wasn't found
+        if not has_custom_openai:
+            index = 1
+            while True:
+                settings_key = f"custom_openai_{index}"
+                model_id = self.settings.get(
+                    'models', settings_key, 'model_id')
+                base_url = self.settings.get(
+                    'models', settings_key, 'base_url')
+                api_key = self.settings.get_api_key(settings_key)
+                if model_id and base_url and api_key:
+                    has_custom_openai = True
+                    break
+                if index > 10:  # Limit the search
+                    break
+                index += 1
+
+        # If no Ollama, no API keys, and no custom models, emit no_providers and exit
+        if not ollama_available and not has_other_providers and not has_custom_openai:
+            self.no_providers.emit()
+            self.finished.emit([])  # Emit empty list as well
+            return
+
+        # Mark that we need to check providers if keys or custom models exist
+        if has_other_providers or has_custom_openai:
+            providers_checked = True
+
+        # Fetch from providers with API keys if needed
+        if has_other_providers:
+            all_models.extend(self.fetch_google_models())
+            all_models.extend(self.fetch_openrouter_models())
+            all_models.extend(self.fetch_groq_models())
+            all_models.extend(self.fetch_openai_models())
+            all_models.extend(self.fetch_anthropic_models())
+            all_models.extend(self.fetch_deepseek_models())
+            all_models.extend(self.fetch_together_models())
+            all_models.extend(self.fetch_xai_models())
+
+        # Add custom OpenAI models (handled in _on_fetch_success in the main tab now)
+        # The main tab will check settings again to add custom ones after fetching
+
+        if not providers_checked:
+            # This case should ideally not be reached if the initial check logic is correct,
+            # but as a fallback, if somehow we get here without checking anything, emit no_providers.
+            logging.warning(
+                "ModelFetchWorker reached end without checking any providers.")
+            self.no_providers.emit()
+            self.finished.emit([])
+            return
+
+        try:
+            # Sort models alphabetically by name for consistent display
+            all_models.sort(key=lambda x: x.get('name', '').lower())
             self.finished.emit(all_models)
         except Exception as e:
-            self.error.emit(str(e))
+            self.error.emit(f"Error processing models: {str(e)}")
 
 
 def create_model_tooltip(model):
