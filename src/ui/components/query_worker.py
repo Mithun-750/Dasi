@@ -1,5 +1,6 @@
 from PyQt6.QtCore import QThread, QTimer
 from typing import Callable, Optional
+import logging
 
 
 class QueryWorker(QThread):
@@ -60,6 +61,5 @@ class QueryWorker(QThread):
             if not self.wait(self.termination_timeout):
                 # If still not terminated, log warning but don't force quit
                 # This avoids the SIGKILL that was happening before
-                import logging
                 logging.warning(
                     "Worker thread could not be terminated within timeout period.")

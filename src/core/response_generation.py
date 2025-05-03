@@ -412,30 +412,29 @@ class ResponseGenerator:
                         final_response_content += "\n\n[Error: Invalid tool call detected.]"
                         break  # Exit loop
                 else:
-                    # No tool call detected in the final message of this turn, this is the end
+                    # If no tool calls detected, the conversation turn is over.
                     logging.info(
                         "No tool call detected in the final response chunk. Exiting loop.")
-                    # Add the final AI message (without tool call) to history
+                    # Add the final AI message (without tool call request) to history
                     if last_ai_message:
                         message_history.add_message(last_ai_message)
-                    break  # Exit the while loop
+                    break  # Exit the while True loop
 
-            # --- End of while loop ---
+            # --- End of while True loop ---
 
             logging.info(
                 f"LLM interaction loop finished. Final response length: {len(final_response_content)}")
 
-            # Handle post-processing for compose mode
-            if state['mode'] == 'compose':
-                processed_response, detected_language = self._extract_code_block(
-                    final_response_content)
-                self.detected_language = detected_language
-                return processed_response
-
-            # Ensure the final callback updates the UI completely
+            # Explicitly signal completion via callback *after* the loop finishes
             if callback:
-                callback(final_response_content)
+                logging.debug("Sending <COMPLETE> signal via callback.")
+                try:
+                    callback("<COMPLETE>")
+                except Exception as cb_err:
+                    logging.error(
+                        f"Error during <COMPLETE> callback: {cb_err}")
 
+            # Return the final assembled response
             return final_response_content
 
         except RuntimeError as e:

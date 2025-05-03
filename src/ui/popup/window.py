@@ -43,12 +43,16 @@ class DasiWindow(QWidget):
     """Main popup window for Dasi."""
 
     def __init__(self, process_query: Callable[[str], str], signals: UISignals):
-        # Initialize session ID
         self.session_id = str(uuid.uuid4())
 
         super().__init__()
         self.process_query = process_query
         self.signals = signals
+
+        # Connect signals to handlers
+        self.signals.process_response.connect(self._handle_response)
+        self.signals.process_error.connect(self._handle_error)
+
         self.old_pos = None
         self.worker = None
         self.last_response = None  # Store last response
@@ -56,6 +60,10 @@ class DasiWindow(QWidget):
         self.settings = Settings()  # Initialize settings
         self.chunks_dir = Path(self.settings.config_dir) / 'prompt_chunks'
         self.is_web_search = False  # Flag to track if current query is a web search
+
+        # History tracking
+        self.ai_history: List[str] = []
+        self.history_index: int = -1
 
         # Use shared tool call handler from instance manager
         self.tool_call_handler = DasiInstanceManager.get_tool_call_handler()
@@ -145,6 +153,30 @@ class DasiWindow(QWidget):
         self.reset_session_button.setText("↻")
         self.reset_session_button.hide()  # Hide by default
 
+        # Add navigation buttons (initially hidden/disabled)
+        self.prev_button = QPushButton("◀")
+        self.prev_button.setObjectName("prevButton")
+        self.prev_button.setProperty("class", "header-button nav-button")
+        self.prev_button.clicked.connect(self._show_previous_response)
+        self.prev_button.setFixedSize(24, 24)
+        self.prev_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.prev_button.setToolTip("Previous Response")
+
+        self.next_button = QPushButton("▶")
+        self.next_button.setObjectName("nextButton")
+        self.next_button.setProperty("class", "header-button nav-button")
+        self.next_button.clicked.connect(self._show_next_response)
+        self.next_button.setFixedSize(24, 24)
+        self.next_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.next_button.setToolTip("Next Response")
+
+        header_layout.addWidget(logo_label)
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+        header_layout.addWidget(self.reset_session_button)
+        header_layout.addWidget(self.prev_button)
+        header_layout.addWidget(self.next_button)
+
         # Add close button
         close_button = QPushButton("×")
         close_button.setObjectName("closeButton")
@@ -153,10 +185,6 @@ class DasiWindow(QWidget):
         close_button.setFixedSize(24, 24)
         close_button.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        header_layout.addWidget(logo_label)
-        header_layout.addWidget(title)
-        header_layout.addStretch()
-        header_layout.addWidget(self.reset_session_button)
         header_layout.addWidget(close_button)
         header.setLayout(header_layout)
 
@@ -357,7 +385,7 @@ class DasiWindow(QWidget):
             QPushButton.danger:hover, #stopButton:hover {
                 background-color: #b33e36;
             }
-            #resetSessionButton {
+            #resetSessionButton, .nav-button {
                 background-color: transparent;
                 color: #888888;
                 font-size: 14px;
@@ -372,10 +400,13 @@ class DasiWindow(QWidget):
                 max-width: 24px;
                 min-height: 24px;
             }
-            #resetSessionButton:hover {
+            #resetSessionButton:hover, .nav-button:hover {
                 background-color: transparent;
                 color: #ffffff;
                 border: none;
+            }
+            .nav-button:disabled {
+                color: #555555; /* Grey out disabled buttons */
             }
             QProgressBar {
                 border: none;
@@ -577,6 +608,35 @@ class DasiWindow(QWidget):
         # Stop web search panel if it's active
         self.web_search_panel.stop()
 
+        # Fetch AI history from LangGraphHandler
+        try:
+            dasi_instance = DasiInstanceManager.get_instance()
+            if dasi_instance and hasattr(dasi_instance, 'llm_handler'):
+                self.ai_history = dasi_instance.llm_handler.get_ai_session_messages(
+                    self.session_id)
+                # Log fetched data
+                logging.info(
+                    f"Fetched history: {len(self.ai_history)} items. Content sample: {self.ai_history[:2]}")
+                if self.ai_history:
+                    self.history_index = len(self.ai_history) - 1
+                else:
+                    self.history_index = -1
+            else:
+                logging.warning(
+                    "Could not get LangGraphHandler to fetch history on completion.")
+                self.ai_history = []
+                self.history_index = -1
+        except Exception as e:
+            logging.error(f"Error fetching session history: {str(e)}")
+            self.ai_history = []
+            self.history_index = -1
+
+        # Update history buttons state
+        self._update_history_buttons()
+
+        # Reset web search flag
+        self.is_web_search = False
+
         # Re-enable input field with existing content
         self.input_panel.enable_input(True)
 
@@ -586,15 +646,78 @@ class DasiWindow(QWidget):
         self.preview_panel.show_actions(True)
         self.right_panel.show()
 
+        # Clear and re-enable input field only on successful completion
+        self.input_panel.clear_input()
+        self.input_panel.enable_input(True)
+        self.input_panel.set_focus()
+
+        # Show reset session button since we now have history
+        self.reset_session_button.show()
+        # Also update history navigation buttons
+        self._update_history_buttons()
+
+        if self.input_panel.is_compose_mode():
+            # For compose mode, process the response to handle backticks but preserve language
+            self.preview_panel.process_final_response()
+
+            # Make response preview editable in compose mode
+            self.preview_panel.set_editable(True)
+            self.preview_panel.show_actions(True)
+        else:
+            # For chat mode, ensure we're using markdown renderer
+            self.preview_panel.set_chat_mode(True)
+
+        self.setFixedWidth(340)  # Input-only mode width
+        # Hide reset button since history is now cleared
+        self.reset_session_button.hide()
+        # Clear history list and reset index
+        self.ai_history = []
+        self.history_index = -1
+        # Update history buttons (they should become hidden/disabled)
+        self._update_history_buttons()
+
     def _handle_response(self, response: str):
         """Handle query response (runs in main thread)."""
+        # --- Start logging point ---
+        is_complete = response == "<COMPLETE>"
+        logging.debug(
+            f"_handle_response received: {'<COMPLETE>' if is_complete else f'chunk (length {len(response)})'}")
+        # --- End logging point ---
+
         # Check for completion signal
-        if response == "<COMPLETE>":
+        if is_complete:
+            # Hide loading state
             self.input_panel.show_progress(False)
             self.stop_button.hide()
 
-            # Stop web search panel if it's active
-            self.web_search_panel.stop()
+            # Fetch AI history from LangGraphHandler
+            try:
+                dasi_instance = DasiInstanceManager.get_instance()
+                if dasi_instance and hasattr(dasi_instance, 'llm_handler'):
+                    self.ai_history = dasi_instance.llm_handler.get_ai_session_messages(
+                        self.session_id)
+                    history_length = len(self.ai_history)
+                    logging.debug(f"Fetched history: {history_length} items.")
+
+                    if self.ai_history:
+                        self.history_index = len(self.ai_history) - 1
+                        logging.debug(
+                            f"Setting history index to {self.history_index}")
+                    else:
+                        self.history_index = -1
+                        logging.debug("No history found, setting index to -1")
+                else:
+                    logging.warning(
+                        "Could not get LangGraphHandler to fetch history on completion.")
+                    self.ai_history = []
+                    self.history_index = -1
+            except Exception as e:
+                logging.error(f"Error fetching session history: {str(e)}")
+                self.ai_history = []
+                self.history_index = -1
+
+            # Update history buttons state
+            self._update_history_buttons()
 
             # Reset web search flag
             self.is_web_search = False
@@ -754,17 +877,28 @@ class DasiWindow(QWidget):
         self.setFixedWidth(340)  # Input-only mode width
         # Hide reset button since history is now cleared
         self.reset_session_button.hide()
+        # Clear history list and reset index
+        self.ai_history = []
+        self.history_index = -1
+        # Update history buttons (they should become hidden/disabled)
+        self._update_history_buttons()
 
     def showEvent(self, event):
         """Called when the window becomes visible."""
         super().showEvent(event)
         # Update chunk titles when window is shown
         self.input_panel.update_chunk_titles()
+        # Update history buttons on show
+        self._update_history_buttons()
 
     def hideEvent(self, event):
         """Handle hide event to clean up resources."""
         # Make sure all animations are stopped
         self.web_search_panel.stop()
+
+        # Reset history index when hiding to ensure latest response is shown next time
+        if self.ai_history:
+            self.history_index = len(self.ai_history) - 1
 
         super().hideEvent(event)
 
@@ -876,3 +1010,82 @@ class DasiWindow(QWidget):
 
         # Adjust window width consistently with other tool operations
         self.setFixedWidth(680)
+
+    def _update_history_buttons(self):
+        """Update the enabled state of history navigation buttons."""
+        has_history = bool(self.ai_history)
+        can_go_back = has_history and self.history_index > 0
+        can_go_forward = has_history and self.history_index < len(
+            self.ai_history) - 1
+
+        self.prev_button.setEnabled(can_go_back)
+        self.next_button.setEnabled(can_go_forward)
+
+        # Update cursors based on enabled state
+        self.prev_button.setCursor(
+            Qt.CursorShape.PointingHandCursor if can_go_back else Qt.CursorShape.ArrowCursor)
+        self.next_button.setCursor(
+            Qt.CursorShape.PointingHandCursor if can_go_forward else Qt.CursorShape.ArrowCursor)
+
+        # Show buttons only if there is history
+        self.prev_button.setVisible(has_history)
+        self.next_button.setVisible(has_history)
+
+    def _show_previous_response(self):
+        """Display the previous AI response from history."""
+        if self.history_index > 0:
+            self.history_index -= 1
+            response = self.ai_history[self.history_index]
+            self.preview_panel.set_response(response)
+            # Viewing history should always be read-only and hide actions
+            self.preview_panel.set_editable(False, update_button=False)
+            self.preview_panel.show_actions(False)
+
+            # Ensure preview and right panel are visible even if they were hidden
+            if not self.right_panel.isVisible():
+                self.right_panel.show()
+                # Adjust window width for preview panel
+                # Consistent with other operations that show the panel
+                self.setFixedWidth(680)
+
+            self.preview_panel.show_preview(True)  # Ensure preview is visible
+            self._update_history_buttons()
+            # Ensure edit button is hidden when viewing history
+            self.preview_panel.edit_button.hide()
+
+    def _show_next_response(self):
+        """Display the next AI response from history."""
+        if self.history_index < len(self.ai_history) - 1:
+            self.history_index += 1
+            response = self.ai_history[self.history_index]
+            self.preview_panel.set_response(response)
+
+            is_latest = self.history_index == len(self.ai_history) - 1
+
+            # Ensure preview and right panel are visible even if they were hidden
+            if not self.right_panel.isVisible():
+                self.right_panel.show()
+                # Adjust window width for preview panel
+                # Consistent with other operations that show the panel
+                self.setFixedWidth(680)
+
+            if is_latest:
+                # If it's the latest response, restore state based on mode
+                if self.input_panel.is_compose_mode():
+                    self.preview_panel.set_editable(True, update_button=True)
+                    self.preview_panel.show_actions(True)
+                    # Explicitly show edit button if in compose mode and latest
+                    self.preview_panel.edit_button.show()
+                else:  # Chat mode
+                    self.preview_panel.set_editable(False, update_button=False)
+                    self.preview_panel.show_actions(False)
+                    # Ensure edit button is hidden in chat mode
+                    self.preview_panel.edit_button.hide()
+            else:
+                # Not the latest, keep read-only and hide actions/edit button
+                self.preview_panel.set_editable(False, update_button=False)
+                self.preview_panel.show_actions(False)
+                self.preview_panel.edit_button.hide()
+
+            self.preview_panel.show_preview(True)  # Ensure preview is visible
+            self._update_history_buttons()

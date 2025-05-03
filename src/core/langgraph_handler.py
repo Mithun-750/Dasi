@@ -370,6 +370,18 @@ class LangGraphHandler:
         if session_id in self.message_histories:
             del self.message_histories[session_id]
 
+    def get_ai_session_messages(self, session_id: str) -> List[str]:
+        """Retrieve only AI message content for a specific session."""
+        history = self._get_message_history(session_id)
+        ai_messages = [
+            message.content
+            for message in history.messages
+            if isinstance(message, AIMessage)
+        ]
+        logging.debug(
+            f"Retrieved {len(ai_messages)} AI messages for session {session_id}")
+        return ai_messages
+
     # Delegate to ResponseGenerator
     def get_response_async(self, query: str, callback: Optional[Callable[[str], None]] = None, model: Optional[str] = None,
                            session_id: str = "default", selected_text: str = None,
