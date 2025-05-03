@@ -229,10 +229,12 @@ class ToolCallHandler(QObject):
         else:
             logging.info(
                 f"User rejected tool call: {tool_name} (ID: {tool_id})")
+            # Emit rejection with more context for the LLM to handle appropriately
             self.tool_call_completed.emit({
                 "tool": tool_name,
                 "result": "rejected",
-                "id": tool_id  # Include ID in the rejection result
+                "id": tool_id,  # Include ID in the rejection result
+                "message": "The user chose not to allow this tool execution. Please acknowledge this and continue the conversation without using this tool."
             })
 
         self.awaiting_confirmation = False

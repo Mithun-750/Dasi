@@ -930,7 +930,7 @@ class DasiWindow(QWidget):
         self.confirmation_panel.accepted.connect(
             lambda: self.tool_call_handler.handle_user_response(True))
         self.confirmation_panel.rejected.connect(
-            lambda: self.tool_call_handler.handle_user_response(False))
+            self._handle_tool_call_rejection)
         self.right_layout.insertWidget(0, self.confirmation_panel)
         self.confirmation_panel.show()
         self.right_panel.show()
@@ -1089,3 +1089,39 @@ class DasiWindow(QWidget):
 
             self.preview_panel.show_preview(True)  # Ensure preview is visible
             self._update_history_buttons()
+
+    def _handle_tool_call_rejection(self):
+        """Handle UI changes when a tool call is rejected by the user."""
+        logging.info(
+            "Tool call rejected by user. Notifying backend and preparing UI for LLM response.")
+
+        # Notify the backend handler FIRST
+        self.tool_call_handler.handle_user_response(False)
+
+        # Remove the confirmation panel
+        if self.confirmation_panel:
+            self.right_layout.removeWidget(self.confirmation_panel)
+            self.confirmation_panel.deleteLater()
+            self.confirmation_panel = None
+
+        # --- Keep the right panel visible and the width wide ---
+        # No need to call self.right_panel.hide()
+        # No need to call self.setFixedWidth(340)
+
+        # --- Prepare for LLM response ---
+        # Show the preview panel so the LLM's response (acknowledging rejection) can be displayed
+        # Optionally add a brief placeholder message
+        # self.preview_panel.set_response("Okay, proceeding without the tool...")
+        self.preview_panel.show()
+        self.preview_panel.show_preview(True)
+        # Hide action buttons while waiting for LLM response
+        self.preview_panel.show_actions(False)
+
+        # Ensure the right panel is definitely shown (it should be, but good practice)
+        self.right_panel.show()
+
+        # Keep the width consistent with tool operations
+        self.setFixedWidth(680)
+
+        # DO NOT re-enable/focus input immediately.
+        # The regular _handle_response('<COMPLETE>') will handle enabling input later.

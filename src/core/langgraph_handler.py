@@ -27,10 +27,10 @@ from .vision_handler import VisionHandler
 from .llm_factory import create_llm_instance
 from .filename_suggester import FilenameSuggester
 from .prompts_hub import (
-    LANGGRAPH_BASE_SYSTEM_PROMPT,
     COMPOSE_MODE_INSTRUCTION,
     CHAT_MODE_INSTRUCTION,
-    TOOL_CALLING_INSTRUCTION
+    TOOL_CALLING_INSTRUCTION,
+    get_system_prompt
 )
 from core.tools.tool_call_handler import ToolCallHandler
 from core.instance_manager import DasiInstanceManager
@@ -50,6 +50,10 @@ class LangGraphHandler:
         self.current_provider = None
         self.llm = None
         self.detected_language = None
+
+        # Initialize compose mode status before system prompt initialization
+        self.is_compose_mode = False
+        self.compose_mode_instruction = COMPOSE_MODE_INSTRUCTION
 
         # Initialize database path for chat history
         self.db_path = str(Path(self.settings.config_dir) / 'chat_history.db')
@@ -107,27 +111,33 @@ class LangGraphHandler:
 
     def _initialize_system_prompt(self):
         """Initialize the system prompt with base and custom instructions."""
-        # Base system prompt from prompts hub
-        self.base_system_prompt = LANGGRAPH_BASE_SYSTEM_PROMPT
+        # Get custom instructions from settings
+        custom_instructions = self.settings.get("custom_instructions", "")
 
-        # Get custom instructions
-        custom_instructions = self.settings.get(
-            'general', 'custom_instructions', default="").strip()
+        # Ensure custom_instructions is a string, default to empty if None
+        if custom_instructions is None:
+            custom_instructions = ""
 
-        # Combine system prompt with custom instructions if they exist
-        self.system_prompt = self.base_system_prompt
-        if custom_instructions:
-            self.system_prompt = f"{self.base_system_prompt}\n\n=====CUSTOM_INSTRUCTIONS=====<user-defined instructions>\n{custom_instructions}\n======================="
+        # Get prompt chunks from settings
+        prompt_chunks = self.settings.get("prompt_chunks", {})
 
-        # Add tool calling instructions
-        self.system_prompt = f"{self.system_prompt}\n\n{TOOL_CALLING_INSTRUCTION}"
+        # Get the selected text placeholder value (default to "none")
+        selected_text = None
 
-        # Create base prompt template with memory
-        self.prompt = ChatPromptTemplate.from_messages([
+        # Use the new method to get the complete system prompt
+        self.system_prompt = self._get_system_prompt(
+            selected_text=selected_text,
+            prompt_chunks=prompt_chunks
+        )
+
+        # Add custom instructions if they exist (and are not just whitespace)
+        if custom_instructions.strip():
+            self.system_prompt = f"{self.system_prompt}\n\n=====CUSTOM_INSTRUCTIONS=====<user-defined instructions>\n{custom_instructions}\n======================="
+
+        # Reset the graph state with the new system prompt
+        self.graph_state = {"messages": [
             ("system", self.system_prompt),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("human", "{query}")
-        ])
+        ]}
 
     def on_models_changed(self):
         """Handle changes to the models list."""
@@ -422,3 +432,34 @@ class LangGraphHandler:
         """Handle the result of a tool call from the tool handler."""
         logging.info(f"Forwarding tool call result to graph nodes: {result}")
         self.graph_nodes._on_tool_call_completed(result)
+
+    def _get_system_prompt(self, selected_text=None, prompt_chunks=None):
+        """Get the system prompt for the current session."""
+        final_prompt = get_system_prompt()
+
+        # Append mode-specific instructions
+        if self.is_compose_mode:
+            final_prompt += self.compose_mode_instruction
+
+        # Replace the =====SELECTED_TEXT===== placeholder
+        if selected_text:
+            final_prompt = final_prompt.replace(
+                "=====SELECTED_TEXT=====", selected_text)
+        else:
+            final_prompt = final_prompt.replace(
+                "=====SELECTED_TEXT=====", "none")
+
+        # Append tool calling instructions and available tools
+        if prompt_chunks and "tools" in prompt_chunks:
+            final_prompt = final_prompt.replace(
+                "=====TOOL_CALLING_INSTRUCTIONS=====",
+                prompt_chunks["tools"]
+            )
+        else:
+            # Remove tool calling instructions placeholder
+            final_prompt = final_prompt.replace(
+                "=====TOOL_CALLING_INSTRUCTIONS=====\n",
+                ""
+            )
+
+        return final_prompt

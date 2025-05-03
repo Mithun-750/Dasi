@@ -287,7 +287,7 @@ class LangGraphNodes:
                 # For rejected tool calls, add a special ToolMessage indicating rejection
                 # This provides explicit feedback to the model about the rejection
                 messages.append(ToolMessage(
-                    content="The user rejected this tool call request. Please proceed without using this tool.",
+                    content="The user rejected this tool call request. Please proceed without using this tool and acknowledge the rejection in your response.",
                     tool_call_id=tool_call_id
                 ))
                 logging.info("Added tool rejection message")

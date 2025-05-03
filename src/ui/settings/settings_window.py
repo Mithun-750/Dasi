@@ -24,6 +24,7 @@ from .general_tab import GeneralTab
 from .prompt_chunks_tab import PromptChunksTab
 from .web_search_tab import WebSearchTab
 from .tools_tab import ToolsTab
+from .examples_tab import ExamplesTab
 from core.instance_manager import DasiInstanceManager
 from ui.assets import apply_theme
 
@@ -181,6 +182,10 @@ class SettingsWindow(QMainWindow):
             logging.info(
                 f"Running in development, using assets at: {ui_assets_dir}")
 
+        # Define icon paths for start/stop button
+        self.play_icon_path = os.path.join(ui_assets_dir, "icons", "play.png")
+        self.stop_icon_path = os.path.join(ui_assets_dir, "icons", "stop.png")
+
         # Set window icon for taskbar
         icon_path = os.path.join(root_assets_dir, "Dasi.ico")
         if os.path.exists(icon_path):
@@ -297,46 +302,43 @@ class SettingsWindow(QMainWindow):
         header_container.setContentsMargins(0, 0, 0, 25)
         sidebar_layout.addWidget(header_container)
 
-        # Create sidebar buttons with icons
-        # Note: You'll need to create or download these icons and place them in the assets directory
+        # Create sidebar buttons for each tab
+        self.general_button = SidebarButton(
+            "General", os.path.join(ui_assets_dir, "icons", "settings.svg"))
+        self.models_button = SidebarButton(
+            "Models", os.path.join(ui_assets_dir, "icons", "models.svg"))
+        self.api_keys_button = SidebarButton(
+            "API Keys", os.path.join(ui_assets_dir, "icons", "key.svg"))
+        self.system_prompts_button = SidebarButton(
+            "System Prompts", os.path.join(ui_assets_dir, "icons", "prompt.svg"))
+        self.web_search_button = SidebarButton(
+            "Web Search", os.path.join(ui_assets_dir, "icons", "search.svg"))
+        self.tools_button = SidebarButton(
+            "Tools", os.path.join(ui_assets_dir, "icons", "tools.svg"))
+        self.examples_button = SidebarButton(
+            "Examples", os.path.join(ui_assets_dir, "icons", "examples.svg"))
 
-        self.general_btn = SidebarButton(
-            "General", os.path.join(ui_assets_dir, "icons/settings.png"))
-        self.api_keys_btn = SidebarButton(
-            "API Keys", os.path.join(ui_assets_dir, "icons/key.png"))
-        self.models_btn = SidebarButton(
-            "Models", os.path.join(ui_assets_dir, "icons/model.png"))
-        self.prompt_chunks_btn = SidebarButton(
-            "Prompt Chunks", os.path.join(ui_assets_dir, "icons/prompt.png"))
-        self.web_search_btn = SidebarButton(
-            "Web Search", os.path.join(ui_assets_dir, "icons/search.png"))
-        self.tools_btn = SidebarButton(
-            "Tools", os.path.join(ui_assets_dir, "icons/tools.png"))
-
-        sidebar_layout.addWidget(self.general_btn)
-        sidebar_layout.addWidget(self.api_keys_btn)
-        sidebar_layout.addWidget(self.models_btn)
-        sidebar_layout.addWidget(self.prompt_chunks_btn)
-        sidebar_layout.addWidget(self.web_search_btn)
-        sidebar_layout.addWidget(self.tools_btn)
+        # Add buttons to sidebar
+        sidebar_layout.addWidget(self.general_button)
+        sidebar_layout.addWidget(self.models_button)
+        sidebar_layout.addWidget(self.api_keys_button)
+        sidebar_layout.addWidget(self.system_prompts_button)
+        sidebar_layout.addWidget(self.web_search_button)
+        sidebar_layout.addWidget(self.tools_button)
+        sidebar_layout.addWidget(self.examples_button)
         sidebar_layout.addStretch()
 
-        # Save icon paths for use in update_start_button method
-        self.play_icon_path = os.path.join(ui_assets_dir, "icons/play.png")
-        self.stop_icon_path = os.path.join(ui_assets_dir, "icons/stop.png")
+        # Add user tools section to sidebar
+        button_container = QHBoxLayout()
+        button_container.setContentsMargins(10, 10, 10, 20)
+        button_container.setSpacing(10)
 
-        # Add Start Dasi button at the bottom
+        # Create start/stop Dasi button with icon (using PNG path)
         self.start_dasi_btn = ActionButton("Start Dasi", self.play_icon_path)
         self.start_dasi_btn.clicked.connect(self.start_dasi)
 
-        # Create a container for button to allow centering
-        button_container = QHBoxLayout()
-        button_container.setContentsMargins(0, 5, 0, 5)
-        button_container.addStretch()
+        # Add to sidebar bottom
         button_container.addWidget(self.start_dasi_btn)
-        button_container.addStretch()
-
-        # Add the container to the sidebar layout
         sidebar_layout.addLayout(button_container)
 
         # Create content area with card-like appearance
@@ -370,35 +372,43 @@ class SettingsWindow(QMainWindow):
 
         # Create and add tabs
         self.general_tab = GeneralTab(self.settings)
-        self.api_keys_tab = APIKeysTab(self.settings)
         self.models_tab = ModelsTab(self.settings)
+        self.api_keys_tab = APIKeysTab(self.settings)
         self.prompt_chunks_tab = PromptChunksTab(self.settings)
         self.web_search_tab = WebSearchTab(self.settings)
         self.tools_tab = ToolsTab(self.settings)
+        self.examples_tab = ExamplesTab(self.settings)
 
+        # Connect examples_changed signal to refresh Dasi's prompts
+        self.examples_tab.examples_changed.connect(
+            self._handle_examples_changed)
+
+        # Add tabs to stacked widget
         self.content.addWidget(self.general_tab)
-        self.content.addWidget(self.api_keys_tab)
         self.content.addWidget(self.models_tab)
+        self.content.addWidget(self.api_keys_tab)
         self.content.addWidget(self.prompt_chunks_tab)
         self.content.addWidget(self.web_search_tab)
         self.content.addWidget(self.tools_tab)
-
-        # Connect button signals
-        self.general_btn.clicked.connect(lambda: self.switch_tab(0))
-        self.api_keys_btn.clicked.connect(lambda: self.switch_tab(1))
-        self.models_btn.clicked.connect(lambda: self.switch_tab(2))
-        self.prompt_chunks_btn.clicked.connect(lambda: self.switch_tab(3))
-        self.web_search_btn.clicked.connect(lambda: self.switch_tab(4))
-        self.tools_btn.clicked.connect(lambda: self.switch_tab(5))
-
-        # Connect API key cleared signal to remove models by provider
-        self.api_keys_tab.api_key_cleared.connect(
-            self.models_tab.remove_models_by_provider)
+        self.content.addWidget(self.examples_tab)
 
         # Add widgets to main layout
         main_layout.addWidget(sidebar)
         # Give content area more space
         main_layout.addWidget(content_container, 1)
+
+        # Connect button signals
+        self.general_button.clicked.connect(lambda: self.switch_tab(0))
+        self.models_button.clicked.connect(lambda: self.switch_tab(1))
+        self.api_keys_button.clicked.connect(lambda: self.switch_tab(2))
+        self.system_prompts_button.clicked.connect(lambda: self.switch_tab(3))
+        self.web_search_button.clicked.connect(lambda: self.switch_tab(4))
+        self.tools_button.clicked.connect(lambda: self.switch_tab(5))
+        self.examples_button.clicked.connect(lambda: self.switch_tab(6))
+
+        # Connect API key cleared signal to remove models by provider
+        self.api_keys_tab.api_key_cleared.connect(
+            self.models_tab.remove_models_by_provider)
 
         # Set initial tab
         self.switch_tab(0)
@@ -411,8 +421,8 @@ class SettingsWindow(QMainWindow):
         self.content.setCurrentIndex(index)
 
         # Update button states
-        buttons = [self.general_btn, self.api_keys_btn,
-                   self.models_btn, self.prompt_chunks_btn, self.web_search_btn, self.tools_btn]
+        buttons = [self.general_button, self.models_button,
+                   self.api_keys_button, self.system_prompts_button, self.web_search_button, self.tools_button, self.examples_button]
         for i, btn in enumerate(buttons):
             btn.setChecked(i == index)
 
@@ -496,6 +506,9 @@ class SettingsWindow(QMainWindow):
 
         # Get the current button text to check if we're showing "Stop Dasi" or "Start Dasi"
         current_button_text = self.start_dasi_btn.text()
+        # Remove leading space added by ActionButton setText override
+        if current_button_text.startswith(" "):
+            current_button_text = current_button_text[1:]
         already_showing_stop = current_button_text == "Stop Dasi"
 
         # Only perform the full state check if we're not already showing "Stop Dasi"
@@ -772,87 +785,59 @@ class SettingsWindow(QMainWindow):
         self.update()
 
     def handle_models_changed(self):
-        """Handle models changed signal while preserving the running state."""
-        logging.info("Received models_changed signal")
-
-        # Check if Dasi is running (for debugging)
-        has_instance = DasiInstanceManager.is_running()
-        has_listener = self.hotkey_listener is not None
-        is_running = has_listener and self.hotkey_listener.is_running()
-
-        # IMPORTANT: Check the actual running state rather than button text
-        # This solves the icon/text mismatch issue
-        if is_running:
-            logging.info("Dasi is running - preserving Stop Dasi button state")
-
-            # Ensure consistent button state for "Stop Dasi"
-            self.start_dasi_btn.setText("Stop Dasi")
-            if hasattr(self, 'stop_icon_path') and os.path.exists(self.stop_icon_path):
-                self.start_dasi_btn.setIcon(QIcon(self.stop_icon_path))
-            self.start_dasi_btn.setEnabled(True)
-            self.start_dasi_btn.setStyleSheet("""
-                QPushButton { 
-                    text-align: center;
-                    background-color: #d35400;
-                    color: white;
-                    font-weight: bold;
-                    border: none;
-                    border-radius: 4px;
-                    padding: 8px 16px;
-                }
-                QPushButton:hover {
-                    background-color: #e67e22;
-                }
-            """)
-
-            # Connect to stop_dasi
-            try:
-                self.start_dasi_btn.clicked.disconnect()
-            except:
-                pass
-            self.start_dasi_btn.clicked.connect(self.stop_dasi)
-            return
-
-        # Otherwise update for "Start Dasi" state
-        logging.info(
-            "Dasi is not running - updating button for Start Dasi state")
-
-        # Update based on whether we have models
-        has_models = bool(self.settings.get_selected_models())
-        self.start_dasi_btn.setText(
-            "Start Dasi" if has_models else "Select Models First")
-        self.start_dasi_btn.setEnabled(has_models)
-
-        # Set the play icon
-        if hasattr(self, 'play_icon_path') and os.path.exists(self.play_icon_path):
-            self.start_dasi_btn.setIcon(QIcon(self.play_icon_path))
-
-        # Update styling
-        self.start_dasi_btn.setStyleSheet("""
-            QPushButton { 
-                text-align: center;
-                background-color: #e67e22;
-                color: white;
-                font-weight: bold;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-            }
-            QPushButton:hover {
-                background-color: #f39c12;
-            }
-            QPushButton:disabled {
-                background-color: #555555;
-                color: #999999;
-            }
-        """)
-
-        # Connect to start_dasi
+        """Handler for the models_changed signal from the Settings class."""
         try:
-            self.start_dasi_btn.clicked.disconnect()
-        except:
-            pass
-        self.start_dasi_btn.clicked.connect(self.start_dasi)
+            logging.info("Models changed")
+
+            # Update UI elements based on the new model settings
+            self.update_start_button()
+
+            # If we have a Dasi instance...
+            if self.dasi_instance:
+                logging.info("Notifying Dasi instance of model changes")
+
+                # Notify all components that need to know about model changes
+                if hasattr(self.dasi_instance, 'langgraph_handler'):
+                    self.dasi_instance.langgraph_handler.on_models_changed()
+
+                if hasattr(self.dasi_instance, 'ai_manager'):
+                    self.dasi_instance.ai_manager.on_models_changed()
+
+                # Other handlers that may need to know about model changes
+                # These might not all exist, depending on configuration
+                handlers = [
+                    'vision_handler',
+                    'audio_handler',
+                    'web_search_handler',
+                ]
+
+                for handler_name in handlers:
+                    if hasattr(self.dasi_instance, handler_name):
+                        handler = getattr(self.dasi_instance, handler_name)
+                        if hasattr(handler, 'on_models_changed'):
+                            handler.on_models_changed()
+            else:
+                logging.info("No Dasi instance to notify about model changes")
+        except Exception as e:
+            logging.error(f"Error handling models changed: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
+
+    def _handle_examples_changed(self):
+        """Handle examples changed signal from examples tab."""
+        try:
+            if self.dasi_instance and hasattr(self.dasi_instance, "langgraph_handler"):
+                # Refresh the system prompt with the new examples
+                logging.info(
+                    "Examples changed, refreshing LangGraph system prompt")
+                self.dasi_instance.langgraph_handler._initialize_system_prompt()
+            else:
+                logging.info(
+                    "Examples changed, but no active Dasi instance to refresh")
+        except Exception as e:
+            logging.error(f"Error handling examples changed: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
 
 
 def main():

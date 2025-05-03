@@ -375,9 +375,9 @@ class ResponseGenerator:
                                         final_response_content + f"\n\n[Processed '{tool_name}' tool result. Asking AI to continue...]")
                                 await asyncio.sleep(0.1)  # Small delay
 
-                                # Reset for the next loop iteration
+                                # Reset for the next loop iteration - IMPORTANT: We continue the loop!
                                 nodes.tool_call_result = None
-                                continue  # Continue the while loop to call LLM again
+                                continue  # Continue the while loop to call LLM again with rejection context
 
                             else:
                                 # Tool rejected or failed execution matching ID
@@ -394,7 +394,22 @@ class ResponseGenerator:
                                 state['messages'].append(tool_message)
                                 message_history.add_message(tool_message)
 
-                                break  # Exit the while loop
+                                # Add system message to explicitly instruct the LLM to proceed without the tool
+                                system_instruction = SystemMessage(
+                                    content=f"The user has rejected the '{tool_name}' tool request. Please acknowledge this and continue the conversation without using this tool."
+                                )
+                                state['messages'].append(system_instruction)
+                                message_history.add_message(system_instruction)
+
+                                # Update UI (optional)
+                                if callback:
+                                    callback(
+                                        final_response_content + f"\n\n[The '{tool_name}' tool request was {rejection_reason}. Asking AI to continue...]")
+                                await asyncio.sleep(0.1)  # Small delay
+
+                                # Reset for the next loop iteration - IMPORTANT: We continue the loop!
+                                nodes.tool_call_result = None
+                                continue  # Continue the while loop to call LLM again with rejection context
 
                         except Exception as e:
                             logging.error(
