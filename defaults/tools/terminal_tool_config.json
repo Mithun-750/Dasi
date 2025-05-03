@@ -1,0 +1,35 @@
+{
+  "blocklist": {
+    "blocklist_enabled": true,
+    "patterns": [
+      {
+        "pattern": "^rm\\s+(-r|-R|-rf|-Rf|-rF|-RF)\\s+/$",
+        "description": "Block recursive removal of root directory",
+        "enabled": true
+      },
+      {
+        "pattern": "^sudo\\s+rm\\s+(-r|-R|-rf|-Rf|-rF|-RF)\\s+/$",
+        "description": "Block sudo recursive removal of root directory",
+        "enabled": true
+      },
+      {
+        "pattern": "^dd\\s+.*\\s+of=/dev/(sd[a-z]|hd[a-z]|nvme[0-9]n[0-9])\\s*$",
+        "description": "Block raw disk writes with dd to entire drives",
+        "enabled": true
+      },
+      {
+        "pattern": "^chmod\\s+-[R]\\s+777\\s+/$",
+        "description": "Block setting world-writable permissions on root directory",
+        "enabled": true
+      },
+      {
+        "pattern": "^:(){ :|:& };:",
+        "description": "Block fork bomb",
+        "enabled": true
+      }
+    ]
+  },
+  "execution": {
+    "default_timeout": 30
+  }
+}

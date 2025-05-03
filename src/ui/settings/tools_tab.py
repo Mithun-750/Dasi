@@ -1,6 +1,7 @@
 import logging
 import sys
 import os
+import json
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QCheckBox, QLabel, QHBoxLayout, QSpacerItem, QSizePolicy, QFrame,
     QPushButton, QMessageBox
@@ -9,6 +10,7 @@ from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 
 from .settings_manager import Settings
 from .general_tab import SectionFrame
+from .tools.tool_config_dialog import ToolConfigDialog
 
 
 class HorizontalLine(QFrame):
@@ -34,6 +36,16 @@ class ToolsTab(QWidget):
 
         # Store references to checkboxes
         self.checkboxes = {}
+
+        # Dictionary to track which tools have configuration options
+        self.configurable_tools = {
+            "terminal_command_enabled": {
+                "name": "Terminal Command Tool",
+                "schema_path": os.path.join(self._get_app_dir(), "core", "tools", "schema", "terminal_tool_schema.json"),
+                "config_path": os.path.join(os.path.expanduser("~"), ".config", "dasi", "config", "tools", "terminal_tool_config.json"),
+                "default_config_path": os.path.join(self._get_app_dir(), "..", "defaults", "tools", "terminal_tool_config.json"),
+            }
+        }
 
         # Get checkmark path for styling checkboxes
         if getattr(sys, 'frozen', False):
@@ -74,6 +86,15 @@ class ToolsTab(QWidget):
         except Exception as e:
             logging.error(f"Error getting current values: {e}", exc_info=True)
             return {}
+
+    def _get_app_dir(self):
+        """Get the application directory path."""
+        if getattr(sys, 'frozen', False):
+            # Running as bundled PyInstaller app
+            return os.path.dirname(sys.executable)
+        else:
+            # Running in development
+            return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     def _setup_ui(self):
         """Set up the UI layout and widgets."""
@@ -193,18 +214,36 @@ class ToolsTab(QWidget):
             """
             checkbox.setStyleSheet(checkbox_style)
 
-            desc_label = QLabel(description)
-            desc_label.setProperty("class", "secondary-text")
-            desc_label.setWordWrap(True)
-            desc_label.setStyleSheet(
-                "color: #aaaaaa; font-size: 12px; padding-left: 4px;")
-
             checkbox_layout = QHBoxLayout()
             checkbox_layout.setContentsMargins(0, 0, 0, 8)
             checkbox_layout.addWidget(checkbox)
-            checkbox_layout.addSpacerItem(QSpacerItem(
-                10, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum))
-            checkbox_layout.addWidget(desc_label, 1)
+            checkbox_layout.addStretch(1)
+
+            # Add a Settings button if this tool has configuration options
+            if setting_key in self.configurable_tools:
+                config_button = QPushButton("Settings")
+                config_button.setObjectName(f"{setting_key}_config")
+                config_button.setFixedWidth(80)
+                config_button.setCursor(Qt.CursorShape.PointingHandCursor)
+                config_button.setStyleSheet("""
+                    QPushButton {
+                        background-color: #3a3a3a;
+                        color: #e0e0e0;
+                        border: none;
+                        border-radius: 4px;
+                        padding: 4px 8px;
+                    }
+                    QPushButton:hover {
+                        background-color: #4a4a4a;
+                        color: #ffffff;
+                    }
+                    QPushButton:pressed {
+                        background-color: #2a2a2a;
+                    }
+                """)
+                config_button.clicked.connect(
+                    lambda: self._open_tool_config(setting_key))
+                checkbox_layout.addWidget(config_button)
 
             layout.addLayout(checkbox_layout)
             layout.addWidget(HorizontalLine())
@@ -214,6 +253,79 @@ class ToolsTab(QWidget):
             # No return needed as we store it directly
         except Exception as e:
             logging.error(f"Error creating tool checkbox: {e}", exc_info=True)
+
+    def _open_tool_config(self, setting_key):
+        """Open the configuration dialog for a specific tool."""
+        try:
+            if setting_key not in self.configurable_tools:
+                logging.error(f"Tool {setting_key} is not configurable.")
+                return
+
+            tool_config = self.configurable_tools[setting_key]
+
+            # Ensure the config directory exists
+            config_dir = os.path.dirname(tool_config["config_path"])
+            os.makedirs(config_dir, exist_ok=True)
+
+            # Copy default config if no config exists
+            if not os.path.exists(tool_config["config_path"]) and os.path.exists(tool_config["default_config_path"]):
+                try:
+                    with open(tool_config["default_config_path"], 'r') as default_file:
+                        default_config = json.load(default_file)
+
+                    with open(tool_config["config_path"], 'w') as config_file:
+                        json.dump(default_config, config_file, indent=2)
+
+                    logging.info(
+                        f"Created default config for {setting_key} at {tool_config['config_path']}")
+                except Exception as e:
+                    logging.error(f"Error creating default config: {e}")
+
+            # Get an apply_callback to reload the tool configuration if applicable
+            apply_callback = None
+
+            # Terminal tool configuration reload
+            if setting_key == "terminal_command_enabled":
+                # Get the main window
+                main_window = self.window()
+                if main_window and hasattr(main_window, 'llm_chat') and \
+                   hasattr(main_window.llm_chat, 'tool_call_handler') and \
+                   hasattr(main_window.llm_chat.tool_call_handler, 'tool_registry'):
+
+                    # Get the tool registry
+                    tool_registry = main_window.llm_chat.tool_call_handler.tool_registry
+
+                    # Get the terminal tool handler if it exists
+                    if hasattr(tool_registry, 'terminal_command_tool') and \
+                       tool_registry.terminal_command_tool is not None:
+
+                        # Create a callback to reload the terminal tool configuration
+                        terminal_tool = tool_registry.terminal_command_tool
+                        if hasattr(terminal_tool, 'reload_config'):
+                            apply_callback = terminal_tool.reload_config
+                            logging.info(
+                                "Found terminal tool reload_config callback")
+
+            # Create and show the config dialog
+            dialog = ToolConfigDialog(
+                tool_name=tool_config["name"],
+                schema_path=tool_config["schema_path"],
+                config_path=tool_config["config_path"],
+                apply_callback=apply_callback,
+                parent=self
+            )
+
+            dialog.exec()
+
+        except Exception as e:
+            logging.error(
+                f"Error opening tool configuration: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to open configuration: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
 
     def load_settings(self):
         """Load settings from the SettingsManager into checkboxes."""

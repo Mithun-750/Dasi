@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Terminal Tool Configuration",
+  "description": "Configuration settings for the Terminal Command Tool",
+  "type": "object",
+  "properties": {
+    "blocklist": {
+      "type": "object",
+      "properties": {
+        "patterns": {
+          "type": "array",
+          "description": "List of regular expression patterns for commands to block",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "description": "Regular expression pattern to match against commands"
+              },
+              "description": {
+                "type": "string",
+                "description": "Human-readable description of what this pattern blocks"
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Whether this pattern is enabled",
+                "default": true
+              }
+            },
+            "required": ["pattern", "description"]
+          }
+        },
+        "blocklist_enabled": {
+          "type": "boolean",
+          "description": "Master switch to enable/disable the entire blocklist feature",
+          "default": true
+        }
+      },
+      "required": ["patterns", "blocklist_enabled"]
+    },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "default_timeout": {
+          "type": "integer",
+          "description": "Default timeout in seconds for command execution",
+          "minimum": 1,
+          "maximum": 300,
+          "default": 30
+        }
+      }
+    }
+  },
+  "required": ["blocklist"]
+}

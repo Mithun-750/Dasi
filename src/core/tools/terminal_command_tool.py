@@ -4,6 +4,8 @@ import shlex
 import os
 import pwd
 import shutil
+import re
+import json
 from typing import Dict, Any, Optional, List
 import time
 import platform
@@ -14,22 +16,126 @@ class TerminalCommandTool:
 
     def __init__(self):
         """Initialize the terminal command tool."""
-        self.allowed_commands = self._get_allowed_commands()
+        self.blocked_patterns = []
         self.default_shell = self._detect_default_shell()
         self.user_home = os.path.expanduser("~")
+
+        # Load tool configuration from file
+        self.config = self._load_config()
+        self._setup_blocklist()
+
         logging.info(
             f"TerminalCommandTool initialized with default shell: {self.default_shell}")
+        if self.blocked_patterns:
+            logging.info(
+                f"Loaded {len(self.blocked_patterns)} blocked command patterns.")
+        else:
+            logging.info("No blocked command patterns loaded.")
 
-    def _get_allowed_commands(self) -> List[str]:
-        """Get list of allowed commands for security."""
-        # Safe commands that don't pose significant security risks
-        # This list can be expanded based on requirements
-        return [
-            "ls", "dir", "pwd", "echo", "cat", "head", "tail", "grep", "find",
-            "date", "whoami", "uptime", "df", "du", "free", "ps", "top",
-            "uname", "hostname", "ping", "ip", "ifconfig", "netstat", "curl", "wget",
-            "python", "pip", "pnpm", "npm", "node", "git", "fish", "bash", "sh", "zsh"
-        ]
+    def _load_config(self) -> Dict[str, Any]:
+        """Load tool configuration from file."""
+        config = {}
+
+        # User config path (following XDG guidelines)
+        user_config_dir = os.path.join(os.path.expanduser(
+            "~"), ".config", "dasi", "config", "tools")
+        config_path = os.path.join(
+            user_config_dir, "terminal_tool_config.json")
+
+        # Legacy config path (for backward compatibility)
+        legacy_config_path = os.path.join(os.path.expanduser(
+            "~"), ".dasi", "config", "tools", "terminal_tool_config.json")
+
+        # Application default config path
+        app_dir = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.dirname(__file__))))
+        app_config_path = os.path.join(
+            app_dir, "defaults", "tools", "terminal_tool_config.json")
+
+        try:
+            # Try user config first
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                    logging.info(
+                        f"Loaded terminal tool config from {config_path}")
+            # Then try legacy user config
+            elif os.path.exists(legacy_config_path):
+                with open(legacy_config_path, 'r') as f:
+                    config = json.load(f)
+                    logging.info(
+                        f"Loaded terminal tool config from legacy path {legacy_config_path}")
+                    # Consider migrating or notifying the user
+            # Fall back to application default
+            elif os.path.exists(app_config_path):
+                with open(app_config_path, 'r') as f:
+                    config = json.load(f)
+                    logging.info(
+                        f"Loaded default terminal tool config from {app_config_path}")
+            else:
+                logging.warning(
+                    "No terminal tool configuration found, using internal defaults.")
+        except Exception as e:
+            logging.error(f"Error loading terminal tool configuration: {e}")
+
+        return config
+
+    def _setup_blocklist(self):
+        """Set up blocklist patterns from configuration."""
+        self.blocked_patterns = []
+
+        if not self.config or 'blocklist' not in self.config:
+            # Legacy behavior - read from file
+            self._load_blocked_patterns_from_file()
+            return
+
+        blocklist_config = self.config.get('blocklist', {})
+
+        # Check if blocklist is enabled
+        if not blocklist_config.get('blocklist_enabled', True):
+            logging.info(
+                "Terminal command blocklist is disabled in configuration.")
+            return
+
+        # Process patterns from config
+        for pattern_config in blocklist_config.get('patterns', []):
+            if not pattern_config.get('enabled', True):
+                continue
+
+            pattern = pattern_config.get('pattern', '')
+            description = pattern_config.get('description', '')
+
+            if pattern:
+                try:
+                    self.blocked_patterns.append(re.compile(pattern))
+                    logging.debug(
+                        f"Added blocked pattern: '{pattern}' - {description}")
+                except re.error as e:
+                    logging.error(
+                        f"Invalid regex pattern in blocklist: '{pattern}'. Error: {e}")
+
+    def _load_blocked_patterns_from_file(self) -> None:
+        """Legacy method to load blocked command patterns from the text file."""
+        blocklist_file = os.path.join(
+            os.path.dirname(__file__), 'terminal_blocklist.txt')
+        if not os.path.exists(blocklist_file):
+            logging.warning(f"Blocklist file not found: {blocklist_file}")
+            return
+
+        try:
+            with open(blocklist_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    # Ignore empty lines and comments
+                    if line and not line.startswith('#'):
+                        try:
+                            self.blocked_patterns.append(re.compile(line))
+                        except re.error as e:
+                            logging.error(
+                                f"Invalid regex pattern in blocklist '{blocklist_file}': '{line}'. Error: {e}")
+        except Exception as e:
+            logging.error(
+                f"Error reading blocklist file '{blocklist_file}': {e}")
 
     def _detect_default_shell(self) -> str:
         """Detect the user's default shell."""
@@ -47,22 +153,7 @@ class TerminalCommandTool:
             # Fallback to system default
             return "/bin/sh" if platform.system() != "Windows" else "cmd.exe"
 
-    def _is_command_allowed(self, command: str) -> bool:
-        """Check if a command is allowed to run."""
-        cmd_parts = shlex.split(command)
-        if not cmd_parts:
-            return False
-
-        base_cmd = os.path.basename(cmd_parts[0])
-
-        # Check if command is in allowed list
-        for allowed_cmd in self.allowed_commands:
-            if base_cmd == allowed_cmd:
-                return True
-
-        return False
-
-    def run(self, command: str, working_dir: Optional[str] = None, timeout: int = 30,
+    def run(self, command: str, working_dir: Optional[str] = None, timeout: Optional[int] = None,
             shell_type: Optional[str] = None) -> Dict[str, Any]:
         """
         Execute a terminal command safely.
@@ -77,6 +168,11 @@ class TerminalCommandTool:
             Dictionary with status, stdout, stderr, and execution time
         """
         start_time = time.time()
+
+        # Use configured timeout if not specified
+        if timeout is None:
+            timeout = self.config.get(
+                'execution', {}).get('default_timeout', 30)
 
         # Determine the actual working directory
         if working_dir is None:
@@ -133,28 +229,28 @@ class TerminalCommandTool:
                 "data": "Error: Command must be a non-empty string"
             }
 
-        # Validate command
-        if not self._is_command_allowed(command):
-            cmd_parts = shlex.split(command)
-            base_cmd = os.path.basename(
-                cmd_parts[0]) if cmd_parts else "unknown"
-
-            return {
-                "status": "error",
-                "message": f"Command '{base_cmd}' is not allowed for security reasons",
-                "stdout": "",
-                "stderr": f"Security: Command '{base_cmd}' is not allowed",
-                "execution_time": 0,
-                "metadata": {
-                    "working_dir": actual_working_dir,
-                    "shell": actual_shell,
-                    "attempted_command": base_cmd
-                },
-                "data": f"Error: Command '{base_cmd}' is not allowed for security reasons"
-            }
-
         logging.info(
             f"Executing terminal command: {command} in directory: {actual_working_dir} with shell: {actual_shell}")
+
+        # Check against blocked patterns
+        for pattern in self.blocked_patterns:
+            if pattern.search(command):
+                logging.warning(
+                    f"Blocked execution of command matching pattern: {pattern.pattern}. Command: '{command}'")
+                return {
+                    "status": "error",
+                    "message": f"Command pattern is blocked for security reasons.",
+                    "stdout": "",
+                    "stderr": f"Security: Command pattern '{pattern.pattern}' is blocked.",
+                    "execution_time": 0,
+                    "metadata": {
+                        "working_dir": actual_working_dir,
+                        "shell": actual_shell,
+                        "attempted_command": command,
+                        "blocked_pattern": pattern.pattern
+                    },
+                    "data": f"Error: Command pattern '{pattern.pattern}' is blocked for security reasons."
+                }
 
         try:
             # Create environment with PATH to find commands
@@ -259,3 +355,14 @@ class TerminalCommandTool:
                 },
                 "data": f"Error: {str(e)}"
             }
+
+    def reload_config(self):
+        """Reload configuration from disk at runtime."""
+        logging.info("Reloading terminal command tool configuration")
+        old_pattern_count = len(self.blocked_patterns)
+        self.config = self._load_config()
+        self._setup_blocklist()
+        new_pattern_count = len(self.blocked_patterns)
+        logging.info(
+            f"Configuration reloaded: patterns changed from {old_pattern_count} to {new_pattern_count}")
+        return True
