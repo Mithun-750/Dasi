@@ -186,19 +186,22 @@ When using this information:
 ======================="""
 
 # LangGraphHandler filename suggestion prompt
-FILENAME_SUGGESTION_TEMPLATE = """Generate a concise, professional filename for this content. Follow these rules strictly:
-1. Use letters, numbers, and underscores only (no spaces)
-2. Maximum 30 characters (excluding file extension)
-3. Use PascalCase or snake_case for better readability
-4. Focus on the key topic/purpose
-5. No dates unless critically relevant
-6. Return ONLY the filename with {file_extension} extension, nothing else {extension_hint}
+FILENAME_SUGGESTION_TEMPLATE = """Generate a concise, professional filename for this content, including the most appropriate file extension. Follow these rules strictly:
+1. Use letters, numbers, and underscores only (no spaces) in the filename part.
+2. Maximum 30 characters for the filename part (excluding the extension).
+3. Use PascalCase or snake_case for better readability of the filename part.
+4. Focus on the key topic/purpose of the content.
+5. Determine the best file extension based on the content (e.g., .py for Python, .js for JavaScript, .md for Markdown/text). If a language hint is provided below, prioritize that.
+6. No dates unless critically relevant.
+7. Return ONLY the filename with its extension, nothing else.
 
-Examples of good filenames:
-- Api_Authentication{file_extension}
-- User_Workflow{file_extension}
-- Deployment_Strategy{file_extension}
-- System_Architecture{file_extension}
+Examples of good filenames with extensions:
+- Api_Authentication.py
+- User_Workflow.md
+- Deployment_Strategy.json
+- System_Architecture.yaml
+
+Detected Language Hint (if available): {detected_language}
 
 User Query:
 {recent_query}
