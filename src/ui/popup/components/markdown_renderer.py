@@ -376,7 +376,9 @@ class MarkdownRenderer(QWidget):
                     // Handle content updates
                     var updateContent = function(text) {
                         try {
-                            document.getElementById('markdown-content').innerHTML = marked.parse(text || '');
+                            // Preprocess text to ensure fences are on new lines
+                            const processedText = (text || '').replace(/([^\\n])(```)/g, '$1\\n$2');
+                            document.getElementById('markdown-content').innerHTML = marked.parse(processedText);
                         } catch (e) {
                             console.error('Error parsing markdown:', e);
                             document.getElementById('markdown-content').innerHTML = '<p style="color: #ff6b6b;">Error rendering markdown</p>';
