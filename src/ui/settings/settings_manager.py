@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from PyQt6.QtCore import QObject, pyqtSignal
+import keyring
+import keyring.errors
 
 
 class Settings(QObject):
@@ -18,6 +20,8 @@ class Settings(QObject):
     # Signal emitted when web search settings change
     web_search_changed = pyqtSignal()
     tools_settings_changed = pyqtSignal()  # New signal for tools
+
+    DASI_API_SERVICE_NAME = "dasi.api_keys"
 
     def __new__(cls):
         """Create a new instance or return the existing one (Singleton pattern)."""
@@ -187,12 +191,50 @@ class Settings(QObject):
         return success
 
     def get_api_key(self, provider: str) -> str:
-        """Get API key for a specific provider."""
-        return self.get('api_keys', provider, default='')
+        """Get API key for a specific provider, using keyring if available."""
+        # Try to get from keyring first
+        try:
+            key = keyring.get_password(self.DASI_API_SERVICE_NAME, provider)
+            if key is not None:
+                return key
+        except keyring.errors.KeyringError as e:
+            print(f"[Dasi] Keyring error: {e}. Falling back to settings.json.")
+
+        # Fallback: check settings.json (for migration)
+        key = self.get('api_keys', provider, default='')
+        if key:
+            # Try to migrate to keyring
+            try:
+                keyring.set_password(self.DASI_API_SERVICE_NAME, provider, key)
+                # Remove from settings.json after migration
+                self.set('api_keys', provider, '')
+                print(f"[Dasi] Migrated {provider} API key to system keyring.")
+            except keyring.errors.KeyringError as e:
+                print(
+                    f"[Dasi] Could not migrate {provider} API key to keyring: {e}")
+            return key
+        return ''
 
     def set_api_key(self, provider: str, key: str) -> bool:
-        """Set API key for a specific provider."""
-        success = self.set('api_keys', provider, key)
+        """Set API key for a specific provider, using keyring if available."""
+        try:
+            if key:
+                keyring.set_password(self.DASI_API_SERVICE_NAME, provider, key)
+                # Remove from settings.json if present
+                self.set('api_keys', provider, '')
+            else:
+                # Remove from keyring
+                try:
+                    keyring.delete_password(
+                        self.DASI_API_SERVICE_NAME, provider)
+                except keyring.errors.PasswordDeleteError:
+                    pass  # Already deleted or not present
+                self.set('api_keys', provider, '')
+            success = True
+        except keyring.errors.KeyringError as e:
+            print(f"[Dasi] Keyring error: {e}. Falling back to settings.json.")
+            # Fallback: store in settings.json
+            success = self.set('api_keys', provider, key)
 
         # Emit web_search_changed signal if this is a web search provider
         if success and provider in ['google_serper', 'brave_search', 'exa_search', 'tavily_search']:
