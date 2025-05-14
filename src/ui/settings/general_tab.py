@@ -30,6 +30,7 @@ import os
 from PyQt6.QtWidgets import QApplication
 import logging
 from PyQt6.QtCore import QDir
+import json
 
 
 # Custom style to draw a text arrow for combo boxes
