@@ -6,15 +6,16 @@ import base64
 from langchain_core.messages import HumanMessage, SystemMessage
 # Import necessary LangChain chat models that support vision
 # We need to anticipate which providers might be used as vision models
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
+# from langchain_google_genai import ChatGoogleGenerativeAI # No longer needed directly
+# from langchain_openai import ChatOpenAI # No longer needed directly
+# from langchain_anthropic import ChatAnthropic # No longer needed directly
 # If Ollama or Groq support vision and are configured, add imports here
 # from langchain_ollama import ChatOllama
 # from langchain_groq import ChatGroq
 
 from ui.settings import Settings
 from .prompts_hub import VISION_SYSTEM_PROMPT
+from .llm_factory import create_llm_instance  # Import the factory
 
 # Note: We're removing the VISION_USER_PROMPT import since we'll use the actual user query
 
@@ -40,7 +41,7 @@ class VisionHandler:
         logging.info("Refreshing vision model settings")
         # Clear current model to force reload on next use
         self.vision_llm = None
-        self._is_initialized = False
+        self._is_initialized = False  # Ensure re-initialization can occur
 
     def has_vision_model_configured(self) -> bool:
         """Check if a vision model is configured in settings."""
@@ -49,8 +50,12 @@ class VisionHandler:
 
     def _initialize_vision_llm(self) -> bool:
         """Initialize the specific vision LLM based on settings. Returns True on success."""
-        if self._is_initialized:  # Avoid re-initialization if already done
-            return self.vision_llm is not None
+        if self._is_initialized and self.vision_llm is not None:
+            return True
+
+        if self._is_initialized and self.vision_llm is None:
+            # Already tried and failed, no need to try again until settings change
+            return False
 
         self.vision_model_info = self.settings.get_vision_model_info()
         if not self.vision_model_info or not isinstance(self.vision_model_info, dict):
@@ -63,18 +68,6 @@ class VisionHandler:
         provider = self.vision_model_info.get('provider')
         model_id = self.vision_model_info.get('id')
 
-        # Determine API key source, handling custom providers
-        api_key_provider = provider
-        if provider and provider.startswith('custom_openai_'):
-            # For custom_openai_N, the key is stored under 'custom_openai_N'
-            api_key_provider = provider
-        elif provider == 'custom_openai':
-            # For the original custom_openai, key is stored under 'custom_openai'
-            api_key_provider = 'custom_openai'
-        # Add other potential provider key mappings if needed
-
-        api_key = self.settings.get_api_key(api_key_provider)
-
         if not provider or not model_id:
             logging.error(
                 f"VisionHandler: Vision model info is incomplete: {self.vision_model_info}")
@@ -82,77 +75,34 @@ class VisionHandler:
             self._is_initialized = True  # Mark as initialized (failed)
             return False
 
-        # Ollama might not need a key
-        if not api_key and provider not in ['ollama']:
-            logging.error(
-                f"VisionHandler: API key for vision provider '{api_key_provider}' not found.")
-            self.vision_llm = None
-            self._is_initialized = True
-            return False
-
         # Use a fixed, low temperature for descriptive task; reasonable max tokens
         temperature = 0.1
-        max_tokens = 1536  # Increased token limit for potentially very detailed descriptions
+        # max_tokens = 1536 # The factory will handle max_tokens for specific vision models if needed
 
         try:
             logging.info(
-                f"VisionHandler: Initializing vision LLM - Provider: {provider}, Model: {model_id}")
+                f"VisionHandler: Initializing vision LLM using factory - Provider: {provider}, Model: {model_id}")
 
-            if provider == 'google':
-                self.vision_llm = ChatGoogleGenerativeAI(
-                    model=model_id,
-                    google_api_key=api_key,
-                    temperature=temperature,
-                    max_output_tokens=max_tokens
-                )
-            elif provider == 'openai':
-                self.vision_llm = ChatOpenAI(
-                    model=model_id,
-                    openai_api_key=api_key,
-                    temperature=temperature,
-                    max_tokens=max_tokens
-                )
-            elif provider == 'anthropic':
-                self.vision_llm = ChatAnthropic(
-                    model=model_id,
-                    anthropic_api_key=api_key,
-                    temperature=temperature,
-                    max_tokens=max_tokens
-                )
-            elif provider.startswith('custom_openai'):
-                # Includes 'custom_openai' and 'custom_openai_N'
-                base_url = self.settings.get('models', provider, 'base_url')
-                if not base_url:
-                    logging.error(
-                        f"VisionHandler: Base URL for custom OpenAI provider '{provider}' not found.")
-                    self.vision_llm = None
-                    self._is_initialized = True
-                    return False
-                self.vision_llm = ChatOpenAI(
-                    model=model_id,
-                    openai_api_key=api_key,
-                    base_url=base_url.rstrip('/') + '/v1',
-                    temperature=temperature,
-                    max_tokens=max_tokens
-                )
-            # Add Ollama if needed and supported
-            # elif provider == 'ollama':
-            #     self.vision_llm = ChatOllama(
-            #         model=model_id,
-            #         temperature=temperature,
-            #         # Add other Ollama specific params if needed
-            #     )
+            self.vision_llm = create_llm_instance(
+                provider=provider,
+                model_id=model_id,
+                settings=self.settings,
+                temperature=temperature,
+                model_info=self.vision_model_info,
+                tools=None  # Vision models typically don't use tools for this task
+            )
+
+            if self.vision_llm:
+                logging.info(
+                    f"VisionHandler: Successfully initialized vision LLM: {model_id}")
+                self._is_initialized = True
+                return True
             else:
                 logging.error(
-                    f"VisionHandler: Vision provider '{provider}' is not supported for visual analysis.")
+                    f"VisionHandler: Failed to initialize vision LLM '{model_id}' using factory.")
                 self.vision_llm = None
-                self._is_initialized = True
+                self._is_initialized = True  # Mark as initialized (failed)
                 return False
-
-            logging.info(
-                f"VisionHandler: Successfully initialized vision LLM: {model_id}")
-            self._is_initialized = True
-            return True
 
         except Exception as e:
             logging.error(
@@ -190,15 +140,15 @@ class VisionHandler:
 
         # If vision model is None, try to initialize it
         if self.vision_llm is None:
-            self._initialize_vision_llm()
+            if not self._initialize_vision_llm():  # If initialization fails
+                logging.error(
+                    "Could not initialize vision model using factory")
+                return None
 
-        # If still None after initialization attempt, return error
+        # If still None after initialization attempt, return error (should be caught by above)
         if self.vision_llm is None:
-            logging.error("Could not initialize vision model")
-            return None
-
-        if not self.vision_llm:
-            logging.error("VisionHandler: Vision LLM is not available.")
+            logging.error(
+                "VisionHandler: Vision LLM is not available after factory attempt.")
             return None
 
         # Get system prompt from prompts_hub
