@@ -2,6 +2,8 @@ import logging
 from typing import Optional
 from langchain_core.messages import SystemMessage, HumanMessage
 from .prompts_hub import FILENAME_SUGGESTION_TEMPLATE
+from ui.settings import Settings
+from .llm_factory import create_llm_instance
 
 
 class FilenameSuggester:
@@ -11,12 +13,79 @@ class FilenameSuggester:
         """Initialize the FilenameSuggester.
 
         Args:
-            llm: The language model instance to use for suggestions
+            llm: The language model instance to use for suggestions (fallback)
             system_prompt: The system prompt to use for the LLM
         """
         self.llm = llm
         self.system_prompt = system_prompt
         self.detected_language = None
+        self.settings = Settings()
+
+        # Initialize dedicated filename suggester model as None
+        # This will be initialized on demand when needed
+        self.filename_llm = None
+        self.filename_model_info = None
+
+        # Connect to settings models_changed signal to reset the model when settings change
+        self.settings.models_changed.connect(self.reset_model)
+
+    def reset_model(self):
+        """Reset the filename model when settings change."""
+        self.filename_llm = None
+        self.filename_model_info = None
+
+    def _initialize_filename_llm(self):
+        """Initialize the dedicated filename suggester LLM if configured in settings.
+
+        Returns:
+            True if initialization successful and a model is available, False otherwise.
+        """
+        # Get the filename model info from settings
+        self.filename_model_info = self.settings.get_filename_model_info()
+
+        # If no model is configured, just use the default LLM
+        if not self.filename_model_info:
+            return False
+
+        try:
+            # Get provider and model_id from settings
+            provider = self.filename_model_info.get('provider')
+            model_id = self.filename_model_info.get('id')
+
+            if not provider or not model_id:
+                logging.warning("Incomplete filename model info in settings")
+                return False
+
+            # Use factory function to create LLM instance
+            # Pass low temperature for filename generation
+            temperature = 0.1
+            logging.info(
+                f"Creating filename suggester LLM using factory: {provider}/{model_id}")
+
+            self.filename_llm = create_llm_instance(
+                provider=provider,
+                model_id=model_id,
+                settings=self.settings,
+                temperature=temperature,
+                model_info=self.filename_model_info,
+                # Don't pass tools - not needed for filename generation
+                tools=None
+            )
+
+            if self.filename_llm:
+                logging.info(
+                    f"Successfully initialized filename model: {model_id}")
+                return True
+            else:
+                logging.warning(
+                    f"Failed to initialize filename model: {model_id}")
+                return False
+
+        except Exception as e:
+            logging.error(
+                f"Error initializing filename model: {str(e)}", exc_info=True)
+            self.filename_llm = None
+            return False
 
     def suggest_filename(self, content: str, recent_query: str = "") -> str:
         """Suggest a filename based on content and recent query, including extension.
@@ -29,6 +98,13 @@ class FilenameSuggester:
             A suggested filename with appropriate extension as determined by the LLM
         """
         try:
+            # Try to use dedicated filename model if configured
+            if not self.filename_llm:
+                self._initialize_filename_llm()
+
+            # Use the dedicated model if available, otherwise fall back to the provided LLM
+            llm_to_use = self.filename_llm if self.filename_llm else self.llm
+
             language_hint = self.detected_language if self.detected_language else "None"
 
             # Create the prompt for filename suggestion using the template
@@ -45,7 +121,7 @@ class FilenameSuggester:
             ]
 
             # Invoke the LLM directly
-            response = self.llm.invoke(messages)
+            response = llm_to_use.invoke(messages)
             suggested_filename = response.content.strip().strip('"').strip("'").strip()
 
             # Basic validation: check if there's likely an extension

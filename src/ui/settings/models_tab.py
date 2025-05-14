@@ -17,6 +17,7 @@ from .general_tab import SectionFrame
 from .models.ui_components import SearchableComboBox, RoundLabel, RoundButton
 from .models.selected_models import SelectedModelsComponent
 from .models.vision_models import VisionModelsComponent
+from .models.filename_models import FilenameModelsComponent
 from .models.model_fetcher import ModelFetchWorker, create_model_tooltip
 
 
@@ -159,6 +160,12 @@ class ModelsTab(QWidget):
             self.on_model_changed)
         content_layout.addWidget(self.vision_models_component)
 
+        # Filename Models Component
+        self.filename_models_component = FilenameModelsComponent(self.settings)
+        self.filename_models_component.filename_model_changed.connect(
+            self.on_model_changed)
+        content_layout.addWidget(self.filename_models_component)
+
         # Set scroll area widget
         scroll.setWidget(content)
         layout.addWidget(scroll)
@@ -294,6 +301,9 @@ class ModelsTab(QWidget):
         # Update vision models dropdown with ALL models (fetched + custom)
         self.vision_models_component.populate_models(all_display_models)
 
+        # Update filename models dropdown with ALL models (fetched + custom)
+        self.filename_models_component.populate_models(all_display_models)
+
     def _on_fetch_error(self, error):
         """Handle model fetch error."""
         self.model_dropdown.clear()
@@ -322,6 +332,8 @@ class ModelsTab(QWidget):
         self.refresh_button.setText("⟳")
         # Clear vision models as well if none are available
         self.vision_models_component.populate_models([])
+        # Clear filename models as well if none are available
+        self.filename_models_component.populate_models([])
 
     def add_model(self):
         """Add selected model to the list."""
@@ -343,6 +355,12 @@ class ModelsTab(QWidget):
         if vision_model_info and vision_model_info.get('provider') == provider:
             self.settings.set_vision_model_info(None)
             self.vision_models_component.update_vision_model_display()
+
+        # Filename model is handled separately
+        filename_model_info = self.settings.get_filename_model_info()
+        if filename_model_info and filename_model_info.get('provider') == provider:
+            self.settings.set_filename_model_info(None)
+            self.filename_models_component.update_filename_model_display()
 
         # Handle selected models
         self.selected_models_component.remove_models_by_provider(provider)

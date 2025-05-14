@@ -147,6 +147,10 @@ class LangGraphHandler:
         self._initialize_system_prompt()
         # Reinitialize LLM
         self.initialize_llm()
+        # Ensure the filename suggester resets its model
+        if hasattr(self, 'filename_suggester'):
+            self.filename_suggester.reset_model()
+            logging.info("Filename suggester model reset after models changed")
 
     def on_custom_instructions_changed(self):
         """Handle changes to custom instructions."""

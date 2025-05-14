@@ -72,7 +72,8 @@ class Settings(QObject):
                     'base_url': '',  # Base URL for custom OpenAI-compatible endpoint
                     'models': []  # List of available model names
                 },
-                'vision_model_info': None
+                'vision_model_info': None,
+                'filename_model_info': None
             },
             'general': {
                 'temperature': 0.7,  # Default temperature
@@ -297,6 +298,15 @@ class Settings(QObject):
         self.set('models', 'vision_model_info', model_info)
         self.models_changed.emit()
 
+    def get_filename_model_info(self) -> Optional[dict]:
+        """Get the full information dictionary for the configured filename suggester model."""
+        return self.get('models', 'filename_model_info', default=None)
+
+    def set_filename_model_info(self, model_info: Optional[dict]):
+        """Set the full information dictionary for the filename suggester model."""
+        self.set('models', 'filename_model_info', model_info)
+        self.models_changed.emit()
+
     def reset_defaults(self):
         """Reset all settings to their default values."""
         self.set('general', 'custom_instructions', '')
@@ -306,6 +316,7 @@ class Settings(QObject):
         self.set('tools', 'terminal_command_enabled', True)
         self.set('models', 'selected_models', [])
         self.set('models', 'vision_model_info', None)
+        self.set('models', 'filename_model_info', None)
         self.set('web_search', 'default_provider', 'google_serper')
         self.set('web_search', 'max_results', 5)
         self.set('web_search', 'scrape_content', True)
